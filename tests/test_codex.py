@@ -100,3 +100,66 @@ class CodexPlatformTest(TempHome):
         self.assertEqual(piece.origin, {"platform": "codex", "model": "gpt-6.1-sol"})
         m = ev.report()["models"][0]
         self.assertEqual((m["platform"], m["model"]), ("codex", "gpt-6.1-sol"))
+
+
+def rollout(cwd, turns):
+    """A Codex session file like the real ones: meta, then per turn a user message, task_started, turn_context,
+    tool calls, cumulative token counts and task_complete."""
+    lines = [{"timestamp": "2026-10-25T21:58:00.000Z", "type": "session_meta",
+              "payload": {"id": "sess-1", "cwd": cwd, "source": "exec"}}]
+    total = 0
+    for i, (prompt, secs, read) in enumerate(turns):
+        t0 = f"2026-10-25T22:0{i}:00.000Z"
+        t1 = f"2026-10-25T22:0{i}:{secs:02d}.000Z"
+        # As in Codex 0.164.0: the turn starts, then its context, then the user's request.
+        lines += [{"timestamp": t0, "type": "event_msg", "payload": {"type": "task_started", "turn_id": f"turn-{i}"}},
+                  {"timestamp": t0, "type": "turn_context", "payload": {"turn_id": f"turn-{i}", "model": "gpt-6.1-sol"}},
+                  {"timestamp": t0, "type": "response_item",
+                   "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": prompt}]}}]
+        if read:
+            lines.append({"timestamp": t0, "type": "response_item", "payload": {
+                "type": "custom_tool_call", "input": f"cat .agents/skills/athos-{read}/SKILL.md"}})
+        total += 1000
+        lines.append({"timestamp": t1, "type": "event_msg", "payload": {"type": "token_count", "info": {
+            "total_token_usage": {"input_tokens": total, "cached_input_tokens": 0, "output_tokens": 10,
+                                  "total_tokens": total + 10}}}})
+        lines.append({"timestamp": t1, "type": "event_msg",
+                      "payload": {"type": "task_complete", "turn_id": f"turn-{i}", "duration_ms": secs * 1000}})
+    return "\n".join(json.dumps(x) for x in lines) + "\n"
+
+
+class CodexImportTest(TempHome):
+    def write(self, cwd, turns):
+        d = Path(self.home) / "sessions" / "2026" / "10" / "25"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "rollout-2026-10-25T22-00-00-sess-1.jsonl").write_text(rollout(cwd, turns))
+        return Path(self.home) / "sessions"
+
+    def test_each_turn_becomes_a_codex_task_with_model_duration_tokens_and_pieces(self):
+        store.create("Cut a release", "release a new version", "x")
+        root = self.write("/work/greet", [("Release 0.3.0", 21, "cut-a-release"), ("now the docs", 9, None)])
+        out = codex.import_sessions(root)
+        self.assertEqual(out["imported"], 2)
+        ts = sorted(ev.tasks(), key=lambda t: t["started"])
+        self.assertEqual([(t["platform"], t["model"], t["duration_s"]) for t in ts],
+                         [("codex", "gpt-6.1-sol", 21.0), ("codex", "gpt-6.1-sol", 9.0)])
+        self.assertEqual(ts[0]["pieces"], ["cut-a-release"])
+        self.assertEqual(ts[1]["pieces"], [])
+        self.assertEqual(ts[0]["request"], "Release 0.3.0")
+        self.assertIsNotNone(ts[0]["tokens"])
+
+    def test_import_is_idempotent(self):
+        root = self.write("/work/greet", [("a", 5, None)])
+        codex.import_sessions(root)
+        self.assertEqual(codex.import_sessions(root)["imported"], 0)
+        self.assertEqual(len(ev.tasks()), 1)
+
+    def test_test_runs_in_temporary_folders_are_left_out_unless_asked(self):
+        root = self.write("/private/tmp/sandbox/greet", [("a", 5, None)])
+        self.assertEqual(codex.import_sessions(root)["imported"], 0)
+        self.assertEqual(codex.import_sessions(root, include_tmp=True)["imported"], 1)
+
+    def test_sessions_the_hooks_recorded_are_not_imported_twice(self):
+        ev.task_start({"session_id": "sess-1", "prompt": "a", "model": "gpt-6.1-sol"}, platform="codex")
+        root = self.write("/work/greet", [("a", 5, None)])
+        self.assertEqual(codex.import_sessions(root)["imported"], 0)

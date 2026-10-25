@@ -7,6 +7,7 @@
     athos export <dir>                 copy the whole store to a folder
     athos export --codex [dir]         write each piece as a Codex skill (default ~/.agents/skills)
     athos codex install|uninstall      add or remove Athos's hooks in Codex (~/.codex/hooks.json)
+    athos import codex [--include-tmp] record Codex's past tasks from its session files (report does it too)
     athos revert <id>                  put back a piece's previous version
     athos mark g|c|f [task]            your verdict on the last task: good, corrected or failed
     athos report [--json]              what each piece and each model brings to your work
@@ -192,7 +193,19 @@ def cmd_mark(args) -> int:
     return 0
 
 
+def cmd_import(args) -> int:
+    from athos.adapters import codex
+    out = codex.import_sessions(Path(args.sessions).expanduser() if args.sessions else None, args.include_tmp)
+    print(f"Codex: {out['imported']} task(s) imported from {out['files']} session file(s) ({out['skipped']} skipped)")
+    return 0
+
+
 def cmd_report(args) -> int:
+    from athos.adapters import codex
+    try:
+        codex.import_sessions()                       # Codex's tasks are always in the report, hooks or not
+    except Exception as e:  # noqa: BLE001
+        print(f"(Codex sessions not imported: {e})", file=sys.stderr)
     r = ev.report()
     print(json.dumps(r, indent=1, ensure_ascii=False) if args.json else ev.render(r))
     return 0
@@ -248,6 +261,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("result", help="g (good), c (corrected) or f (failed)")
     s.add_argument("task", nargs="?")
     s.set_defaults(fn=cmd_mark)
+    s = sub.add_parser("import")
+    s.add_argument("platform", choices=["codex"])
+    s.add_argument("--sessions", help="Codex sessions folder (default ~/.codex/sessions)")
+    s.add_argument("--include-tmp", action="store_true", help="also sessions run in temporary folders (tests)")
+    s.set_defaults(fn=cmd_import)
     s = sub.add_parser("report")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_report)
