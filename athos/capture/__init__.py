@@ -29,7 +29,7 @@ EOF"""
 def origin_for(session_id: str, transcript_path: str | None = None) -> dict:
     state = session.load(session_id)
     model = state.get("model") or session.model_from_transcript(transcript_path)
-    return {"platform": "claude-code", "model": model}
+    return {"platform": state.get("platform", "claude-code"), "model": model}
 
 
 def save_text(text: str, session_id: str = "default", cwd: str | None = None,
