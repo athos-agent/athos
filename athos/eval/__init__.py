@@ -108,7 +108,8 @@ def task_start(event: dict, platform: str = "claude-code") -> str:
     tid = uuid.uuid4().hex[:12]
     model = state.get("model") or session.model_from_transcript(event.get("transcript_path"))
     started = _iso(now())
-    state.update(task_id=tid, task_started=started, task_loaded=[], task_saved=[])
+    # Capture is per request: only the work done for this request can trigger the Stop hook's ask.
+    state.update(task_id=tid, task_started=started, task_loaded=[], task_saved=[], tools_since_capture=0)
     session.save(sid, state)
     append({"type": "task_start", "task_id": tid, "session_id": sid, "platform": platform, "model": model,
             "project": paths.project_of(event.get("cwd")), "at": started,

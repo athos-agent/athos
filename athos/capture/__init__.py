@@ -8,6 +8,7 @@ to save it with `athos save`. Nothing new leaves the machine.
 from __future__ import annotations
 
 import os
+import re
 
 from athos import eval as ev, paths, session, store
 
@@ -60,7 +61,18 @@ def save_text(text: str, session_id: str = "default", cwd: str | None = None,
     return piece, diff
 
 
+def _counts(event: dict) -> bool:
+    """Only the main conversation's own work counts: a subagent's tool calls (a background agent included) fire the
+    hook with the parent's session id, and Athos's own commands are not work to capture."""
+    if event.get("agent_id"):
+        return False
+    cmd = str((event.get("tool_input") or {}).get("command", ""))
+    return not re.search(r"(^|[\s/])athos(\s|$)", cmd)
+
+
 def count_tool(event: dict) -> None:
+    if not _counts(event):
+        return
     sid = event.get("session_id", "default")
     state = session.load(sid)
     state["tools_since_capture"] = state.get("tools_since_capture", 0) + 1
