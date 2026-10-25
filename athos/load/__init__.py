@@ -14,7 +14,8 @@ from athos import control, session, store
 INDEX_CAP = 4000
 INJECT_CAP = 8000
 TOP_K = 2
-MIN_SCORE = 2.0
+MIN_SCORE = 1.2
+STEM = 5               # words match on their first letters, so "release" finds "releasing" and "releases"
 
 STOP = set("""a an the and or but if then else for to of in on at by with from into over this that these those it its
 is are was were be been being do does did done have has had can could should would will shall may might must not no
@@ -26,7 +27,7 @@ sus mi mis tu tus al me te nos""".split())
 
 
 def tokens(text: str) -> list[str]:
-    return [w for w in re.findall(r"[a-záéíóúñü0-9_.-]{3,}", text.lower()) if w not in STOP]
+    return [w[:STEM] for w in re.findall(r"[a-záéíóúñü0-9_.-]{3,}", text.lower()) if w not in STOP]
 
 
 def enabled(cwd: str | None = None) -> list[store.Piece]:
@@ -92,16 +93,21 @@ def inject_text(pieces: list[store.Piece]) -> str:
     return "\n".join(parts)
 
 
+def mark_loaded(session_id: str, ids: list[str]) -> None:
+    """Record pieces as used in a session: by automatic injection, or when Claude reads one with `athos show`."""
+    if not ids:
+        return
+    state = session.load(session_id)
+    state["loaded"] = sorted(set(state.get("loaded", [])) | set(ids))
+    session.save(session_id, state)
+    for pid in ids:
+        store.touch(pid)
+
+
 def on_prompt(event: dict) -> str:
     """UserPromptSubmit: the pieces that match the request, recorded as loaded in this session."""
-    sid = event.get("session_id", "default")
     found = relevant(event.get("prompt", ""), enabled(event.get("cwd")))
-    if found:
-        state = session.load(sid)
-        state["loaded"] = sorted(set(state.get("loaded", [])) | {p.id for p in found})
-        session.save(sid, state)
-        for p in found:
-            store.touch(p.id)
+    mark_loaded(event.get("session_id", "default"), [p.id for p in found])
     return inject_text(found)
 
 

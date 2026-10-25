@@ -20,7 +20,8 @@ when: <the situation this applies to, specific enough to match a future request>
 id: <only to improve an existing piece: its id>
 note: <only when improving: what changed and why>
 ---
-<how it was solved: steps, criteria, commands, mistakes to avoid. No secrets, tokens or personal data.>
+<how it was solved: steps, criteria, commands, mistakes to avoid. Keep the user's exact conventions verbatim (names,
+message formats, paths, flags); never turn them into placeholders. No secrets, tokens or personal data.>
 EOF"""
 
 

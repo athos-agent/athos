@@ -24,7 +24,7 @@ class ControlTest(TempHome):
         control.set_selection("pieces", ["release-site"])
         self.assertEqual(self.ids(), ["release-site"])
         self.assertIn("Release site", load.on_prompt({"session_id": "s", "prompt": "release the site"}))
-        self.assertEqual(load.on_prompt({"session_id": "s", "prompt": "release athos"}), "")
+        self.assertNotIn("Release athos", load.on_prompt({"session_id": "s", "prompt": "release athos"}))
 
     def test_unknown_piece_is_refused(self):
         with self.assertRaises(ValueError):

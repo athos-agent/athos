@@ -43,3 +43,17 @@ class LoadTest(TempHome):
             store.create(f"Deploy service {i}", "deploy the service to production", "x" * 6000)
         found = load.relevant("deploy the service to production", store.all_pieces())
         self.assertEqual(len(found), 1)
+
+
+class LoadRegressionTest(TempHome):
+    def test_one_piece_matches_on_a_word_stem(self):
+        # The first real session: one piece, a request sharing only "release" with it, which was not injected.
+        store.create("Cut a versioned release of a small Python package", "asked to bump a version, update the "
+                     "changelog, commit and tag", "Change both version places.")
+        text = load.on_prompt({"session_id": "s1", "prompt": "Release 0.3.0 with a new option"})
+        self.assertIn("Change both version places.", text)
+
+    def test_mark_loaded_records_and_touches(self):
+        p = store.create("A", "aaa", "b")
+        load.mark_loaded("s1", [p.id])
+        self.assertEqual(session.load("s1")["loaded"], ["a"])

@@ -90,6 +90,9 @@ def cmd_show(args) -> int:
     if p is None:
         print(f"no piece {args.id}", file=sys.stderr)
         return 1
+    cur = _current_session(os.getcwd())
+    if cur.get("session_id"):
+        load.mark_loaded(cur["session_id"], [p.id])
     print(store.render(p), end="")
     return 0
 

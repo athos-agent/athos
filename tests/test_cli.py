@@ -51,3 +51,10 @@ class CliTest(TempHome):
         out = Path(self.home) / "exported"
         self.assertIn("exported 1", self.run_athos("export", str(out)).stdout)
         self.assertTrue((out / "a.md").is_file())
+
+    def test_show_inside_a_session_marks_the_piece_loaded(self):
+        self.run_athos("save", stdin="---\ntitle: A\nwhen: aaa bbb\n---\nbody")
+        self.hook("session-start", {"session_id": "s9", "cwd": self.home})
+        self.run_athos("show", "a")
+        from athos import session
+        self.assertEqual(session.load("s9")["loaded"], ["a"])
