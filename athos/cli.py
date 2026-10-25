@@ -8,6 +8,7 @@
     athos revert <id>                  put back a piece's previous version
     athos mark g|c|f [task]            your verdict on the last task: good, corrected or failed
     athos report [--json]              what each piece and each model brings to your work
+    athos status --json                what the terminal's status line and band show
     athos hook <event>                 used by the Claude Code plugin's hooks (reads the event JSON on stdin)
 """
 
@@ -164,6 +165,31 @@ def cmd_report(args) -> int:
     return 0
 
 
+def status() -> dict:
+    """For the plugin's status line and band: the store, this session's pieces and its last task."""
+    cur = _current_session(os.getcwd())
+    sid = cur.get("session_id")
+    state = session.load(sid) if sid else {}
+    tasks = ev.tasks()
+    last = next((t for t in reversed(tasks) if sid and t.get("task_id") == state.get("task_id")), None)
+    saved = last.get("saved", []) if last else []
+    improved = [pid for pid in saved if (store.get(pid) and store.get(pid).version > 1)]
+    return {"pieces": len(store.all_pieces()), "enabled": len(load.enabled(os.getcwd())),
+            "loading": control.describe(), "loaded": state.get("loaded", []),
+            "to_mark": sum(1 for t in tasks if t["result"] == "unevaluated"),
+            "last": {"task_id": last["task_id"], "result": last["result"], "pieces": last.get("pieces", []),
+                     "saved": [x for x in saved if x not in improved], "improved": improved} if last else None}
+
+
+def cmd_status(args) -> int:
+    s = status()
+    if args.json:
+        print(json.dumps(s, ensure_ascii=False))
+    else:
+        print(f"athos · {s['pieces']} piece(s) · {len(s['loaded'])} loaded here · {s['to_mark']} to mark")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="athos", description="Your AI know-how. Free to move, fast to run.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -188,6 +214,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("report")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_report)
+    s = sub.add_parser("status")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_status)
     s = sub.add_parser("hook")
     s.add_argument("event", choices=["session-start", "prompt", "tool", "stop"])
     s.set_defaults(fn=lambda a: hook(a.event))
