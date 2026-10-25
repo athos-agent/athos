@@ -137,3 +137,17 @@ class EvalTest(TempHome):
         text = ev.render(ev.report())
         self.assertIn("0 task(s)", text)
         self.assertIn("(none yet)", text)
+
+
+class MarkTargetTest(TempHome):
+    def test_mark_goes_to_the_latest_task_of_this_project(self):
+        # Found in the demo rehearsal: marking right after a Codex task marked the earlier Claude Code task.
+        t0 = ev.now()
+        with mock.patch.object(ev, "now", return_value=t0):
+            ev.task_start({"session_id": "claude", "prompt": "a", "cwd": "/nonexistent/greet-claude"})
+            ev.task_end({"session_id": "claude"})
+        later = ev.record_external("codex", "gpt", [], 30, None, project="greet-codex")   # later, in its own folder
+        # From the Codex folder: no Claude Code session there, the project names the Codex task.
+        self.assertEqual(ev.mark("g", session_id=None, project="greet-codex")[0], later)
+        # From the Claude Code folder, inside its session: that session's task.
+        self.assertNotEqual(ev.mark("g", session_id="claude", project="greet-claude")[0], later)
