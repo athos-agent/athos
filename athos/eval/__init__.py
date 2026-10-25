@@ -102,9 +102,19 @@ def tokens_between(transcript_path: str | None, start: str, end: str) -> dict | 
     return tot
 
 
+def _tokens(platform: str, transcript: str | None, start: str, end: str) -> dict | None:
+    if platform == "codex":
+        from athos.adapters import codex
+        return codex.tokens_between(transcript, start, end)
+    return tokens_between(transcript, start, end)
+
+
 def task_start(event: dict, platform: str = "claude-code") -> str:
     sid = event.get("session_id", "default")
     state = session.load(sid)
+    if isinstance(event.get("model"), str) and event["model"]:
+        state["model"] = event["model"]                          # Codex sends the model on every event
+    state["platform"] = platform
     tid = uuid.uuid4().hex[:12]
     model = state.get("model") or session.model_from_transcript(event.get("transcript_path"))
     started = _iso(now())
@@ -130,7 +140,8 @@ def task_end(event: dict) -> dict | None:
         session.save(sid, state)
     rec = {"type": "task_end", "task_id": tid, "session_id": sid, "at": _iso(ended),
            "duration_s": round((ended - started).total_seconds(), 1),
-           "tokens": tokens_between(event.get("transcript_path"), state.get("task_started", ""), _iso(ended)),
+           "tokens": _tokens(state.get("platform", "claude-code"), event.get("transcript_path"),
+                             state.get("task_started", ""), _iso(ended)),
            "model": state.get("model", "unknown"),
            "pieces": state.get("task_loaded", []), "saved": state.get("task_saved", [])}
     append(rec)

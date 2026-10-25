@@ -72,3 +72,13 @@ class CliTest(TempHome):
         self.run_athos("mark", "g")
         s = json.loads(self.run_athos("status", "--json").stdout)
         self.assertEqual((s["to_mark"], s["last"]["result"]), (0, "ok"))
+
+    def test_save_explains_a_read_only_store(self):
+        os.chmod(self.home, 0o500)
+        try:
+            r = self.run_athos("save", stdin="---\ntitle: A\nwhen: aaa\n---\nbody", cwd="/")
+        finally:
+            os.chmod(self.home, 0o700)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("writable_roots", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)

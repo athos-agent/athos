@@ -5,6 +5,8 @@
     athos save                         save a piece from stdin (creates it, or improves the one named by `id:`)
     athos load [all | project [name] | pieces <id>... | none]   what may load; no argument shows the current choice
     athos export <dir>                 copy the whole store to a folder
+    athos export --codex [dir]         write each piece as a Codex skill (default ~/.agents/skills)
+    athos codex install|uninstall      add or remove Athos's hooks in Codex (~/.codex/hooks.json)
     athos revert <id>                  put back a piece's previous version
     athos mark g|c|f [task]            your verdict on the last task: good, corrected or failed
     athos report [--json]              what each piece and each model brings to your work
@@ -52,17 +54,19 @@ def _current_session(cwd: str) -> dict:
 
 
 # ------------------------------------------------------------------------------------------------ hooks
-def hook(event_name: str) -> int:
+def hook(event_name: str, platform: str = "claude-code") -> int:
     """Never breaks the user's session: any error is reported on stderr and the hook exits 0."""
     try:
         event = json.loads(sys.stdin.read() or "{}")
         _remember_session(event)
+        if event.get("session_id"):
+            session.update(event["session_id"], platform=platform)
         if event_name == "session-start":
             text = load.on_session_start(event, _cmd())
             if text:
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}))
         elif event_name == "prompt":
-            ev.task_start(event)
+            ev.task_start(event, platform)
             text = load.on_prompt(event)
             if text:
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
@@ -111,6 +115,11 @@ def cmd_save(_args) -> int:
     except ValueError as e:
         print(f"not saved: {e}", file=sys.stderr)
         return 1
+    except PermissionError:
+        print(f"not saved: this session may not write to {paths.home()}. In Codex's workspace-write sandbox, allow it "
+              f"with `-c 'sandbox_workspace_write.writable_roots=[\"{paths.home()}\"]'` or the same key in "
+              "~/.codex/config.toml.", file=sys.stderr)
+        return 1
     if diff:
         print(f"improved {piece.id} → v{piece.version} ({piece.path})\n\n{diff}")
     else:
@@ -133,8 +142,32 @@ def cmd_load(args) -> int:
 
 
 def cmd_export(args) -> int:
+    if args.codex:
+        from athos.adapters import codex
+        dest = Path(args.dir).expanduser() if args.dir else codex.skills_dir()
+        n, removed = codex.export_skills(dest)
+        print(f"exported {n} piece(s) as Codex skills to {dest}" + (f" (removed {removed} stale)" if removed else ""))
+        return 0
+    if not args.dir:
+        print("name a folder to export to", file=sys.stderr)
+        return 1
     n = store.export(Path(args.dir).expanduser())
     print(f"exported {n} piece(s) to {Path(args.dir).expanduser()}")
+    return 0
+
+
+def cmd_codex(args) -> int:
+    from athos.adapters import codex
+    if args.action == "install":
+        f, backup = codex.install(Path(__file__).resolve().parents[1])
+        print(f"Athos hooks added to {f}" + (f" (previous file saved as {backup.name})" if backup else ""))
+        print("Codex asks you to trust new hooks once: run /hooks inside Codex and approve the Athos ones.")
+        print(f"So that Codex can save know-how from its workspace-write sandbox, add {paths.home()} to "
+              "`sandbox_workspace_write.writable_roots` in ~/.codex/config.toml:\n\n"
+              f"  [sandbox_workspace_write]\n  writable_roots = [\"{paths.home()}\"]")
+        return 0
+    removed = codex.uninstall()
+    print("Athos hooks removed from Codex" if removed else "no Codex hooks file")
     return 0
 
 
@@ -202,8 +235,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("what", nargs="*")
     s.set_defaults(fn=cmd_load)
     s = sub.add_parser("export")
-    s.add_argument("dir")
+    s.add_argument("dir", nargs="?")
+    s.add_argument("--codex", action="store_true", help="write each piece as a Codex skill (default ~/.agents/skills)")
     s.set_defaults(fn=cmd_export)
+    s = sub.add_parser("codex")
+    s.add_argument("action", choices=["install", "uninstall"])
+    s.set_defaults(fn=cmd_codex)
     s = sub.add_parser("revert")
     s.add_argument("id")
     s.set_defaults(fn=cmd_revert)
@@ -219,7 +256,8 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=cmd_status)
     s = sub.add_parser("hook")
     s.add_argument("event", choices=["session-start", "prompt", "tool", "stop"])
-    s.set_defaults(fn=lambda a: hook(a.event))
+    s.add_argument("--platform", default="claude-code")
+    s.set_defaults(fn=lambda a: hook(a.event, a.platform))
     args = ap.parse_args(argv)
     return args.fn(args)
 
