@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import re
 
-from athos import control, session, store
+from athos import control, eval as ev, session, store
 
 INDEX_CAP = 4000
 INJECT_CAP = 8000
@@ -100,6 +100,7 @@ def mark_loaded(session_id: str, ids: list[str]) -> None:
     state = session.load(session_id)
     state["loaded"] = sorted(set(state.get("loaded", [])) | set(ids))
     session.save(session_id, state)
+    ev.note_loaded(session_id, ids)
     for pid in ids:
         store.touch(pid)
 

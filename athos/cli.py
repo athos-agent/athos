@@ -6,6 +6,8 @@
     athos load [all | project [name] | pieces <id>... | none]   what may load; no argument shows the current choice
     athos export <dir>                 copy the whole store to a folder
     athos revert <id>                  put back a piece's previous version
+    athos mark g|c|f [task]            your verdict on the last task: good, corrected or failed
+    athos report [--json]              what each piece and each model brings to your work
     athos hook <event>                 used by the Claude Code plugin's hooks (reads the event JSON on stdin)
 """
 
@@ -19,7 +21,7 @@ import shlex
 import sys
 from pathlib import Path
 
-from athos import capture, control, load, paths, session, store
+from athos import capture, control, eval as ev, load, paths, session, store
 
 ME = Path(__file__).resolve().parents[1] / "bin" / "athos"
 
@@ -59,6 +61,7 @@ def hook(event_name: str) -> int:
             if text:
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}))
         elif event_name == "prompt":
+            ev.task_start(event)
             text = load.on_prompt(event)
             if text:
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
@@ -66,6 +69,7 @@ def hook(event_name: str) -> int:
         elif event_name == "tool":
             capture.count_tool(event)
         elif event_name == "stop":
+            ev.task_end(event)
             out = capture.stop_decision(event, _cmd())
             if out:
                 print(json.dumps(out))
@@ -143,6 +147,23 @@ def cmd_revert(args) -> int:
     return 0
 
 
+def cmd_mark(args) -> int:
+    cur = _current_session(os.getcwd())
+    try:
+        tid, res = ev.mark(args.result, args.task, cur.get("session_id"))
+    except (ValueError, LookupError) as e:
+        print(e, file=sys.stderr)
+        return 1
+    print(f"task {tid} marked {res}")
+    return 0
+
+
+def cmd_report(args) -> int:
+    r = ev.report()
+    print(json.dumps(r, indent=1, ensure_ascii=False) if args.json else ev.render(r))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="athos", description="Your AI know-how. Free to move, fast to run.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -160,6 +181,13 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("revert")
     s.add_argument("id")
     s.set_defaults(fn=cmd_revert)
+    s = sub.add_parser("mark")
+    s.add_argument("result", help="g (good), c (corrected) or f (failed)")
+    s.add_argument("task", nargs="?")
+    s.set_defaults(fn=cmd_mark)
+    s = sub.add_parser("report")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_report)
     s = sub.add_parser("hook")
     s.add_argument("event", choices=["session-start", "prompt", "tool", "stop"])
     s.set_defaults(fn=lambda a: hook(a.event))
