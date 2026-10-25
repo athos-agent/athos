@@ -149,12 +149,12 @@ def task_end(event: dict) -> dict | None:
 
 
 def record_external(platform: str, model: str, pieces: list[str], duration_s: float, tokens: dict | None,
-                    result: str | None = None, request: str = "") -> str:
+                    result: str | None = None, request: str = "", project: str | None = None) -> str:
     """One whole task run outside Claude Code (another platform, or a local model)."""
     tid = uuid.uuid4().hex[:12]
     t = _iso(now())
     append({"type": "task_start", "task_id": tid, "session_id": f"{platform}-{tid}", "platform": platform,
-            "model": model, "at": t, "request": request[:120]})
+            "model": model, "project": project, "at": t, "request": request[:120]})
     append({"type": "task_end", "task_id": tid, "at": t, "duration_s": round(duration_s, 1), "tokens": tokens,
             "model": model, "pieces": pieces, "saved": []})
     if result:
@@ -176,20 +176,23 @@ def note_saved(session_id: str, piece_id: str) -> None:
         session.save(session_id, state)
 
 
-def last_task_id(session_id: str | None = None) -> str | None:
-    if session_id:
-        tid = session.load(session_id).get("task_id")
-        if tid:
-            return tid
-    ends = [e for e in events() if e.get("type") == "task_end"]
-    return ends[-1]["task_id"] if ends else None
+def last_task_id(session_id: str | None = None, project: str | None = None) -> str | None:
+    """The task a one-key mark is about: the one that ended last among this session's task and the tasks of this
+    project (a Codex task run in the same folder after a Claude Code session is the one meant); else the last one."""
+    ts = tasks()
+    if not ts:
+        return None
+    own = session.load(session_id).get("task_id") if session_id else None
+    cands = [t for t in ts if t["task_id"] == own or (project and t.get("project") == project)]
+    return max(cands or ts, key=lambda t: t.get("ended") or "")["task_id"]
 
 
-def mark(result: str, task_id: str | None = None, session_id: str | None = None) -> tuple[str, str]:
+def mark(result: str, task_id: str | None = None, session_id: str | None = None,
+         project: str | None = None) -> tuple[str, str]:
     res = RESULTS.get(result.lower())
     if res is None:
         raise ValueError("result must be g (ok), c (corrected) or f (failed)")
-    tid = task_id or last_task_id(session_id)
+    tid = task_id or last_task_id(session_id, project)
     if not tid:
         raise LookupError("no task to mark yet")
     append({"type": "mark", "task_id": tid, "result": res, "at": _iso(now())})

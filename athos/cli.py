@@ -184,8 +184,14 @@ def cmd_revert(args) -> int:
 
 def cmd_mark(args) -> int:
     cur = _current_session(os.getcwd())
+    if not args.task:
+        from athos.adapters import codex
+        try:
+            codex.import_sessions()                    # a Codex task just finished here may be the one meant
+        except Exception:  # noqa: BLE001
+            pass
     try:
-        tid, res = ev.mark(args.result, args.task, cur.get("session_id"))
+        tid, res = ev.mark(args.result, args.task, cur.get("session_id"), paths.project_of(os.getcwd()))
     except (ValueError, LookupError) as e:
         print(e, file=sys.stderr)
         return 1
