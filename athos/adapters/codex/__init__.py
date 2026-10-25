@@ -194,3 +194,87 @@ def tokens_between(rollout: str | None, start: str, end: str) -> dict | None:
            "cache_write": d("cache_write_input_tokens")}
     out["total"] = d("total_tokens") or sum(out.values())
     return out
+
+
+# ------------------------------------------------------------------------------------------------ import
+SKILL_USE = __import__("re").compile(r"athos-([a-z0-9][a-z0-9-]*)/SKILL\.md")
+HOOK_USE = __import__("re").compile(r"\(`([a-z0-9][a-z0-9-]*)`, v\d+\)")
+TMP_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/")
+
+
+def sessions_dir() -> Path:
+    return codex_home() / "sessions"
+
+
+def _rollout_tasks(path: Path) -> list[dict]:
+    """The tasks of one Codex session: each turn from `task_started` to `task_complete`, with its model, request,
+    duration and the Athos pieces it read (as skills, or as injected by the hooks)."""
+    meta, model, tasks, cur, last_user = {}, "unknown", [], None, ""
+    try:
+        fh = _open_rollout(str(path))
+    except (OSError, ImportError):
+        return []
+    with fh:
+        for line in fh:
+            try:
+                o = json.loads(line)
+            except ValueError:
+                continue
+            p = o.get("payload") if isinstance(o.get("payload"), dict) else {}
+            kind = (o.get("type"), p.get("type"))
+            if kind[0] == "session_meta":
+                meta = p
+            elif kind[0] == "turn_context":
+                model = p.get("model") or model
+                if cur is not None:
+                    cur["model"] = model
+            elif kind == ("response_item", "message") and p.get("role") == "user":
+                text = " ".join(c.get("text", "") for c in p.get("content") or [] if isinstance(c, dict))
+                if cur is not None and not cur["request"]:
+                    cur["request"] = text                     # Codex writes the request inside its turn
+                else:
+                    last_user = text
+            elif kind == ("event_msg", "task_started"):
+                cur = {"turn_id": p.get("turn_id"), "started": o.get("timestamp"), "model": model,
+                       "request": last_user, "pieces": set()}
+            elif kind == ("event_msg", "task_complete") and cur is not None:
+                cur.update(ended=o.get("timestamp"), duration_s=round(int(p.get("duration_ms") or 0) / 1000, 1))
+                tasks.append(cur)
+                cur = None
+            if cur is not None and ("athos-" in line or "`, v" in line):
+                cur["pieces"] |= set(SKILL_USE.findall(line)) | set(HOOK_USE.findall(line))
+    for t in tasks:
+        t["session_id"], t["cwd"], t["path"] = meta.get("id", path.stem), meta.get("cwd", ""), str(path)
+    return tasks
+
+
+def import_sessions(root: Path | None = None, include_tmp: bool = False) -> dict:
+    """Record Codex's past tasks in the evaluation log as platform codex, from its own session files. Idempotent:
+    a turn is imported once, and sessions the hooks already recorded are skipped. Sessions run in temporary folders
+    (tests) are left out unless asked."""
+    from athos import eval as ev
+    root = root or sessions_dir()
+    known = {e.get("task_id") for e in ev.events()}
+    hooked = {e.get("session_id") for e in ev.events() if e.get("type") == "task_start" and e.get("platform") == "codex"
+              and not str(e.get("task_id", "")).startswith("cx-")}
+    pieces = {p.id for p in store.all_pieces()}
+    out = {"files": 0, "imported": 0, "skipped": 0}
+    files = sorted(set(root.glob("**/rollout-*.jsonl")) | set(root.glob("**/rollout-*.jsonl.zst"))) if root.is_dir() else []
+    for f in files:
+        out["files"] += 1
+        for t in _rollout_tasks(f):
+            tid = f"cx-{t['turn_id']}"
+            if tid in known or t["session_id"] in hooked or not t.get("ended") or \
+                    (not include_tmp and t["cwd"].startswith(TMP_PREFIXES)):
+                out["skipped"] += 1
+                continue
+            used = sorted(x for x in t["pieces"] if x in pieces)
+            ev.append({"type": "task_start", "task_id": tid, "session_id": t["session_id"], "platform": "codex",
+                       "model": t["model"], "project": Path(t["cwd"]).name if t["cwd"] else None, "at": t["started"],
+                       "request": t["request"][:120], "source": "codex-import"})
+            ev.append({"type": "task_end", "task_id": tid, "session_id": t["session_id"], "at": t["ended"],
+                       "duration_s": t["duration_s"], "tokens": tokens_between(t["path"], t["started"], t["ended"]),
+                       "model": t["model"], "pieces": used, "saved": []})
+            known.add(tid)
+            out["imported"] += 1
+    return out
