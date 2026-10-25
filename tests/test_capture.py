@@ -65,3 +65,26 @@ class CaptureTest(TempHome):
     def test_stop_suggests_improving_loaded_pieces(self):
         session.update("s1", loaded=["fix-flaky-test"], tools_since_capture=capture.THRESHOLD)
         self.assertIn("fix-flaky-test", capture.stop_decision({"session_id": "s1"})["reason"])
+
+
+class CounterTest(TempHome):
+    def test_subagent_tool_calls_do_not_count(self):
+        # Found live: a background research agent's tool calls kept asking for captures on turns with no work.
+        for _ in range(10):
+            capture.count_tool({"session_id": "s1", "agent_id": "a1", "tool_name": "WebFetch"})
+        self.assertIsNone(capture.stop_decision({"session_id": "s1"}))
+
+    def test_athos_own_commands_do_not_count(self):
+        for cmd in ("/x/bin/athos save <<'EOF'", "athos mark g", "python3 /p/bin/athos report"):
+            capture.count_tool({"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": cmd}})
+        self.assertEqual(session.load("s1").get("tools_since_capture", 0), 0)
+        capture.count_tool({"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": "git status"}})
+        self.assertEqual(session.load("s1")["tools_since_capture"], 1)
+
+    def test_a_new_request_starts_the_count_again(self):
+        from athos import eval as ev
+        for _ in range(capture.THRESHOLD - 1):
+            capture.count_tool({"session_id": "s1"})
+        ev.task_start({"session_id": "s1", "prompt": "next request"})
+        capture.count_tool({"session_id": "s1"})
+        self.assertIsNone(capture.stop_decision({"session_id": "s1"}))
