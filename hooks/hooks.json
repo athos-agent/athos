@@ -1,16 +1,47 @@
 {
+  "modules": [
+    "./ui.tsx"
+  ],
   "hooks": {
     "SessionStart": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/athos\" hook session-start"}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/athos\" hook session-start"
+          }
+        ]
+      }
     ],
     "UserPromptSubmit": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/athos\" hook prompt"}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/athos\" hook prompt"
+          }
+        ]
+      }
     ],
     "PostToolUse": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/athos\" hook tool"}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/athos\" hook tool"
+          }
+        ]
+      }
     ],
     "Stop": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/athos\" hook stop"}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/athos\" hook stop"
+          }
+        ]
+      }
     ]
   }
 }

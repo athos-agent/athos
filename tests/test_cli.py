@@ -58,3 +58,17 @@ class CliTest(TempHome):
         self.run_athos("show", "a")
         from athos import session
         self.assertEqual(session.load("s9")["loaded"], ["a"])
+
+    def test_status_for_the_terminal(self):
+        ev = {"session_id": "s5", "cwd": self.home}
+        self.hook("session-start", ev)
+        self.hook("prompt", {**ev, "prompt": "release a new version"})
+        self.run_athos("save", stdin="---\ntitle: Release\nwhen: release a new version\n---\nBump.")
+        self.hook("stop", ev)
+        s = json.loads(self.run_athos("status", "--json").stdout)
+        self.assertEqual((s["pieces"], s["to_mark"]), (1, 1))
+        self.assertEqual(s["last"]["saved"], ["release"])
+        self.assertEqual(s["last"]["result"], "unevaluated")
+        self.run_athos("mark", "g")
+        s = json.loads(self.run_athos("status", "--json").stdout)
+        self.assertEqual((s["to_mark"], s["last"]["result"]), (0, "ok"))
