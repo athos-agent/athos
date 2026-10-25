@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import os
 
-from athos import paths, session, store
+from athos import eval as ev, paths, session, store
 
-THRESHOLD = 5          # tool calls since the last capture before a Stop asks for one
+THRESHOLD = 3          # tool calls since the last capture before a Stop asks for one (a release took 3)
 
 FORMAT = """{cmd} save <<'EOF'
 ---
@@ -56,6 +56,7 @@ def save_text(text: str, session_id: str = "default", cwd: str | None = None,
     state["saved"] = sorted(set(state.get("saved", [])) | {piece.id})
     state["tools_since_capture"] = 0
     session.save(session_id, state)
+    ev.note_saved(session_id, piece.id)
     return piece, diff
 
 
