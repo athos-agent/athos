@@ -70,11 +70,16 @@ Read two lines aloud: the piece's uses and success, and the two models side by s
 
 ## 1:45–2:00 · Run it fast, locally
 
-Not built yet. Placeholder until `athos delegate` exists:
+Terminal 2, same folder. Undo Codex's release so the local model can do it again (the id is the one `athos list`
+showed). Have `ollama serve` running and the model already loaded (run any short prompt with it before the take):
 
 ```
-athos delegate <piece-id>
+git reset -q --hard HEAD~1 && git tag -d v0.3.0
+athos delegate <the release piece's id> "Release 0.3.0 with a new name_upper option for greet() that uppercases the name." --model gemma4:12b
 ```
+
+Approve each command as it is shown, then `athos report` again: a third line, `local / gemma4:12b`. Say: *"What I
+have mastered now runs on my machine."*
 
 Close on: *"Your AI know-how. Free to move, fast to run."*
 
@@ -84,6 +89,11 @@ Claude Code took 37 s including the capture, Codex 32 s, and the report is insta
 quarter of waiting inside a two-minute script, so paste the prompts rather than type them, and trim the waits in the
 edit. In the rehearsal, Codex's sandbox kept `.git` read-only and it printed the exact `release 0.3.0` commit and
 `greet 0.3.0` tag instead of running them. Interactively it asks to run them; approve.
+
+Delegation, rehearsed on 2026-10-26 on a 16 GB Mac: gemma4:12b did the release (both versions, option, test, commit and
+tag) in 93 s, but replaced the previous CHANGELOG entry instead of adding above it; a 4B model failed. Check
+`git show HEAD -- CHANGELOG.md` before the take, and cut the wait in the edit. With other heavy apps open it took 6
+minutes: close them.
 
 ## If a take goes wrong
 

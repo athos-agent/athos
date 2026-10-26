@@ -34,12 +34,25 @@ task taught. These are the commands you will reach for:
 /athos:codex         take your know-how to Codex
 ```
 
+When a piece has proven itself, hand the task to a small model on your own machine, through
+[Ollama](https://ollama.com):
+
+```
+athos delegate <piece> "<request>"           runs in the current folder; asks before every command and write
+athos delegate <piece> "<request>" --model qwen3.5:9b
+```
+
+The model follows the piece with four tools (run a command, read, edit and write a file), confined to the current
+folder. The task lands in `/athos:report` as `local / <model>`, beside Claude Code and Codex, and you mark it like any
+other. Nothing is delegated unless you run `athos delegate`. The default is `gemma4:12b`; in our tests a 4B model was
+not enough for a release task, and the 12B one did it in about a minute and a half but still needed a correction.
+`--yes` runs the model's commands without asking: use it only in a folder you can throw away.
+
 Your know-how lives in `~/.athos/know-how/`, one markdown file per piece. Choose what may load with
 `/athos:load all | project <name> | pieces <id>... | none`, and copy everything out with `/athos:export <folder>`.
 
 ## Roadmap
 
-- Delegate a task you have mastered to a small local model (`athos delegate`).
 - OpenCode.
 - A native Codex plugin.
 - **Athos Cloud**: sync between your devices, a visual map of your know-how, daily control over what is shared, and an

@@ -9,6 +9,7 @@
     athos codex install|uninstall      add or remove Athos's hooks in Codex (~/.codex/hooks.json)
     athos import codex [--include-tmp] record Codex's past tasks from its session files (report does it too)
     athos revert <id>                  put back a piece's previous version
+    athos delegate <id> "<request>"    run a task you have mastered on a small local model (Ollama), recorded as `local`
     athos mark g|c|f [task]            your verdict on the last task: good, corrected or failed
     athos report [--json]              what each piece and each model brings to your work
     athos status --json                what the terminal's status line and band show
@@ -182,6 +183,23 @@ def cmd_revert(args) -> int:
     return 0
 
 
+def cmd_delegate(args) -> int:
+    from athos import delegate
+    import urllib.error
+    try:
+        r = delegate.delegate(args.id, args.request, args.model, yes=args.yes, max_steps=args.max_steps)
+    except LookupError as e:
+        print(e, file=sys.stderr)
+        return 1
+    except urllib.error.URLError as e:
+        print(f"cannot reach Ollama at {delegate.host()} ({e.reason}). Start it (`ollama serve`) and pull the model "
+              f"(`ollama pull {args.model}`).", file=sys.stderr)
+        return 1
+    print(f"\n{r['summary'].strip()}\n\nlocal / {args.model}: {r['duration_s']} s, {r['steps']} step(s), "
+          f"{r['tokens']['total']:,} tokens · task {r['task_id']}. Mark it with `athos mark g|c|f`.")
+    return 0
+
+
 def cmd_mark(args) -> int:
     cur = _current_session(os.getcwd())
     if not args.task:
@@ -263,6 +281,13 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("revert")
     s.add_argument("id")
     s.set_defaults(fn=cmd_revert)
+    s = sub.add_parser("delegate")
+    s.add_argument("id", help="the piece of know-how the task follows")
+    s.add_argument("request")
+    s.add_argument("--model", default="gemma4:12b", help="an Ollama model (default gemma4:12b)")
+    s.add_argument("--yes", action="store_true", help="run the model's commands without asking for each")
+    s.add_argument("--max-steps", type=int, default=20)
+    s.set_defaults(fn=cmd_delegate)
     s = sub.add_parser("mark")
     s.add_argument("result", help="g (good), c (corrected) or f (failed)")
     s.add_argument("task", nargs="?")
