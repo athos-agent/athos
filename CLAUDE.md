@@ -18,3 +18,8 @@ Athos le muestra a cada usuario qué le aporta cada modelo en su propio trabajo.
 - El know-how se guarda en un formato legible por humanos (markdown con frontmatter). El usuario siempre puede leerlo, editarlo y exportarlo.
 - Ningún dato sale de la máquina del usuario sin una acción explícita suya.
 - Sin telemetría por ahora. Las métricas quedan en local.
+
+## Hackathon
+- Todo cambio entra por PR con la etiqueta `hackathon`; nada se commitea directo a main.
+- Cada PR agrega su línea en `HACKATHON.md`, en "During the hackathon".
+- Lo específico de Meta vive en `athos/adapters/meta/` y la evaluación contra modelos de Meta en `athos/eval/meta/`.
