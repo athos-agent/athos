@@ -2,6 +2,12 @@
 
 Your AI know-how. Free to move, fast to run.
 
+You teach AI agents how you do things every day: your steps, your conventions, the mistakes to avoid. Not only in code:
+coding agents now do everyday work in any domain, writing code, running tools or controlling devices along the way.
+That know-how stays locked in one agent and one chat. Athos keeps it as plain markdown on your machine, brings it to
+the next agent (Claude Code, Codex, Muse Code) so you never explain it twice, and shows what each agent and model does
+with it on your own tasks.
+
 ![Claude Code learns how a package is released; Codex does the next release in the same folder with no explanation. The bars show each agent's success and how much shorter the request was.](demo/athos-claude-to-codex.gif)
 
 *Claude Code learns once how this package is released. Codex then does the next release in the same folder with a
@@ -18,13 +24,28 @@ time (real run, 17 s, waits cut).*
 
 ## Install
 
-In Claude Code:
+In **Claude Code**, where Athos captures your know-how:
 
 ```
 /plugin install athos --marketplace athos-agent/athos
 ```
 
-Requires Python 3.11+. No other dependencies.
+In **Codex**:
+
+```
+codex plugin marketplace add athos-agent/athos
+codex plugin add athos@athos
+```
+
+From a **terminal**, for **Muse Code** or anywhere without Claude Code:
+
+```
+curl -fsSL https://raw.githubusercontent.com/athos-agent/athos/main/install.sh | sh
+athos export --muse          your pieces as skills Muse Code and Codex read
+```
+
+Requires Python 3.11+ (the installer picks the newest one you have). No other dependencies. Your know-how lives in
+`~/.athos/know-how`, the same for every agent.
 
 ## Use
 
