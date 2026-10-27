@@ -2,7 +2,11 @@
 
 Your AI know-how. Free to move, fast to run.
 
-<!-- Demo video or GIF goes here. -->
+![Claude Code learns how a package is released; Codex does the next release in the same folder with no explanation. The bars show each agent's success and how much shorter the request was.](demo/athos-claude-to-codex.gif)
+
+*Claude Code learns once how this package is released. Codex then does the next release in the same folder with a
+one-line request. Each bar: success over the tasks you marked, and how much shorter the request was than the first
+time (real run, 17 s, waits cut).*
 
 - **Captures and improves your know-how.** When a task in Claude Code teaches something reusable (your steps, your
   conventions, the mistakes to avoid), Athos saves it as a plain markdown file you can read and edit. Next time, only
