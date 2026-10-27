@@ -28,6 +28,7 @@ from what was built during the event.
 - Bars measure what the know-how spares you: success over marked tasks and how much shorter each request is than the first run's; tasks keep their full request length, and imported Codex tasks skip the context Codex injects (0.1.10)
 - Bars count a piece's uses only after the run that taught it, so an old session that names it is not a use (0.1.11)
 - Athos as a Codex plugin (`.codex-plugin/plugin.json`, marketplace in `.agents/plugins/marketplace.json`): `codex plugin marketplace add athos-agent/athos`; token counts read as 1.1M (0.1.9)
+- README demo GIF: Claude Code then Codex in the same folder, both `1/1 good · 82% shorter prompt` (`demo/athos-claude-to-codex.gif`)
 - One-folder demo: Claude Code and Codex release the same package in turn, measured against the run that taught the piece (`demo/setup.sh`, `demo/prep.sh`, `demo/SCRIPT_GREG.md`)
 
 ## Meta models used
