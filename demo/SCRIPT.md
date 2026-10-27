@@ -24,7 +24,7 @@ makes it mine."*
 Terminal 1:
 
 ```
-cd ~/athos-demo/greet-claude
+cd ~/athos-demo/greet
 claude
 ```
 
@@ -47,7 +47,7 @@ Press **Good** on the band (or `/athos:mark g`). Exit Claude Code.
 Terminal 2:
 
 ```
-cd ~/athos-demo/greet-codex
+cd ~/athos-demo/greet
 athos export --codex .agents/skills
 codex "Release 0.3.0 with a new name_upper option for greet() that uppercases the name."
 ```
