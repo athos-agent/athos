@@ -109,6 +109,13 @@ def _tokens(platform: str, transcript: str | None, start: str, end: str) -> dict
     return tokens_between(transcript, start, end)
 
 
+def request_fields(text: str) -> dict:
+    """The request as recorded: its first characters to recognise it, and its whole length, which the bars compare
+    with the first run's (what the know-how spares you from explaining)."""
+    text = (text or "").strip()
+    return {"request": text[:120], "request_chars": len(text)}
+
+
 def task_start(event: dict, platform: str = "claude-code") -> str:
     sid = event.get("session_id", "default")
     state = session.load(sid)
@@ -122,8 +129,7 @@ def task_start(event: dict, platform: str = "claude-code") -> str:
     state.update(task_id=tid, task_started=started, task_loaded=[], task_saved=[], tools_since_capture=0)
     session.save(sid, state)
     append({"type": "task_start", "task_id": tid, "session_id": sid, "platform": platform, "model": model,
-            "project": paths.project_of(event.get("cwd")), "at": started,
-            "request": (event.get("prompt") or "")[:120]})
+            "project": paths.project_of(event.get("cwd")), "at": started, **request_fields(event.get("prompt"))})
     return tid
 
 
@@ -154,7 +160,7 @@ def record_external(platform: str, model: str, pieces: list[str], duration_s: fl
     tid = uuid.uuid4().hex[:12]
     t = _iso(now())
     append({"type": "task_start", "task_id": tid, "session_id": f"{platform}-{tid}", "platform": platform,
-            "model": model, "project": project, "at": t, "request": request[:120]})
+            "model": model, "project": project, "at": t, **request_fields(request)})
     append({"type": "task_end", "task_id": tid, "at": t, "duration_s": round(duration_s, 1), "tokens": tokens,
             "model": model, "pieces": pieces, "saved": []})
     if result:
@@ -210,7 +216,8 @@ def tasks() -> list[dict]:
         t = by.setdefault(tid, {"task_id": tid, "result": "unevaluated", "pieces": [], "saved": []})
         if e["type"] == "task_start":
             t.update(started=e.get("at"), platform=e.get("platform", "unknown"), model=e.get("model", "unknown"),
-                     project=e.get("project"), request=e.get("request", ""))
+                     project=e.get("project"), request=e.get("request", ""),
+                     request_chars=e.get("request_chars"))
         elif e["type"] == "task_end":
             # Time and tokens stop at the first end: later ends of the same task are the capture Athos asked for,
             # which must not inflate a baseline. Pieces loaded and saved accumulate over all ends.
@@ -294,8 +301,9 @@ OPTIONAL_AGENTS = {"muse-code"}                       # shown only once it has u
 
 def bars(project: str | None = None) -> dict | None:
     """How each agent applies, in this project, the piece of know-how this project used last: one row per agent with
-    its uses here, its success rate over the tasks you marked, its mean tokens per task and the tokens it saves against
-    the first run, the one that taught the piece. None until a task here has used or saved a piece."""
+    its uses here, its success rate over the tasks you marked, and how much shorter its requests are than the first
+    run's, the one that taught the piece: what the know-how spares you from explaining. None until a task here has
+    used or saved a piece."""
     ts = tasks()
     here = [t for t in ts if project is None or t.get("project") == project]
     last = next((t for t in reversed(here) if t["pieces"] or t["saved"]), None)
@@ -303,7 +311,7 @@ def bars(project: str | None = None) -> dict | None:
         return None
     pid = (last["pieces"] or last["saved"])[0]
     base = next((t for t in ts if pid in t["saved"] and pid not in t["pieces"]), None)
-    base_tok = _tok(base) if base else None
+    base_chars = base.get("request_chars") if base else None
     piece = store.get(pid)
     rows = []
     for platform, label in AGENTS:
@@ -311,12 +319,13 @@ def bars(project: str | None = None) -> dict | None:
         if platform in OPTIONAL_AGENTS and not uses:
             continue
         rate, n_ev = _rate(uses)
-        mean_tok = _mean([_tok(t) for t in uses])
+        mean_chars = _mean([t.get("request_chars") for t in uses])
         rows.append({"platform": platform, "label": label, "uses": len(uses), "evaluated": n_ev,
                      "ok": sum(1 for t in uses if t["result"] == "ok"), "success_rate": rate,
-                     "mean_tokens": mean_tok,
-                     "tokens_saved": (base_tok - mean_tok) / base_tok if base_tok and mean_tok is not None else None})
-    return {"piece": pid, "title": piece.title if piece else pid, "baseline_tokens": base_tok, "agents": rows}
+                     "mean_request_chars": mean_chars,
+                     "prompt_saved": (base_chars - mean_chars) / base_chars
+                     if base_chars and mean_chars is not None else None})
+    return {"piece": pid, "title": piece.title if piece else pid, "baseline_request_chars": base_chars, "agents": rows}
 
 
 def _k(n: float) -> str:
@@ -330,11 +339,9 @@ def bar_line(row: dict, width: int = 20) -> tuple[str, str]:
     if not row["uses"]:
         return bar, "not used yet"
     words = [f"{row['ok']}/{row['evaluated']} good" if row["evaluated"] else "not marked yet"]
-    if row["mean_tokens"] is not None:
-        words.append(f"{_k(row['mean_tokens'])} tokens")
-    if row["tokens_saved"] is not None:
-        words.append(f"{row['tokens_saved'] * 100:.0f}% fewer tokens" if row["tokens_saved"] >= 0
-                     else f"{-row['tokens_saved'] * 100:.0f}% more tokens")
+    if row["prompt_saved"] is not None:
+        words.append(f"{row['prompt_saved'] * 100:.0f}% shorter prompt" if row["prompt_saved"] >= 0
+                     else f"{-row['prompt_saved'] * 100:.0f}% longer prompt")
     return bar, " · ".join(words)
 
 def _pct(x):
