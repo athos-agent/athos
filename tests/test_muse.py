@@ -36,7 +36,7 @@ class MuseTest(TempHome):
         self.root = muse.sessions_dir()
         self.ws = "/Users/someone/work/greet"                   # a real-looking folder: temporary ones are skipped
 
-    def session(self, sid="s1", model="muse-spark-1.3", workspace=None):
+    def session(self, sid="s1", model="muse-spark-1.3", workspace=None, ended=True):
         ws = workspace or self.ws
         return write_session(self.root, sid, ws, [
             {"recorded_at": T0, "payload": {"record": {"workspace_root": ws}}},
@@ -49,8 +49,7 @@ class MuseTest(TempHome):
             {"recorded_at": T0 + 4_000_000, "payload": {"event": {"record": usage("u2", 500, 20, who="subagent")}}},
             {"recorded_at": T0 + 5_000_000, "payload": {"chunk":
                 '<read-skill-result name="athos-' + self.piece.id + '" status="ok">'}},
-            {"recorded_at": T0 + 9_500_000, "payload": {"kind": "session_end"}},
-        ])
+        ] + ([{"recorded_at": T0 + 9_500_000, "payload": {"kind": "session_end"}}] if ended else []))
 
     def test_a_session_becomes_one_task_per_request(self):
         s = muse.read_session(self.session())
@@ -70,6 +69,14 @@ class MuseTest(TempHome):
         self.assertEqual((t["platform"], t["model"], t["project"], t["pieces"], t["duration_s"]),
                          ("muse-code", "muse-spark-1.3", "greet", [self.piece.id], 7.5))
         self.assertEqual(t["request_chars"], len("Release 0.3.0 with a new name_upper option."))
+
+    def test_a_task_still_running_waits_until_it_is_finished(self):
+        f = self.session(ended=False)
+        self.assertEqual(muse.import_sessions()["imported"], 0)
+        with open(f, "a") as fh:
+            fh.write(json.dumps({"recorded_at": T0 + 20_000_000, "payload": {"kind": "session_end"}}) + "\n")
+        self.assertEqual(muse.import_sessions()["imported"], 1)
+        self.assertEqual(ev.tasks()[0]["duration_s"], 18.0)
 
     def test_temporary_folders_are_left_out(self):
         self.session(workspace="/private/tmp/scratch/greet")

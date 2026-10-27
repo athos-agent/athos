@@ -29,3 +29,5 @@ METRICS.md
 # Secrets
 .env
 .env.*
+demo/*.gif
+!demo/athos-claude-to-codex.gif
