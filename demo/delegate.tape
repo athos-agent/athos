@@ -17,7 +17,8 @@ Hide
 Type "cd ~/athos-demo/greet-meta && export ATHOS_HOME=~/athos-demo/home && . .venv/bin/activate && PROMPT='%1~ %# '" Enter
 Type `AB=$(ls -d ~/.claude/plugins/cache/athos/athos/*/bin/athos | sort -V | tail -1); athos() { python3 "$AB" "$@"; }` Enter
 Type `PIECE=$(basename "$(ls $ATHOS_HOME/know-how/*.md | head -1)" .md)` Enter
-Type `verdict() { (git tag -l v0.3.0 | grep -q . && python -m pytest -q > /dev/null 2>&1) && echo g || echo f; }` Enter
+Type `BEFORE=$(cd ../greet && .venv/bin/python -m pytest -q 2>/dev/null | sed -n 's/^\([0-9]*\) passed.*/\1/p' | tail -1)` Enter
+Type `verdict() { git tag -l v0.3.0 | grep -q . && python -m pytest -q > /dev/null 2>&1 || { echo f; return; }; now=$(python -m pytest -q 2>/dev/null | sed -n 's/^\([0-9]*\) passed.*/\1/p' | tail -1); [ "${now:-0}" -gt "$BEFORE" ] && echo g || echo c; }` Enter
 Type "clear" Enter
 Sleep 1s
 Show
@@ -32,10 +33,11 @@ Show
 Sleep 5s
 
 Hide
-Type "athos mark $(verdict) > /dev/null && clear" Enter
-Sleep 2s
+Type "athos mark $(verdict) > /dev/null; clear" Enter
+Sleep 10s
 Show
 Type "athos report"
 Sleep 1s
 Enter
+Wait+Screen@120s /Models on your tasks/
 Sleep 8s
