@@ -315,7 +315,10 @@ def bars(project: str | None = None) -> dict | None:
     piece = store.get(pid)
     rows = []
     for platform, label in AGENTS:
-        uses = [t for t in here if pid in t["pieces"] and t.get("platform") == platform]
+        # A piece is used only after the run that taught it; an older session that happens to name it (a rehearsal
+        # whose Codex log survived, say) is not a use of this piece.
+        uses = [t for t in here if pid in t["pieces"] and t.get("platform") == platform
+                and (base is None or (t.get("started") or "") >= (base.get("started") or ""))]
         if platform in OPTIONAL_AGENTS and not uses:
             continue
         rate, n_ev = _rate(uses)
