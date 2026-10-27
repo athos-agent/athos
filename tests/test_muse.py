@@ -78,6 +78,13 @@ class MuseTest(TempHome):
         self.assertEqual(muse.import_sessions()["imported"], 1)
         self.assertEqual(ev.tasks()[0]["duration_s"], 18.0)
 
+    def test_a_session_killed_without_an_end_is_imported_once_it_has_been_still(self):
+        f = self.session(ended=False)
+        self.assertEqual(muse.import_sessions()["imported"], 0)
+        old = f.stat().st_mtime - muse.IDLE_S - 60
+        os.utime(f, (old, old))
+        self.assertEqual(muse.import_sessions()["imported"], 1)
+
     def test_temporary_folders_are_left_out(self):
         self.session(workspace="/private/tmp/scratch/greet")
         self.assertEqual(muse.import_sessions()["imported"], 0)
