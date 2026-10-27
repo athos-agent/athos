@@ -294,8 +294,8 @@ OPTIONAL_AGENTS = {"muse-code"}                       # shown only once it has u
 
 def bars(project: str | None = None) -> dict | None:
     """How each agent applies, in this project, the piece of know-how this project used last: one row per agent with
-    its uses here, its success rate over the tasks you marked, its mean time and the time it saves against the first
-    run, the one that taught the piece. None until a task here has used or saved a piece."""
+    its uses here, its success rate over the tasks you marked, its mean tokens per task and the tokens it saves against
+    the first run, the one that taught the piece. None until a task here has used or saved a piece."""
     ts = tasks()
     here = [t for t in ts if project is None or t.get("project") == project]
     last = next((t for t in reversed(here) if t["pieces"] or t["saved"]), None)
@@ -303,7 +303,7 @@ def bars(project: str | None = None) -> dict | None:
         return None
     pid = (last["pieces"] or last["saved"])[0]
     base = next((t for t in ts if pid in t["saved"] and pid not in t["pieces"]), None)
-    base_s = base.get("duration_s") if base else None
+    base_tok = _tok(base) if base else None
     piece = store.get(pid)
     rows = []
     for platform, label in AGENTS:
@@ -311,12 +311,16 @@ def bars(project: str | None = None) -> dict | None:
         if platform in OPTIONAL_AGENTS and not uses:
             continue
         rate, n_ev = _rate(uses)
-        mean_s = _mean([t.get("duration_s") for t in uses])
+        mean_tok = _mean([_tok(t) for t in uses])
         rows.append({"platform": platform, "label": label, "uses": len(uses), "evaluated": n_ev,
                      "ok": sum(1 for t in uses if t["result"] == "ok"), "success_rate": rate,
-                     "mean_duration_s": mean_s,
-                     "time_saved": (base_s - mean_s) / base_s if base_s and mean_s is not None else None})
-    return {"piece": pid, "title": piece.title if piece else pid, "baseline_s": base_s, "agents": rows}
+                     "mean_tokens": mean_tok,
+                     "tokens_saved": (base_tok - mean_tok) / base_tok if base_tok and mean_tok is not None else None})
+    return {"piece": pid, "title": piece.title if piece else pid, "baseline_tokens": base_tok, "agents": rows}
+
+
+def _k(n: float) -> str:
+    return f"{n / 1000:.1f}k" if n >= 1000 else f"{n:.0f}"
 
 
 def bar_line(row: dict, width: int = 20) -> tuple[str, str]:
@@ -326,11 +330,11 @@ def bar_line(row: dict, width: int = 20) -> tuple[str, str]:
     if not row["uses"]:
         return bar, "not used yet"
     words = [f"{row['ok']}/{row['evaluated']} good" if row["evaluated"] else "not marked yet"]
-    if row["mean_duration_s"] is not None:
-        words.append(f"{row['mean_duration_s']:.0f} s")
-    if row["time_saved"] is not None:
-        words.append(f"{row['time_saved'] * 100:.0f}% time saved" if row["time_saved"] >= 0
-                     else f"{-row['time_saved'] * 100:.0f}% slower")
+    if row["mean_tokens"] is not None:
+        words.append(f"{_k(row['mean_tokens'])} tokens")
+    if row["tokens_saved"] is not None:
+        words.append(f"{row['tokens_saved'] * 100:.0f}% fewer tokens" if row["tokens_saved"] >= 0
+                     else f"{-row['tokens_saved'] * 100:.0f}% more tokens")
     return bar, " · ".join(words)
 
 def _pct(x):
