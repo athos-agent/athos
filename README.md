@@ -51,10 +51,23 @@ not enough for a release task, and the 12B one did it in about a minute and a ha
 Your know-how lives in `~/.athos/know-how/`, one markdown file per piece. Choose what may load with
 `/athos:load all | project <name> | pieces <id>... | none`, and copy everything out with `/athos:export <folder>`.
 
+### In Codex
+
+Athos is also a Codex plugin, reading the same store:
+
+```
+codex plugin marketplace add athos-agent/athos
+codex plugin add athos@athos
+```
+
+The plugin brings the `athos` skill. In the Codex desktop app it also brings Athos's hooks; in the Codex CLI add them
+once with `athos codex install` (Codex asks you to trust them with `/hooks`). Codex's footer takes no custom lines, so
+run `athos watch` in a terminal beside it: one bar per agent for this project's know-how, the same bars Claude Code
+shows under its prompt, marked with g / c / f.
+
 ## Roadmap
 
 - OpenCode.
-- A native Codex plugin.
 - **Athos Cloud**: sync between your devices, a visual map of your know-how, daily control over what is shared, and an
   improvement agent as a service.
 

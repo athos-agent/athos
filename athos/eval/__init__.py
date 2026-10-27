@@ -320,7 +320,7 @@ def bars(project: str | None = None) -> dict | None:
 
 
 def _k(n: float) -> str:
-    return f"{n / 1000:.1f}k" if n >= 1000 else f"{n:.0f}"
+    return f"{n / 1e6:.1f}M" if n >= 1e6 else f"{n / 1000:.1f}k" if n >= 1000 else f"{n:.0f}"
 
 
 def bar_line(row: dict, width: int = 20) -> tuple[str, str]:

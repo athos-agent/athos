@@ -1,0 +1,20 @@
+{
+  "name": "athos",
+  "version": "0.1.9",
+  "description": "Your AI know-how, from Claude Code to Codex: the same pieces, loaded when they match, measured on your own tasks.",
+  "author": { "name": "Athos", "url": "https://github.com/athos-agent/athos" },
+  "homepage": "https://github.com/athos-agent/athos",
+  "repository": "https://github.com/athos-agent/athos",
+  "license": "Apache-2.0",
+  "keywords": ["know-how", "memory", "skills", "portability", "benchmark"],
+  "skills": "./codex/skills/",
+  "hooks": "./codex/hooks.json",
+  "interface": {
+    "displayName": "Athos",
+    "shortDescription": "Your know-how from Claude Code, in Codex, measured on your own tasks.",
+    "longDescription": "Athos keeps the know-how you build with AI (your steps, your conventions, the mistakes to avoid) as plain markdown files on your machine. In Codex it loads the pieces that match each request, records every task, and shows with athos watch how Codex and Claude Code apply the same know-how: success over the tasks you mark, and tokens saved against the first run. Nothing leaves your machine.",
+    "developerName": "Athos",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"]
+  }
+}

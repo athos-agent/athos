@@ -1,0 +1,8 @@
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "python3 ${PLUGIN_ROOT}/bin/athos hook session-start --platform codex", "statusMessage": "Athos: loading your know-how" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "python3 ${PLUGIN_ROOT}/bin/athos hook prompt --platform codex" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "python3 ${PLUGIN_ROOT}/bin/athos hook tool --platform codex" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "python3 ${PLUGIN_ROOT}/bin/athos hook stop --platform codex" }] }]
+  }
+}

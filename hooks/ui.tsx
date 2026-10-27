@@ -28,7 +28,8 @@ export function savedText(s: Status | null): string {
 const BAR_WIDTH = 20
 const BAR_COLORS: Record<string, string> = { 'claude-code': '#d38b5d', codex: '#6fa8dc', 'muse-code': '#9b8cf2' }
 
-const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n)}`)
+const k = (n: number) =>
+  n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n)}`
 
 /** A bar filled by the success rate, and the words beside it; the same as `athos watch` prints. */
 export function barText(b: Bar): { filled: string; empty: string; words: string } {
