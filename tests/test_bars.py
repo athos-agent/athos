@@ -56,3 +56,8 @@ class BarsTest(TempHome):
         self.assertIn("Release the greet package", text)
         self.assertIn("Codex       " + "█" * 20 + "  1/1 good · 6.0k tokens · 70% fewer tokens", text)
         self.assertIn("last task: Codex / m · ok", text)
+
+
+class FormatTest(TempHome):
+    def test_large_token_counts_read_in_millions(self):
+        self.assertEqual((ev._k(950), ev._k(12400), ev._k(1133500)), ("950", "12.4k", "1.1M"))

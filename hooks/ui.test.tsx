@@ -55,6 +55,7 @@ test('a bar fills with the success rate and says the tokens saved', () => {
   expect(t.empty.length).toBe(4)
   expect(t.words).toBe('4/5 good · 12.4k tokens · 41% fewer tokens')
   expect(barText(CODEX as never).words).toBe('not used yet')
+  expect(barText({ ...CLAUDE, mean_tokens: 1133500 } as never).words).toBe('4/5 good · 1.1M tokens · 41% fewer tokens')
   expect(barText({ ...CLAUDE, evaluated: 0, ok: 0, success_rate: null, tokens_saved: -0.2 } as never).words)
     .toBe('not marked yet · 12.4k tokens · 20% more tokens')
 })
