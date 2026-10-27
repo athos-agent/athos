@@ -7,7 +7,8 @@
 Muse Code keeps every session in `~/.local/share/muse/sessions/YYYY/MM/DD/<id>/session.jsonl`. Its records nest
 inside one another (some as JSON text in `record_json`), so the import looks for fields by name: the workspace, the
 model, each request the person typed, the provider usage records (subagents included, since they are part of what the
-task cost) and the Athos skills Muse read. A task is one request, from the moment it was typed until the next one.
+task cost) and the Athos skills Muse read. A task is one request, from the moment it was typed until the next one; it
+is imported once finished (another request followed, or the session ended), so a running task is never cut short.
 
 Contributor mode (a `-contributor` model) lets Meta train on what it was sent; such tasks are recorded as they ran, and
 `athos watch` and the report say so.
@@ -62,7 +63,7 @@ def _iso(us: int | None) -> str | None:
 
 def read_session(path: Path) -> dict:
     """The session's workspace and its tasks: request, start and end, model, tokens and the Athos pieces read."""
-    workspace, model, tasks, usage_seen = None, "unknown", [], set()
+    workspace, model, tasks, usage_seen, ended = None, "unknown", [], set(), False
     with open(path, errors="ignore") as fh:
         for line in fh:
             if not line.strip():
@@ -72,6 +73,7 @@ def read_session(path: Path) -> dict:
             except ValueError:
                 continue
             ts = None
+            ended = ended or '"session_end"' in line
             for d in _records(o):
                 if ts is None and isinstance(d.get("recorded_at"), int):
                     ts = d["recorded_at"]
@@ -99,9 +101,11 @@ def read_session(path: Path) -> dict:
                 tasks[-1]["pieces"] |= set(SKILL_USE.findall(line))
                 if ts:
                     tasks[-1]["end"] = ts
-    for t in tasks:
+    for i, t in enumerate(tasks):
         t["tokens"]["total"] = sum(t["tokens"].values())
-    return {"session_id": path.parent.name, "workspace": workspace, "tasks": tasks}
+        # finished once another request followed it, or the session ended; a task still running is left for later
+        t["finished"] = ended or i < len(tasks) - 1
+    return {"session_id": path.parent.name, "workspace": workspace, "tasks": tasks, "ended": ended}
 
 
 def import_sessions(root: Path | None = None, include_tmp: bool = False) -> dict:
@@ -118,7 +122,8 @@ def import_sessions(root: Path | None = None, include_tmp: bool = False) -> dict
         ws = s["workspace"] or ""
         for i, t in enumerate(s["tasks"]):
             tid = f"mu-{s['session_id']}-{i}"
-            if tid in known or not t["start"] or (not include_tmp and ws.startswith(TMP_PREFIXES)):
+            if tid in known or not t["start"] or not t["finished"] or \
+                    (not include_tmp and ws.startswith(TMP_PREFIXES)):
                 out["skipped"] += 1
                 continue
             ev.append({"type": "task_start", "task_id": tid, "session_id": s["session_id"], "platform": "muse-code",
