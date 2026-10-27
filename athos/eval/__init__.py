@@ -244,6 +244,13 @@ def _mean(xs: list[float]) -> float | None:
     return sum(xs) / len(xs) if xs else None
 
 
+def _shorter(base: dict | None, uses: list[dict]) -> float | None:
+    """How much shorter the requests that used a piece are than the one that taught it: what it spares explaining."""
+    mean = _mean([t.get("request_chars") for t in uses])
+    first = base.get("request_chars") if base else None
+    return (first - mean) / first if first and mean is not None else None
+
+
 def _tok(t: dict) -> int | None:
     return (t.get("tokens") or {}).get("total")
 
@@ -278,6 +285,7 @@ def report(today: _dt.date | None = None) -> dict:
             and base.get("duration_s") is not None else None,
             "tokens_saved": (_tok(base) - mean_tok) if base and mean_tok is not None and _tok(base) is not None
             else None,
+            "prompt_saved": _shorter(base, uses),
             "last_used": last or None, "review": flags})
     per_model = []
     for (platform, model) in sorted({(t.get("platform", "unknown"), t.get("model", "unknown")) for t in ts}):
@@ -368,8 +376,8 @@ def render(r: dict) -> str:
         out.append(f"  {p['piece']}  uses {p['uses']}  success {_pct(p['success_rate'])} "
                    f"({p['evaluated']} evaluated)")
         if p["baseline"]:
-            out.append(f"    vs first run without it: time saved {_signed(p['time_saved_s'], ' s')}, "
-                       f"tokens saved {_signed(p['tokens_saved'])}")
+            if p.get("prompt_saved") is not None:
+                out.append(f"    vs the first run, which taught it: requests {p['prompt_saved'] * 100:.0f}% shorter")
         if p["review"]:
             out.append(f"    review: {', '.join(p['review'])}")
     out += ["", "Models on your tasks"]

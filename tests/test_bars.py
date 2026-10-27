@@ -70,6 +70,18 @@ class FormatTest(TempHome):
         self.assertEqual((ev._k(950), ev._k(12400), ev._k(1133500)), ("950", "12.4k", "1.1M"))
 
 
+class ReportTest(TempHome):
+    def test_a_piece_says_how_much_shorter_its_requests_are(self):
+        p = store.create("Release the greet package", "release greet", "Bump both places.").id
+        task("t1", "claude-code", "greet", 400, saved=[p])
+        task("t2", "codex", "greet", 80, pieces=[p], result="ok")
+        r = ev.report()
+        self.assertAlmostEqual(r["pieces"][0]["prompt_saved"], 0.8)
+        text = ev.render(r)
+        self.assertIn("requests 80% shorter", text)
+        self.assertNotIn("time saved", text)
+
+
 class RequestTest(TempHome):
     def test_the_whole_request_length_is_kept_beside_its_first_characters(self):
         f = ev.request_fields("  " + "y" * 300 + " ")

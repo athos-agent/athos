@@ -85,6 +85,13 @@ class MuseTest(TempHome):
         os.utime(f, (old, old))
         self.assertEqual(muse.import_sessions()["imported"], 1)
 
+    def test_sessions_before_the_stores_import_since_are_left_out(self):
+        self.session()
+        (Path(self.home) / "import-since").write_text("2099-01-01T00:00:00Z\n")
+        self.assertEqual(muse.import_sessions()["imported"], 0)
+        (Path(self.home) / "import-since").write_text("2000-01-01T00:00:00Z\n")
+        self.assertEqual(muse.import_sessions()["imported"], 1)
+
     def test_temporary_folders_are_left_out(self):
         self.session(workspace="/private/tmp/scratch/greet")
         self.assertEqual(muse.import_sessions()["imported"], 0)

@@ -24,7 +24,7 @@ import re
 import time
 from pathlib import Path
 
-from athos import store
+from athos import paths, store
 
 SKILL_USE = re.compile(r'read-skill-result name=\\*"athos-([a-z0-9][a-z0-9-]*)\\*"')
 TMP_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/")
@@ -118,6 +118,7 @@ def import_sessions(root: Path | None = None, include_tmp: bool = False) -> dict
     root = root or sessions_dir()
     known = {e.get("task_id") for e in ev.events()}
     pieces = {p.id for p in store.all_pieces()}
+    since = paths.import_since()
     out = {"files": 0, "imported": 0, "skipped": 0}
     for f in sorted(root.glob("*/*/*/*/session.jsonl")) if root.is_dir() else []:
         out["files"] += 1
@@ -127,7 +128,7 @@ def import_sessions(root: Path | None = None, include_tmp: bool = False) -> dict
         ws = s["workspace"] or ""
         for i, t in enumerate(s["tasks"]):
             tid = f"mu-{s['session_id']}-{i}"
-            if tid in known or not t["start"] or not t["finished"] or \
+            if tid in known or not t["start"] or not t["finished"] or (since and _iso(t["start"]) < since) or \
                     (not include_tmp and ws.startswith(TMP_PREFIXES)):
                 out["skipped"] += 1
                 continue

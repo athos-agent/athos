@@ -28,6 +28,15 @@ def sessions() -> Path:
     return home() / "sessions"
 
 
+def import_since() -> str | None:
+    """When this store started taking other agents' past sessions (ISO time in `<home>/import-since`), if it was set.
+    A new store takes all of them; a demo sets it so earlier rehearsals stay out."""
+    try:
+        return (home() / "import-since").read_text().strip() or None
+    except OSError:
+        return None
+
+
 def events_file() -> Path:
     return home() / "events.jsonl"
 

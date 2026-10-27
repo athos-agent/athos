@@ -11,6 +11,8 @@ set -eu
 DEMO="${ATHOS_DEMO:-$HOME/athos-demo}"
 rm -rf "$DEMO"
 mkdir -p "$DEMO/home"
+# Only Codex and Muse Code sessions from now on: earlier rehearsals in the same folder stay out of the demo store.
+date -u +%Y-%m-%dT%H:%M:%SZ > "$DEMO/home/import-since"
 
 d="$DEMO/greet"
 mkdir -p "$d/greet" "$d/tests"

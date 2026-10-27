@@ -262,6 +262,7 @@ def import_sessions(root: Path | None = None, include_tmp: bool = False) -> dict
     hooked = {e.get("session_id") for e in ev.events() if e.get("type") == "task_start" and e.get("platform") == "codex"
               and not str(e.get("task_id", "")).startswith("cx-")}
     pieces = {p.id for p in store.all_pieces()}
+    since = paths.import_since()
     out = {"files": 0, "imported": 0, "skipped": 0}
     files = sorted(set(root.glob("**/rollout-*.jsonl")) | set(root.glob("**/rollout-*.jsonl.zst"))) if root.is_dir() else []
     for f in files:
@@ -269,6 +270,7 @@ def import_sessions(root: Path | None = None, include_tmp: bool = False) -> dict
         for t in _rollout_tasks(f):
             tid = f"cx-{t['turn_id']}"
             if tid in known or t["session_id"] in hooked or not t.get("ended") or \
+                    (since and (t.get("started") or "") < since) or \
                     (not include_tmp and t["cwd"].startswith(TMP_PREFIXES)):
                 out["skipped"] += 1
                 continue

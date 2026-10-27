@@ -154,6 +154,14 @@ class CodexImportTest(TempHome):
         self.assertEqual(codex.import_sessions(root)["imported"], 0)
         self.assertEqual(len(ev.tasks()), 1)
 
+    def test_sessions_before_the_stores_import_since_are_left_out(self):
+        from athos import paths
+        root = self.write("/work/greet", [("a", 5, None)])
+        (paths.home() / "import-since").write_text("2099-01-01T00:00:00Z\n")
+        self.assertEqual(codex.import_sessions(root)["imported"], 0)
+        (paths.home() / "import-since").unlink()
+        self.assertEqual(codex.import_sessions(root)["imported"], 1)
+
     def test_test_runs_in_temporary_folders_are_left_out_unless_asked(self):
         root = self.write("/private/tmp/sandbox/greet", [("a", 5, None)])
         self.assertEqual(codex.import_sessions(root)["imported"], 0)
