@@ -124,7 +124,7 @@ def _ask(what: str) -> bool:
 
 
 def delegate(piece_id: str, request: str, model: str = DEFAULT_MODEL, cwd: Path | None = None, yes: bool = False,
-             max_steps: int = MAX_STEPS, out=print, chat_fn=chat) -> dict:
+             max_steps: int = MAX_STEPS, out=print, chat_fn=chat, platform: str = "local") -> dict:
     """Run the task and record it. Returns the task id, the model's last message, the steps, the time and the tokens."""
     piece = store.get(piece_id)
     if piece is None:
@@ -169,6 +169,6 @@ def delegate(piece_id: str, request: str, model: str = DEFAULT_MODEL, cwd: Path 
     tokens["total"] = tokens["input"] + tokens["output"]
     duration = time.monotonic() - t0
     store.touch(piece.id)
-    tid = ev.record_external("local", model, [piece.id], duration, tokens, request=request,
+    tid = ev.record_external(platform, model, [piece.id], duration, tokens, request=request,
                              project=paths.project_of(cwd))
     return {"task_id": tid, "summary": final, "steps": steps, "duration_s": round(duration, 1), "tokens": tokens}

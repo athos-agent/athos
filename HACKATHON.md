@@ -26,6 +26,7 @@ from what was built during the event.
 - [#11](https://github.com/athos-agent/athos/pull/11) One bar per agent for this project's know-how (success rate, mean tokens, tokens saved against the first run): under the prompt in Claude Code, and `athos watch` beside Codex and Muse Code (0.1.7)
 - Bars measure tokens instead of time: mean tokens per task and tokens saved against the run that taught the piece (0.1.8)
 - Bars measure what the know-how spares you: success over marked tasks and how much shorter each request is than the first run's; tasks keep their full request length, and imported Codex tasks skip the context Codex injects (0.1.10)
+- `athos delegate --backend meta`: a mastered task runs in Athos's own loop on Meta Model API (`muse-spark-1.3`), recorded as `meta` (0.1.12)
 - Bars count a piece's uses only after the run that taught it, so an old session that names it is not a use (0.1.11)
 - Athos as a Codex plugin (`.codex-plugin/plugin.json`, marketplace in `.agents/plugins/marketplace.json`): `codex plugin marketplace add athos-agent/athos`; token counts read as 1.1M (0.1.9)
 - README demo GIF: Claude Code then Codex in the same folder, both `1/1 good · 82% shorter prompt` (`demo/athos-claude-to-codex.gif`)
@@ -33,4 +34,5 @@ from what was built during the event.
 
 ## Meta models used
 
-None yet.
+- `muse-spark-1.3` (default) and `muse-wonder-1.0` through Meta Model API (Chat Completions with tools), behind
+  `athos delegate --backend meta` in `athos/adapters/meta/`.

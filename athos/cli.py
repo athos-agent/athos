@@ -11,6 +11,7 @@
     athos revert <id>                  put back a piece's previous version
     athos watch                       a live panel: one bar per agent for this project's know-how (for Codex)
     athos delegate <id> "<request>"    run a task you have mastered on a small local model (Ollama), recorded as `local`
+    athos delegate <id> "<request>" --backend meta   the same on Meta Model API (muse-spark-1.3), recorded as `meta`
     athos mark g|c|f [task]            your verdict on the last task: good, corrected or failed
     athos report [--json]              what each piece and each model brings to your work
     athos status --json                what the terminal's status line and band show
@@ -187,16 +188,29 @@ def cmd_revert(args) -> int:
 def cmd_delegate(args) -> int:
     from athos import delegate
     import urllib.error
+    if args.backend == "meta":
+        from athos.adapters import meta
+        model, platform, chat_fn = args.model or meta.DEFAULT_MODEL, "meta", meta.chat
+    else:
+        model, platform, chat_fn = args.model or delegate.DEFAULT_MODEL, "local", delegate.chat
     try:
-        r = delegate.delegate(args.id, args.request, args.model, yes=args.yes, max_steps=args.max_steps)
-    except LookupError as e:
+        r = delegate.delegate(args.id, args.request, model, yes=args.yes, max_steps=args.max_steps,
+                              chat_fn=chat_fn, platform=platform)
+    except (LookupError, PermissionError) as e:
         print(e, file=sys.stderr)
         return 1
-    except urllib.error.URLError as e:
-        print(f"cannot reach Ollama at {delegate.host()} ({e.reason}). Start it (`ollama serve`) and pull the model "
-              f"(`ollama pull {args.model}`).", file=sys.stderr)
+    except urllib.error.HTTPError as e:
+        print(f"Meta Model API refused the request (HTTP {e.code}): {e.read().decode(errors='ignore')[:300]}",
+              file=sys.stderr)
         return 1
-    print(f"\n{r['summary'].strip()}\n\nlocal / {args.model}: {r['duration_s']} s, {r['steps']} step(s), "
+    except urllib.error.URLError as e:
+        if platform == "meta":
+            print(f"cannot reach Meta Model API ({e.reason}).", file=sys.stderr)
+        else:
+            print(f"cannot reach Ollama at {delegate.host()} ({e.reason}). Start it (`ollama serve`) and pull the "
+                  f"model (`ollama pull {model}`).", file=sys.stderr)
+        return 1
+    print(f"\n{r['summary'].strip()}\n\n{platform} / {model}: {r['duration_s']} s, {r['steps']} step(s), "
           f"{r['tokens']['total']:,} tokens · task {r['task_id']}. Mark it with `athos mark g|c|f`.")
     return 0
 
@@ -286,7 +300,10 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("delegate")
     s.add_argument("id", help="the piece of know-how the task follows")
     s.add_argument("request")
-    s.add_argument("--model", default="gemma4:12b", help="an Ollama model (default gemma4:12b)")
+    s.add_argument("--backend", choices=["ollama", "meta"], default="ollama",
+                   help="where the model runs: ollama on this machine (default), or meta (Meta Model API)")
+    s.add_argument("--model", help="the model: an Ollama one (default gemma4:12b), or with --backend meta "
+                                   "muse-spark-1.3 (default) or muse-wonder-1.0")
     s.add_argument("--yes", action="store_true", help="run the model's commands without asking for each")
     s.add_argument("--max-steps", type=int, default=20)
     s.set_defaults(fn=cmd_delegate)

@@ -38,12 +38,14 @@ task taught. These are the commands you will reach for:
 /athos:codex         take your know-how to Codex
 ```
 
-When a piece has proven itself, hand the task to a small model on your own machine, through
-[Ollama](https://ollama.com):
+When a piece has proven itself, hand the task to a smaller, cheaper model: on your own machine through
+[Ollama](https://ollama.com), or on Meta's models through Meta Model API (`--backend meta`, key in `MODEL_API_KEY` or
+`~/.athos/.env`):
 
 ```
 athos delegate <piece> "<request>"           runs in the current folder; asks before every command and write
 athos delegate <piece> "<request>" --model qwen3.5:9b
+athos delegate <piece> "<request>" --backend meta       muse-spark-1.3; --model muse-wonder-1.0 for the largest
 ```
 
 The model follows the piece with four tools (run a command, read, edit and write a file), confined to the current
