@@ -2,9 +2,9 @@ from athos import eval as ev, paths, store, watch
 from tests.helpers import TempHome
 
 
-def task(tid, platform, project, chars, pieces=(), saved=(), result=None):
+def task(tid, platform, project, chars, pieces=(), saved=(), result=None, at="2026-10-27T10:00:00Z"):
     ev.append({"type": "task_start", "task_id": tid, "platform": platform, "model": "m", "project": project,
-               "at": "2026-10-27T10:00:00Z", **ev.request_fields("x" * chars)})
+               "at": at, **ev.request_fields("x" * chars)})
     ev.append({"type": "task_end", "task_id": tid, "pieces": list(pieces), "saved": list(saved),
                "duration_s": 30, "tokens": {"input": 100, "output": 0, "total": 100},
                "at": "2026-10-27T10:01:00Z"})
@@ -41,6 +41,12 @@ class BarsTest(TempHome):
         p = self.piece.id
         task("t1", "claude-code", "greet", 500, saved=[p])
         task("t2", "codex", "old-rehearsal", 75, pieces=[p], result="ok")
+        self.assertEqual(ev.bars("greet")["agents"][1]["uses"], 0)
+
+    def test_a_task_older_than_the_run_that_taught_the_piece_is_not_a_use(self):
+        p = self.piece.id
+        task("t0", "codex", "greet", 75, pieces=[p], result="ok", at="2026-10-26T09:00:00Z")   # an old rehearsal
+        task("t1", "claude-code", "greet", 500, saved=[p])
         self.assertEqual(ev.bars("greet")["agents"][1]["uses"], 0)
 
     def test_an_agent_that_has_not_used_it_shows_an_empty_bar(self):
