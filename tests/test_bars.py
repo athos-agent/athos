@@ -36,6 +36,12 @@ class BarsTest(TempHome):
         self.assertEqual(ev.bar_line(cx)[1], "1/1 good · 30 s · 70% time saved")
         self.assertEqual([a["platform"] for a in b["agents"]], ["claude-code", "codex"])   # Muse only once used
 
+    def test_only_this_projects_tasks_count(self):
+        p = self.piece.id
+        task("t1", "claude-code", "greet", 100, saved=[p])
+        task("t2", "codex", "old-rehearsal", 30, pieces=[p], result="ok")
+        self.assertEqual(ev.bars("greet")["agents"][1]["uses"], 0)
+
     def test_an_agent_that_has_not_used_it_shows_an_empty_bar(self):
         task("t1", "claude-code", "greet", 100, saved=[self.piece.id])
         cx = ev.bars("greet")["agents"][1]

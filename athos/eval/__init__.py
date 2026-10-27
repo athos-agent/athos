@@ -293,9 +293,9 @@ OPTIONAL_AGENTS = {"muse-code"}                       # shown only once it has u
 
 
 def bars(project: str | None = None) -> dict | None:
-    """How each agent applies the piece of know-how this project used last: one row per agent with its uses, its
-    success rate over the tasks you marked, its mean time and the time it saves against the first run, the one that
-    taught the piece. None until a task here has used or saved a piece."""
+    """How each agent applies, in this project, the piece of know-how this project used last: one row per agent with
+    its uses here, its success rate over the tasks you marked, its mean time and the time it saves against the first
+    run, the one that taught the piece. None until a task here has used or saved a piece."""
     ts = tasks()
     here = [t for t in ts if project is None or t.get("project") == project]
     last = next((t for t in reversed(here) if t["pieces"] or t["saved"]), None)
@@ -307,7 +307,7 @@ def bars(project: str | None = None) -> dict | None:
     piece = store.get(pid)
     rows = []
     for platform, label in AGENTS:
-        uses = [t for t in ts if pid in t["pieces"] and t.get("platform") == platform]
+        uses = [t for t in here if pid in t["pieces"] and t.get("platform") == platform]
         if platform in OPTIONAL_AGENTS and not uses:
             continue
         rate, n_ev = _rate(uses)
