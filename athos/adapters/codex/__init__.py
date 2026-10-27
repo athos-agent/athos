@@ -198,6 +198,7 @@ def tokens_between(rollout: str | None, start: str, end: str) -> dict | None:
 
 # ------------------------------------------------------------------------------------------------ import
 SKILL_USE = __import__("re").compile(r"athos-([a-z0-9][a-z0-9-]*)/SKILL\.md")
+INJECTED = __import__("re").compile(r"<(environment_context|user_instructions|INSTRUCTIONS)>.*?</\1>", __import__("re").S)
 HOOK_USE = __import__("re").compile(r"\(`([a-z0-9][a-z0-9-]*)`, v\d+\)")
 TMP_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/")
 
@@ -229,7 +230,10 @@ def _rollout_tasks(path: Path) -> list[dict]:
                 if cur is not None:
                     cur["model"] = model
             elif kind == ("response_item", "message") and p.get("role") == "user":
-                text = " ".join(c.get("text", "") for c in p.get("content") or [] if isinstance(c, dict))
+                text = INJECTED.sub("", " ".join(c.get("text", "") for c in p.get("content") or []
+                                                if isinstance(c, dict))).strip()
+                if not text:
+                    continue                                  # only the context Codex injects, not the person's words
                 if cur is not None and not cur["request"]:
                     cur["request"] = text                     # Codex writes the request inside its turn
                 else:
@@ -271,7 +275,7 @@ def import_sessions(root: Path | None = None, include_tmp: bool = False) -> dict
             used = sorted(x for x in t["pieces"] if x in pieces)
             ev.append({"type": "task_start", "task_id": tid, "session_id": t["session_id"], "platform": "codex",
                        "model": t["model"], "project": Path(t["cwd"]).name if t["cwd"] else None, "at": t["started"],
-                       "request": t["request"][:120], "source": "codex-import"})
+                       **ev.request_fields(t["request"]), "source": "codex-import"})
             ev.append({"type": "task_end", "task_id": tid, "session_id": t["session_id"], "at": t["ended"],
                        "duration_s": t["duration_s"], "tokens": tokens_between(t["path"], t["started"], t["ended"]),
                        "model": t["model"], "pieces": used, "saved": []})

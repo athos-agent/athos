@@ -15,9 +15,9 @@ const STATUS = {
 }
 
 const CLAUDE = { platform: 'claude-code', label: 'Claude Code', uses: 5, evaluated: 5, ok: 4, success_rate: 0.8,
-  mean_tokens: 12400, tokens_saved: 0.41 }
+  mean_request_chars: 80, prompt_saved: 0.85 }
 const CODEX = { platform: 'codex', label: 'Codex', uses: 0, evaluated: 0, ok: 0, success_rate: null,
-  mean_tokens: null, tokens_saved: null }
+  mean_request_chars: null, prompt_saved: null }
 
 test('the status line counts pieces, loaded and unmarked tasks', () => {
   expect(statusText(STATUS as never)).toBe('athos · 3 pieces · 1 loaded here · 1 to mark')
@@ -49,19 +49,18 @@ test('an unmarked task gets one-key marking above the prompt', async ($, on) => 
   await ui.unmount()
 })
 
-test('a bar fills with the success rate and says the tokens saved', () => {
+test('a bar fills with the success rate and says how much shorter the prompt is', () => {
   const t = barText(CLAUDE as never)
   expect(t.filled.length).toBe(16)
   expect(t.empty.length).toBe(4)
-  expect(t.words).toBe('4/5 good · 12.4k tokens · 41% fewer tokens')
+  expect(t.words).toBe('4/5 good · 85% shorter prompt')
   expect(barText(CODEX as never).words).toBe('not used yet')
-  expect(barText({ ...CLAUDE, mean_tokens: 1133500 } as never).words).toBe('4/5 good · 1.1M tokens · 41% fewer tokens')
-  expect(barText({ ...CLAUDE, evaluated: 0, ok: 0, success_rate: null, tokens_saved: -0.2 } as never).words)
-    .toBe('not marked yet · 12.4k tokens · 20% more tokens')
+  expect(barText({ ...CLAUDE, evaluated: 0, ok: 0, success_rate: null, prompt_saved: -0.2 } as never).words)
+    .toBe('not marked yet · 20% longer prompt')
 })
 
 test('the line under the prompt keeps its hint and adds one bar per agent', async ($, on) => {
-  const status = { ...STATUS, bars: { piece: 'cut-a-release', title: 'Cut a release', baseline_tokens: 21000, agents: [CLAUDE, CODEX] } }
+  const status = { ...STATUS, bars: { piece: 'cut-a-release', title: 'Cut a release', baseline_request_chars: 520, agents: [CLAUDE, CODEX] } }
   on('session.root', () => ({ value: '/work' }))
   on('process.run', () => ({ value: { exitCode: 0, stdout: JSON.stringify(status), stderr: '' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -70,7 +69,7 @@ test('the line under the prompt keeps its hint and adds one bar per agent', asyn
   const ui = await $.ui.mount({ plugin: 'athos', component: 'PromptHint', surface: 'terminal',
     props: { hint: '? for shortcuts', isDraft: false, isWorking: false } })
   expect((await ui.find({ type: 'Text', text: /\? for shortcuts/ }))?.text).toBeTruthy()
-  expect((await ui.find({ type: 'Text', text: /4\/5 good · 12.4k tokens · 41% fewer tokens/ }))?.text).toBeTruthy()
+  expect((await ui.find({ type: 'Text', text: /4\/5 good · 85% shorter prompt/ }))?.text).toBeTruthy()
   expect((await ui.find({ type: 'Text', text: /not used yet/ }))?.text).toBeTruthy()
   await ui.unmount()
 })

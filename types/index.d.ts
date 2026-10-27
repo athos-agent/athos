@@ -8,7 +8,7 @@ export type Status = {
   bars: {
     piece: string
     title: string
-    baseline_tokens: number | null
+    baseline_request_chars: number | null
     agents: Bar[]
   } | null
   last: {
@@ -28,8 +28,8 @@ export type Bar = {
   evaluated: number
   ok: number
   success_rate: number | null
-  mean_tokens: number | null
-  tokens_saved: number | null
+  mean_request_chars: number | null
+  prompt_saved: number | null
 }
 
 declare module 'claude-code' {
