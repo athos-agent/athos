@@ -71,6 +71,19 @@ once with `athos codex install` (Codex asks you to trust them with `/hooks`). Co
 run `athos watch` in a terminal beside it: one bar per agent for this project's know-how, the same bars Claude Code
 shows under its prompt, marked with g / c / f.
 
+### In Muse Code
+
+Meta's coding agent reads the same skills as Codex, from `~/.agents/skills`:
+
+```
+athos export --muse
+```
+
+Athos records each Muse Code task from Muse's own session logs (no hooks to trust), with the model that answered and
+the pieces it read, so `athos watch` and `/athos:report` show Muse Code beside Claude Code and Codex. Keep Muse Code's
+Contributor mode off (`muse` → `/settings`) unless you want Meta to train on your sessions; Athos warns when a task
+ran with it.
+
 ## Roadmap
 
 - OpenCode.

@@ -37,16 +37,15 @@ def frame(project: str, color: bool = True) -> str:
     if last:
         agent = dict(ev.AGENTS).get(last.get("platform"), last.get("platform"))
         out += ["", c("2", f"  last task: {agent} / {last.get('model', 'unknown')} · {last['result']}")]
+        if str(last.get("model", "")).endswith("-contributor"):
+            out.append(c("33", "  ⚠ contributor mode: Meta may train on what this task sent. Turn it off in muse → /settings."))
     out += ["", c("2", "  g good · c corrected · f failed (marks the last task here) · q quit")]
     return "\n".join(out)
 
 
 def _import_codex() -> None:
-    try:
-        from athos.adapters import codex
-        codex.import_sessions()
-    except Exception:  # noqa: BLE001
-        pass
+    from athos.cli import import_other_agents
+    import_other_agents()
 
 
 def run(cwd: str | None = None, interval: float = 2.0, once: bool = False) -> int:
