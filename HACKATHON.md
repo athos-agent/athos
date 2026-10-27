@@ -23,7 +23,8 @@ from what was built during the event.
 ## During the hackathon
 
 - [#9](https://github.com/athos-agent/athos/pull/9) Hackathon setup: this file, the `hackathon` label and the `athos/adapters/meta/` and `athos/eval/meta/` modules
-- [#11](https://github.com/athos-agent/athos/pull/11) One bar per agent for this project's know-how (success rate, mean time, time saved against the first run): under the prompt in Claude Code, and `athos watch` beside Codex and Muse Code (0.1.7)
+- [#11](https://github.com/athos-agent/athos/pull/11) One bar per agent for this project's know-how (success rate, mean tokens, tokens saved against the first run): under the prompt in Claude Code, and `athos watch` beside Codex and Muse Code (0.1.7)
+- Bars measure tokens instead of time: mean tokens per task and tokens saved against the run that taught the piece (0.1.8)
 - One-folder demo: Claude Code and Codex release the same package in turn, measured against the run that taught the piece (`demo/setup.sh`, `demo/prep.sh`, `demo/SCRIPT_GREG.md`)
 
 ## Meta models used

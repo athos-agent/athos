@@ -3,8 +3,8 @@
     athos watch          refreshes every 2 s; g / c / f mark the last task here (good, corrected, failed), q quits
 
 Codex and Muse Code have no room for Athos in their own footer, so this panel shows there what Claude Code shows in
-its footer: one bar per agent for the piece this project used last, filled by its success rate, with its mean time
-and the time it saves against the first run. Everything comes from the local evaluation log.
+its footer: one bar per agent for the piece this project used last, filled by its success rate, with its mean tokens
+per task and the tokens it saves against the first run. Everything comes from the local evaluation log.
 """
 
 from __future__ import annotations
@@ -28,8 +28,8 @@ def frame(project: str, color: bool = True) -> str:
     if b is None:
         out.append("  No task here has used a piece of know-how yet.")
     else:
-        out.append(c("2", f"  {b['title']}") + (c("2", f"  (first run {b['baseline_s']:.0f} s)")
-                                                if b["baseline_s"] is not None else ""))
+        out.append(c("2", f"  {b['title']}") + (c("2", f"  (first run {ev._k(b['baseline_tokens'])} tokens)")
+                                                if b["baseline_tokens"] is not None else ""))
         for row in b["agents"]:
             bar, words = ev.bar_line(row)
             out.append(f"  {row['label']:<12}" + c(COLORS.get(row["platform"], "0"), bar) + f"  {words}")
