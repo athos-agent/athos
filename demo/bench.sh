@@ -14,8 +14,14 @@ for v in claude meta local; do
   cp -R "$DEMO/greet" "$DEMO/greet-$v"
 done
 
-# good when the release is really there: the tag exists and the tests pass
-verdict() { (git tag -l v0.3.0 | grep -q . && .venv/bin/python -m pytest -q > /dev/null 2>&1) && echo g || echo f; }
+# What git and the tests say: failed without the tag or with failing tests; corrected when the piece's own rule "add a
+# test for any new option" was skipped (no more tests than before); good otherwise.
+verdict() {
+  git tag -l v0.3.0 | grep -q . && .venv/bin/python -m pytest -q > /dev/null 2>&1 || { echo f; return; }
+  now=$(.venv/bin/python -m pytest -q 2>/dev/null | sed -n 's/^\([0-9]*\) passed.*/\1/p' | tail -1)
+  [ "${now:-0}" -gt "$BEFORE" ] && echo g || echo c
+}
+BEFORE=$(cd "$DEMO/greet" && .venv/bin/python -m pytest -q 2>/dev/null | sed -n 's/^\([0-9]*\) passed.*/\1/p' | tail -1)
 
 cd "$DEMO/greet-claude"
 claude -p "$REQUEST" --permission-mode acceptEdits --allowedTools "Bash Read Edit Write" > /dev/null
