@@ -1,1 +1,1 @@
-# Meta adapter: delegate mastered tasks to Meta's open models (built during the Meta hackathon).
+# Meta adapter: run a mastered task in Claude Code or Codex driven by Meta's models (Meta Model API), built during the Meta hackathon.

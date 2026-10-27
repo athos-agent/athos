@@ -29,3 +29,7 @@ METRICS.md
 # Secrets
 .env
 .env.*
+
+# Secrets
+.env
+.env.*

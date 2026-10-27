@@ -10,6 +10,7 @@
     athos import codex [--include-tmp] record Codex's past tasks from its session files (report does it too)
     athos revert <id>                  put back a piece's previous version
     athos delegate <id> "<request>"    run a task you have mastered on a small local model (Ollama), recorded as `local`
+    athos delegate <id> "<request>" --via claude|codex   the same, in Claude Code or Codex driven by a Meta model
     athos mark g|c|f [task]            your verdict on the last task: good, corrected or failed
     athos report [--json]              what each piece and each model brings to your work
     athos status --json                what the terminal's status line and band show
@@ -184,8 +185,11 @@ def cmd_revert(args) -> int:
 
 
 def cmd_delegate(args) -> int:
+    if args.via:
+        return _delegate_meta(args)
     from athos import delegate
     import urllib.error
+    args.model = args.model or delegate.DEFAULT_MODEL
     try:
         r = delegate.delegate(args.id, args.request, args.model, yes=args.yes, max_steps=args.max_steps)
     except LookupError as e:
@@ -199,6 +203,22 @@ def cmd_delegate(args) -> int:
           f"{r['tokens']['total']:,} tokens · task {r['task_id']}. Mark it with `athos mark g|c|f`.")
     return 0
 
+
+
+def _delegate_meta(args) -> int:
+    from athos.adapters import meta
+    try:
+        r = meta.delegate(args.id, args.request, args.via, args.model or meta.DEFAULT_MODEL, yes=args.yes,
+                          max_steps=args.max_steps)
+    except (LookupError, PermissionError, ValueError, RuntimeError) as e:
+        print(e, file=sys.stderr)
+        return 1
+    except FileNotFoundError as e:
+        print(f"cannot start {args.via}: {e.strerror}. Is it installed?", file=sys.stderr)
+        return 1
+    print(f"\n{r['summary'].strip()}\n\n{r['platform']} / {r['model']}: {r['duration_s']} s, "
+          f"{r['tokens']['total']:,} tokens · task {r['task_id']}. Mark it with `athos mark g|c|f`.")
+    return 0 if r["exit_code"] == 0 and not r["error"] else 1
 
 def cmd_mark(args) -> int:
     cur = _current_session(os.getcwd())
@@ -284,7 +304,10 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("delegate")
     s.add_argument("id", help="the piece of know-how the task follows")
     s.add_argument("request")
-    s.add_argument("--model", default="gemma4:12b", help="an Ollama model (default gemma4:12b)")
+    s.add_argument("--via", choices=["claude", "codex"],
+                   help="run it in Claude Code or Codex on a Meta model (Meta Model API) instead of Ollama")
+    s.add_argument("--model", help="an Ollama model (default gemma4:12b), or with --via a Meta model "
+                                   "(default muse-spark-1.3; also muse-wonder-1.0)")
     s.add_argument("--yes", action="store_true", help="run the model's commands without asking for each")
     s.add_argument("--max-steps", type=int, default=20)
     s.set_defaults(fn=cmd_delegate)

@@ -22,8 +22,10 @@ from what was built during the event.
 
 ## During the hackathon
 
-- Hackathon setup: this file, the `hackathon` label and the `athos/adapters/meta/` and `athos/eval/meta/` modules
+- [#9](https://github.com/athos-agent/athos/pull/9) Hackathon setup: this file, the `hackathon` label and the `athos/adapters/meta/` and `athos/eval/meta/` modules
+- `athos delegate --via claude|codex`: run a mastered task in Claude Code or Codex driven by a Meta model through Meta Model API, with the piece as know-how, recorded with the model that answered (0.1.7)
 
 ## Meta models used
 
-None yet.
+- `muse-spark-1.3` (default) and `muse-wonder-1.0`, through Meta Model API (`https://api.meta.ai`), in
+  `athos/adapters/meta/`: Claude Code over the Messages API, Codex over the Responses API.
