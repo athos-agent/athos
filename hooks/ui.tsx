@@ -4,7 +4,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Status } from '../types'
+import type { Bar, Status } from '../types'
 
 const snap = atom({ plugin: 'athos', key: 'snap' } as const, null)
 const dismissed = atom({ plugin: 'athos', key: 'dismissed' } as const, null)
@@ -23,6 +23,24 @@ export function savedText(s: Status | null): string {
   if (last.saved.length) out.push(`saved ${last.saved.join(', ')}`)
   if (last.improved.length) out.push(`improved ${last.improved.join(', ')}`)
   return out.join(' · ')
+}
+
+const BAR_WIDTH = 20
+const BAR_COLORS: Record<string, string> = { 'claude-code': '#d38b5d', codex: '#6fa8dc', 'muse-code': '#9b8cf2' }
+
+/** A bar filled by the success rate, and the words beside it; the same as `athos watch` prints. */
+export function barText(b: Bar): { filled: string; empty: string; words: string } {
+  const n = Math.round((b.success_rate ?? 0) * BAR_WIDTH)
+  const words: string[] = []
+  if (!b.uses) words.push('not used yet')
+  else {
+    words.push(b.evaluated ? `${b.ok}/${b.evaluated} good` : 'not marked yet')
+    if (b.mean_duration_s !== null) words.push(`${Math.round(b.mean_duration_s)} s`)
+    if (b.time_saved !== null)
+      words.push(b.time_saved >= 0 ? `${Math.round(b.time_saved * 100)}% time saved`
+        : `${Math.round(-b.time_saved * 100)}% slower`)
+  }
+  return { filled: '█'.repeat(n), empty: '░'.repeat(BAR_WIDTH - n), words: words.join(' · ') }
 }
 
 async function athos($: EngineInterface, args: string[]): Promise<string> {
@@ -70,6 +88,31 @@ export const register: Register = on => {
     const done = await next(e)
     await refresh($)
     return done
+  }).catch(($, e, next) => next(e))
+
+  // Under the prompt: the engine's own line, then one bar per agent for the piece this project used last.
+  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
+    const bars = (await read($, snap))?.bars
+    if (e.surface !== 'terminal' || !bars?.agents.length) return next(e)
+    const { Box, Text } = $.ui.resolve(e)
+    const width = Math.max(...bars.agents.map(a => a.label.length))
+    return (
+      <Box flexDirection="column">
+        <Text dimColor>{e.props.hint}</Text>
+        <Text dimColor>{`  athos · ${bars.title}`}</Text>
+        {bars.agents.map(a => {
+          const t = barText(a)
+          return (
+            <Text key={a.platform}>
+              <Text>{`  ${a.label.padEnd(width)} `}</Text>
+              <Text color={BAR_COLORS[a.platform] ?? 'white'}>{t.filled}</Text>
+              <Text dimColor>{t.empty}</Text>
+              <Text>{`  ${t.words}`}</Text>
+            </Text>
+          )
+        })}
+      </Box>
+    )
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

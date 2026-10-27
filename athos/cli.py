@@ -9,6 +9,7 @@
     athos codex install|uninstall      add or remove Athos's hooks in Codex (~/.codex/hooks.json)
     athos import codex [--include-tmp] record Codex's past tasks from its session files (report does it too)
     athos revert <id>                  put back a piece's previous version
+    athos watch                       a live panel: one bar per agent for this project's know-how (for Codex)
     athos delegate <id> "<request>"    run a task you have mastered on a small local model (Ollama), recorded as `local`
     athos mark g|c|f [task]            your verdict on the last task: good, corrected or failed
     athos report [--json]              what each piece and each model brings to your work
@@ -245,6 +246,7 @@ def status() -> dict:
     saved = last.get("saved", []) if last else []
     improved = [pid for pid in saved if (store.get(pid) and store.get(pid).version > 1)]
     return {"pieces": len(store.all_pieces()), "enabled": len(load.enabled(os.getcwd())),
+            "bars": ev.bars(paths.project_of(os.getcwd())),
             "loading": control.describe(), "loaded": state.get("loaded", []),
             "to_mark": sum(1 for t in tasks if t["result"] == "unevaluated"),
             "last": {"task_id": last["task_id"], "result": last["result"], "pieces": last.get("pieces", []),
@@ -300,6 +302,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("report")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_report)
+    s = sub.add_parser("watch", help="a live panel of how each agent applies this project's know-how")
+    s.add_argument("--once", action="store_true", help="print the panel once and exit")
+    s.set_defaults(fn=lambda a: __import__("athos.watch", fromlist=["run"]).run(once=a.once))
     s = sub.add_parser("status")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_status)

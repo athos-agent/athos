@@ -286,6 +286,53 @@ def report(today: _dt.date | None = None) -> dict:
             "review": [p["piece"] for p in per_piece if p["review"]]}
 
 
+
+# ------------------------------------------------------------------------------------------------ bars
+AGENTS = (("claude-code", "Claude Code"), ("codex", "Codex"), ("muse-code", "Muse Code"))
+OPTIONAL_AGENTS = {"muse-code"}                       # shown only once it has used the piece
+
+
+def bars(project: str | None = None) -> dict | None:
+    """How each agent applies, in this project, the piece of know-how this project used last: one row per agent with
+    its uses here, its success rate over the tasks you marked, its mean time and the time it saves against the first
+    run, the one that taught the piece. None until a task here has used or saved a piece."""
+    ts = tasks()
+    here = [t for t in ts if project is None or t.get("project") == project]
+    last = next((t for t in reversed(here) if t["pieces"] or t["saved"]), None)
+    if last is None:
+        return None
+    pid = (last["pieces"] or last["saved"])[0]
+    base = next((t for t in ts if pid in t["saved"] and pid not in t["pieces"]), None)
+    base_s = base.get("duration_s") if base else None
+    piece = store.get(pid)
+    rows = []
+    for platform, label in AGENTS:
+        uses = [t for t in here if pid in t["pieces"] and t.get("platform") == platform]
+        if platform in OPTIONAL_AGENTS and not uses:
+            continue
+        rate, n_ev = _rate(uses)
+        mean_s = _mean([t.get("duration_s") for t in uses])
+        rows.append({"platform": platform, "label": label, "uses": len(uses), "evaluated": n_ev,
+                     "ok": sum(1 for t in uses if t["result"] == "ok"), "success_rate": rate,
+                     "mean_duration_s": mean_s,
+                     "time_saved": (base_s - mean_s) / base_s if base_s and mean_s is not None else None})
+    return {"piece": pid, "title": piece.title if piece else pid, "baseline_s": base_s, "agents": rows}
+
+
+def bar_line(row: dict, width: int = 20) -> tuple[str, str]:
+    """The bar (filled by the success rate) and the words beside it, shared by `athos watch` and the terminal."""
+    filled = round((row["success_rate"] or 0) * width)
+    bar = "█" * filled + "░" * (width - filled)
+    if not row["uses"]:
+        return bar, "not used yet"
+    words = [f"{row['ok']}/{row['evaluated']} good" if row["evaluated"] else "not marked yet"]
+    if row["mean_duration_s"] is not None:
+        words.append(f"{row['mean_duration_s']:.0f} s")
+    if row["time_saved"] is not None:
+        words.append(f"{row['time_saved'] * 100:.0f}% time saved" if row["time_saved"] >= 0
+                     else f"{-row['time_saved'] * 100:.0f}% slower")
+    return bar, " · ".join(words)
+
 def _pct(x):
     return "—" if x is None else f"{x * 100:.0f}%"
 
