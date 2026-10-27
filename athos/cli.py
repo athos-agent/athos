@@ -10,6 +10,7 @@
     athos import codex [--include-tmp] record Codex's past tasks from its session files (report does it too)
     athos revert <id>                  put back a piece's previous version
     athos watch                       a live panel: one bar per agent for this project's know-how (for Codex)
+    athos export --muse [<folder>]    the same skills for Muse Code; `athos import muse` records its tasks
     athos delegate <id> "<request>"    run a task you have mastered on a small local model (Ollama), recorded as `local`
     athos delegate <id> "<request>" --backend meta   the same on Meta Model API (muse-spark-1.3), recorded as `meta`
     athos mark g|c|f [task]            your verdict on the last task: good, corrected or failed
@@ -146,11 +147,12 @@ def cmd_load(args) -> int:
 
 
 def cmd_export(args) -> int:
-    if args.codex:
+    if args.codex or args.muse:
         from athos.adapters import codex
         dest = Path(args.dir).expanduser() if args.dir else codex.skills_dir()
         n, removed = codex.export_skills(dest)
-        print(f"exported {n} piece(s) as Codex skills to {dest}" + (f" (removed {removed} stale)" if removed else ""))
+        who = "Codex and Muse Code" if args.muse else "Codex"
+        print(f"exported {n} piece(s) as skills for {who} to {dest}" + (f" (removed {removed} stale)" if removed else ""))
         return 0
     if not args.dir:
         print("name a folder to export to", file=sys.stderr)
@@ -215,14 +217,23 @@ def cmd_delegate(args) -> int:
     return 0
 
 
+def import_other_agents() -> list[str]:
+    """Record the tasks Codex and Muse Code ran since the last look, from their own session logs. Returns what failed,
+    so a broken log never stops a mark or a report."""
+    from athos.adapters import codex, muse
+    failed = []
+    for name, mod in (("Codex", codex), ("Muse Code", muse)):
+        try:
+            mod.import_sessions()
+        except Exception as e:  # noqa: BLE001
+            failed.append(f"{name}: {e}")
+    return failed
+
+
 def cmd_mark(args) -> int:
     cur = _current_session(os.getcwd())
     if not args.task:
-        from athos.adapters import codex
-        try:
-            codex.import_sessions()                    # a Codex task just finished here may be the one meant
-        except Exception:  # noqa: BLE001
-            pass
+        import_other_agents()                          # a Codex or Muse Code task just finished here may be the one meant
     try:
         tid, res = ev.mark(args.result, args.task, cur.get("session_id"), paths.project_of(os.getcwd()))
     except (ValueError, LookupError) as e:
@@ -233,18 +244,16 @@ def cmd_mark(args) -> int:
 
 
 def cmd_import(args) -> int:
-    from athos.adapters import codex
-    out = codex.import_sessions(Path(args.sessions).expanduser() if args.sessions else None, args.include_tmp)
-    print(f"Codex: {out['imported']} task(s) imported from {out['files']} session file(s) ({out['skipped']} skipped)")
+    from athos.adapters import codex, muse
+    mod, name = (muse, "Muse Code") if args.platform == "muse" else (codex, "Codex")
+    out = mod.import_sessions(Path(args.sessions).expanduser() if args.sessions else None, args.include_tmp)
+    print(f"{name}: {out['imported']} task(s) imported from {out['files']} session file(s) ({out['skipped']} skipped)")
     return 0
 
 
 def cmd_report(args) -> int:
-    from athos.adapters import codex
-    try:
-        codex.import_sessions()                       # Codex's tasks are always in the report, hooks or not
-    except Exception as e:  # noqa: BLE001
-        print(f"(Codex sessions not imported: {e})", file=sys.stderr)
+    for failed in import_other_agents():              # Codex's and Muse Code's tasks are always in the report
+        print(f"(sessions not imported: {failed})", file=sys.stderr)
     r = ev.report()
     print(json.dumps(r, indent=1, ensure_ascii=False) if args.json else ev.render(r))
     return 0
@@ -290,6 +299,7 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("export")
     s.add_argument("dir", nargs="?")
     s.add_argument("--codex", action="store_true", help="write each piece as a Codex skill (default ~/.agents/skills)")
+    s.add_argument("--muse", action="store_true", help="the same skills for Muse Code, which reads ~/.agents/skills too")
     s.set_defaults(fn=cmd_export)
     s = sub.add_parser("codex")
     s.add_argument("action", choices=["install", "uninstall"])
@@ -312,8 +322,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("task", nargs="?")
     s.set_defaults(fn=cmd_mark)
     s = sub.add_parser("import")
-    s.add_argument("platform", choices=["codex"])
-    s.add_argument("--sessions", help="Codex sessions folder (default ~/.codex/sessions)")
+    s.add_argument("platform", choices=["codex", "muse"])
+    s.add_argument("--sessions", help="sessions folder (default ~/.codex/sessions, or ~/.local/share/muse/sessions)")
     s.add_argument("--include-tmp", action="store_true", help="also sessions run in temporary folders (tests)")
     s.set_defaults(fn=cmd_import)
     s = sub.add_parser("report")
