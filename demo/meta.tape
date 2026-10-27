@@ -1,10 +1,11 @@
+# Every take is checked before it is kept: the marks the tape presses must match `git log` and `git tag -n1`.
 # The Muse Code take: Claude Code learns a release once, Muse Code does the next one in the same folder with a
 # one-line request, and athos watch fills both bars. Waits are hidden, not sped up: every number is the real one.
 #
 #   sh demo/setup.sh && sh demo/prep.sh && vhs demo/meta.tape
 #
 # Muse Code runs with its API key (`muse auth set --api-key-stdin`) on muse-spark-1.3, never the -contributor model.
-# The recording shell turns off Athos's capture (done in prep.sh) and Claude Code's IDE link, and tmux hides its status
+# The recording shell shows only the folder in its prompt, turns off Athos's capture (done in prep.sh) and Claude Code's IDE link, and tmux hides its status
 # bar, so no local user, host or editor selection shows up.
 Output "demo/meta.gif"
 Set Shell "zsh"
@@ -20,6 +21,8 @@ Type "cd ~/athos-demo/greet && export ATHOS_HOME=~/athos-demo/home && . .venv/bi
 Sleep 1s
 Type `tmux new-session -s meta \; set -g status off \; split-window -h -l 74 "python3 ~/.athos/bin/athos watch" \; select-pane -L` Enter
 Sleep 3s
+Type "PROMPT='%1~ %# ' && clear" Enter
+Sleep 1s
 Type "claude --permission-mode acceptEdits --allowedTools 'Bash Read Edit Write'" Enter
 Wait+Screen@60s /Yes, I trust this folder|accept edits on/
 Sleep 1s
@@ -67,8 +70,8 @@ Sleep 1s
 Enter
 Sleep 2s
 Hide
-Wait+Screen /v0\.4\.0/
-Sleep 25s
+Wait+Screen /annotated tag v0\.4\.0|tagged locally|Released 0\.4\.0/
+Sleep 6s
 Show
 Sleep 4s
 Hide

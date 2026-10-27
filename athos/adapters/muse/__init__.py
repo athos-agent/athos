@@ -8,7 +8,8 @@ Muse Code keeps every session in `~/.local/share/muse/sessions/YYYY/MM/DD/<id>/s
 inside one another (some as JSON text in `record_json`), so the import looks for fields by name: the workspace, the
 model, each request the person typed, the provider usage records (subagents included, since they are part of what the
 task cost) and the Athos skills Muse read. A task is one request, from the moment it was typed until the next one; it
-is imported once finished (another request followed, or the session ended), so a running task is never cut short.
+is imported once finished (another request followed, the session ended, or its log has been still for ten minutes),
+so a running task is never cut short and a killed one is not lost.
 
 Contributor mode (a `-contributor` model) lets Meta train on what it was sent; such tasks are recorded as they ran, and
 `athos watch` and the report say so.
@@ -20,12 +21,14 @@ import datetime as _dt
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 from athos import store
 
 SKILL_USE = re.compile(r'read-skill-result name=\\*"athos-([a-z0-9][a-z0-9-]*)\\*"')
 TMP_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/")
+IDLE_S = 600             # a session untouched this long has stopped, even if Muse never wrote its end (a killed run)
 
 
 def sessions_dir() -> Path:
@@ -119,6 +122,8 @@ def import_sessions(root: Path | None = None, include_tmp: bool = False) -> dict
     for f in sorted(root.glob("*/*/*/*/session.jsonl")) if root.is_dir() else []:
         out["files"] += 1
         s = read_session(f)
+        if time.time() - f.stat().st_mtime > IDLE_S and s["tasks"]:
+            s["tasks"][-1]["finished"] = True
         ws = s["workspace"] or ""
         for i, t in enumerate(s["tasks"]):
             tid = f"mu-{s['session_id']}-{i}"
