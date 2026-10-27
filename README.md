@@ -8,6 +8,8 @@ That know-how stays locked in one agent and one chat. Athos keeps it as plain ma
 the next agent (Claude Code, Codex, Muse Code) so you never explain it twice, and shows what each agent and model does
 with it on your own tasks.
 
+Why this should exist, and what isn't solved yet: [WHY.md](WHY.md).
+
 ![Claude Code learns how a package is released; Codex does the next release in the same folder with no explanation. The bars show each agent's success and how much shorter the request was.](demo/athos-claude-to-codex.gif)
 
 *Claude Code learns once how this package is released. Codex then does the next release in the same folder with a
