@@ -148,6 +148,10 @@ starts), show and list pieces, and save what a conversation taught (`athos_save`
 - **Athos Cloud**: sync between your devices, a visual map of your know-how, daily control over what is shared, and an
   improvement agent as a service.
 
+## Thanks
+
+To the people whose ideas shaped Athos: see [WHY.md](WHY.md#thanks).
+
 ## License
 
 Apache 2.0. See [LICENSE](LICENSE).

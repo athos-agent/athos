@@ -73,3 +73,11 @@ for.
 
 Athos is an early alpha and open source under Apache 2.0. Try it on a real task, tell me what breaks, and open an issue
 with what you'd want it to do: https://github.com/athos-agent/athos
+
+## Thanks
+
+Garry Tan's Startup School 2026 talk ([video](https://www.youtube.com/watch?v=eRrc1pUY5oU)) makes the case Athos is
+built on: the skills you teach agents should be yours, and every task should leave one behind. It also pushed Athos to
+keep its memory clean, checking for conflicting advice and proposing what to retire (0.1.23). Thank you for sharing
+these ideas in the open. If you want a personal library of skills, his GBrain is worth a look; Athos focuses on
+measuring which skills work, on which agent and model, and handing the mastered ones to cheaper models.
