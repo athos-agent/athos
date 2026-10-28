@@ -12,7 +12,7 @@ import re
 
 from athos import eval as ev, paths, session, store
 
-THRESHOLD = 3          # tool calls since the last capture before a Stop asks for one (a release took 3)
+THRESHOLD = 3          # tool calls in the turn before a Stop asks for one (a release took 3); one must change something
 
 FORMAT = """{cmd} save <<'EOF'
 ---
@@ -84,7 +84,7 @@ def save_text(text: str, session_id: str = "default", cwd: str | None = None,
         piece, diff = store.create(title, when, body, projects=[project], origin=origin, piece_id=pid or None), None
     state = session.load(session_id)
     state["saved"] = sorted(set(state.get("saved", [])) | {piece.id})
-    state["tools_since_capture"] = 0
+    state["tools_since_capture"] = state["work_since_capture"] = 0
     session.save(session_id, state)
     ev.note_saved(session_id, piece.id)
     from athos import wiki
@@ -125,12 +125,61 @@ def _counts(event: dict) -> bool:
     return not re.search(r"(^|[\s/])athos(\s|$)", cmd)
 
 
+# Tools that only look: a turn made of them (reading files, searching, checking a PR) taught nothing to keep.
+READ_TOOLS = {"Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch", "ToolSearch", "TodoWrite", "ListMcpResourcesTool",
+              "ReadMcpResourceTool", "AskUserQuestion"}
+READ_COMMANDS = {"ls", "cat", "head", "tail", "less", "grep", "rg", "egrep", "find", "which", "type", "wc", "echo", "pwd",
+                 "file", "stat", "du", "df", "jq", "sort", "uniq", "cut", "tr", "diff", "cmp", "date", "env", "printenv",
+                 "whoami", "uname", "test", "[", "true", "cd", "sleep", "column", "basename", "dirname", "realpath"}
+READ_SUBCOMMANDS = {"git": {"status", "log", "diff", "show", "fetch", "branch", "remote", "rev-parse", "merge-base",
+                            "ls-files", "blame", "describe", "config"},
+                    "gh": {"pr view", "pr list", "pr checks", "pr diff", "pr status", "run view", "run list",
+                           "issue view", "issue list", "repo view", "api", "auth status", "search"}}
+
+
+def _read_only_shell(cmd: str) -> bool:
+    """A shell command that only reads: every piece of its chain is a known read-only command and nothing is written
+    to a file. `sed -n` reads; `sed -i` and any other unknown command count as work."""
+    if re.search(r"(?<![0-9&])>(?!&|\s*/dev/null)", cmd):
+        return False
+    for part in re.split(r"&&|\|\||[;|\n]", cmd):
+        words = [w for w in part.strip().split() if not re.match(r"^[A-Z_][A-Z0-9_]*=", w)]
+        if not words:
+            continue
+        head = words[0].rsplit("/", 1)[-1]
+        if head == "sed":
+            if "-n" not in words or "-i" in words:
+                return False
+        elif head in READ_SUBCOMMANDS:
+            rest = " ".join(w for w in words[1:] if not w.startswith("-"))
+            if not any(rest == sub or rest.startswith(sub + " ") for sub in READ_SUBCOMMANDS[head]):
+                return False
+            if head == "gh" and rest.startswith("api") and re.search(r"-X\s*(POST|PUT|PATCH|DELETE)", part):
+                return False
+        elif head not in READ_COMMANDS:
+            return False
+    return True
+
+
+def _does_work(event: dict) -> bool:
+    """Whether a tool call changed something (an edit, a write, a command that is not a pure read). Calls with no tool
+    name, or a tool Athos does not know, count as work."""
+    tool = event.get("tool_name") or ""
+    if tool in READ_TOOLS:
+        return False
+    if tool == "Bash":
+        return not _read_only_shell(str((event.get("tool_input") or {}).get("command", "")))
+    return True
+
+
 def count_tool(event: dict) -> None:
     if not _counts(event):
         return
     sid = event.get("session_id", "default")
     state = session.load(sid)
     state["tools_since_capture"] = state.get("tools_since_capture", 0) + 1
+    if _does_work(event):
+        state["work_since_capture"] = state.get("work_since_capture", 0) + 1
     session.save(sid, state)
 
 
@@ -146,9 +195,11 @@ def stop_decision(event: dict, cmd: str = "athos") -> dict | None:
         return None
     sid = event.get("session_id", "default")
     state = session.load(sid)
-    if state.get("tools_since_capture", 0) < THRESHOLD:
+    # Ask only after real work: enough tool calls, and at least one that changed something. A turn of reads and
+    # checks (answering a question, looking at a PR) ends quietly.
+    if state.get("tools_since_capture", 0) < THRESHOLD or not state.get("work_since_capture", 0):
         return None
-    state["tools_since_capture"] = 0
+    state["tools_since_capture"] = state["work_since_capture"] = 0
     state["asked"] = state.get("asked", 0) + 1
     session.save(sid, state)
     if state.get("guide"):
