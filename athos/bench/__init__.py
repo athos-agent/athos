@@ -1,8 +1,11 @@
 """`athos bench`: the same task, several times, on each agent and model, with and without the know-how, and a verdict
 that comes from the result itself (git, the tests, the files written), never from the model's own word.
 
-Each case is a folder in `cases/`: `case.json` (title, domain, when, request), `piece.md` (the know-how), `setup.py <dir>`
+Each case is a folder in `cases/`, or in your own `~/.athos/bench/cases/` (and any folder in `ATHOS_BENCH_CASES`,
+separated by `:`), for cases whose data must stay on your machine: `case.json` (title, domain, when, request), `piece.md` (the know-how), `setup.py <dir>`
 (builds a fresh workspace) and `check.py <dir>` (prints `{"verdict": "g|c|f", "score": 0..1, "missed": [...]}`).
+`case.json` may also set `timeout_s` (default 900), `max_usd_per_run` (Claude Code's own budget cap), `max_steps`
+(Athos's loop, default 20) and `check_timeout_s` (default 300) for long tasks.
 Every run gets its own temporary workspace and its own temporary Athos home, so nothing touches the user's store or
 their recorded tasks. Results go to `~/.athos/bench/results.jsonl`, apart from the real-work events.
 """
@@ -34,10 +37,15 @@ def results_file() -> Path:
     return paths.home() / "bench" / "results.jsonl"
 
 
+def case_dirs() -> list[Path]:
+    extra = [Path(p).expanduser() for p in os.environ.get("ATHOS_BENCH_CASES", "").split(os.pathsep) if p]
+    return [CASES, paths.home() / "bench" / "cases", *extra]
+
+
 def cases() -> dict[str, dict]:
     out = {}
-    for d in sorted(CASES.iterdir()):
-        if (d / "case.json").exists():
+    for d in sorted(d for root in case_dirs() if root.is_dir() for d in root.iterdir()):
+        if (d / "case.json").exists() and d.name not in out:
             out[d.name] = {**json.loads((d / "case.json").read_text()), "dir": d,
                            "piece": (d / "piece.md").read_text()}
     return out
@@ -53,11 +61,15 @@ def setup(case: dict, ws: Path) -> None:
 
 def check(case: dict, ws: Path) -> dict:
     r = subprocess.run([sys.executable, str(case["dir"] / "check.py"), str(ws)], capture_output=True, text=True,
-                       timeout=300)
+                       timeout=int(case.get("check_timeout_s") or 300))
     try:
         return json.loads(r.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
         return {"verdict": "f", "score": 0.0, "missed": [f"check failed: {r.stderr.strip()[-300:]}"]}
+
+
+def _timeout(case: dict) -> int:
+    return int(case.get("timeout_s") or TIMEOUT)
 
 
 def _env(home: Path) -> dict:
@@ -76,9 +88,11 @@ def run_claude(case, ws, home, with_piece, model=None):
            "--allowedTools", CLAUDE_TOOLS, "--no-session-persistence"]
     if model:
         cmd += ["--model", model]
+    if case.get("max_usd_per_run"):
+        cmd += ["--max-budget-usd", str(case["max_usd_per_run"])]
     if with_piece:
         cmd += ["--append-system-prompt", f"Know-how for this kind of task ({case['title']}):\n\n{case['piece']}"]
-    r = subprocess.run(cmd, cwd=ws, env=_env(home), capture_output=True, text=True, timeout=TIMEOUT)
+    r = subprocess.run(cmd, cwd=ws, env=_env(home), capture_output=True, text=True, timeout=_timeout(case))
     try:
         out = json.loads(r.stdout)
     except ValueError:
@@ -103,7 +117,7 @@ def run_codex(case, ws, home, with_piece, model=None):
     if model:
         cmd += ["-m", model]
     r = subprocess.run(cmd + [case["request"]], cwd=ws, env=_env(home), capture_output=True, text=True,
-                       timeout=TIMEOUT, stdin=subprocess.DEVNULL)
+                       timeout=_timeout(case), stdin=subprocess.DEVNULL)
     tokens = {"input": 0, "output": 0}
     for line in r.stdout.splitlines():
         try:
@@ -126,7 +140,7 @@ def run_muse(case, ws, home, with_piece, model=None):
         (d / "SKILL.md").write_text(_skill(case))
     cmd = ["muse", "exec", "--json", "--model", model, "--trust-workspace", "--disable-approval",
            "--no-foreign-personal-context", "--workspace", str(ws), case["request"]]
-    r = subprocess.run(cmd, cwd=ws, env=_env(home), capture_output=True, text=True, timeout=TIMEOUT,
+    r = subprocess.run(cmd, cwd=ws, env=_env(home), capture_output=True, text=True, timeout=_timeout(case),
                        stdin=subprocess.DEVNULL)
     tokens, note = {"input": 0, "output": 0}, ""
     for line in r.stdout.splitlines():
@@ -162,6 +176,7 @@ def _run_delegate(case, ws, home, with_piece, model, platform):
         else:
             chat_fn, model = delegate.chat, model or delegate.DEFAULT_MODEL
         r = delegate.delegate(p.id, case["request"], model, cwd=ws, yes=True, out=lambda *_: None,
+                              max_steps=int(case.get("max_steps") or delegate.MAX_STEPS),
                               chat_fn=chat_fn, platform=platform)
     finally:
         if old is None:
@@ -197,7 +212,8 @@ def run_once(name: str, case: dict, agent: str, with_piece: bool = True, model: 
     try:
         out = (runner or RUNNERS[agent])(case, ws, home, with_piece, model)
     except subprocess.TimeoutExpired:
-        out = {"tokens": {}, "cost_usd": None, "model": model or "default", "note": f"timed out after {TIMEOUT} s"}
+        out = {"tokens": {}, "cost_usd": None, "model": model or "default",
+               "note": f"timed out after {_timeout(case)} s"}
     except Exception as e:  # noqa: BLE001 — a crashed agent is a failed run, not a crashed bench
         out = {"tokens": {}, "cost_usd": None, "model": model or "default", "note": f"{type(e).__name__}: {e}"[:200]}
     duration = round(time.monotonic() - t0, 1)
@@ -206,7 +222,7 @@ def run_once(name: str, case: dict, agent: str, with_piece: bool = True, model: 
            "model": out.get("model"), "know_how": with_piece, "verdict": res.get("verdict", "f"),
            "score": res.get("score"), "missed": res.get("missed", []), "duration_s": duration,
            "tokens": out.get("tokens") or {}, "cost_usd": out.get("cost_usd"), "note": out.get("note", "")}
-    for k in ("stages_done", "invented"):
+    for k in ("stages_done", "stages_total", "invented", "check_cost_usd"):
         if k in res:
             row[k] = res[k]
     if keep:
@@ -247,7 +263,7 @@ def run(names: list[str], agents: list[str], runs: int = 5, with_piece: bool = T
                     row = run_once(name, all_cases[name], agent, arm, (models or {}).get(agent), runner, keep)
                     save(row)
                     rows.append(row)
-                    spent += row["cost_usd"] or 0.0
+                    spent += (row["cost_usd"] or 0.0) + (row.get("check_cost_usd") or 0.0)
                     cost = f"US${row['cost_usd']:.3f}" if row["cost_usd"] is not None else "cost unknown"
                     out(f"{i + 1}/{runs} {name:<15} {agent:<6} {'with' if arm else 'without':<7} know-how: "
                         f"{row['verdict']} ({row['score']}) {row['duration_s']} s, {cost}"
@@ -282,6 +298,7 @@ def report(rows: list[dict] | None = None) -> dict:
         if any("invented" in r for r in rs):
             line["median_invented"] = _median([r.get("invented") for r in rs])
             line["median_stages"] = _median([r.get("stages_done") for r in rs])
+            line["stages_total"] = max((r.get("stages_total") or 0 for r in rs), default=0) or None
         out.setdefault(case, {"lines": []})["lines"].append(line)
     for case, c in out.items():
         with_kh = [x for x in c["lines"] if x["know_how"]]
@@ -305,7 +322,8 @@ def render(rep: dict) -> str:
         for x in c["lines"]:
             cost = f"${x['median_cost_usd']:.3f}" if x["median_cost_usd"] is not None else "?"
             tok = f"{int(x['median_tokens']):,}" if x["median_tokens"] else "?"
-            extra = f"  stages {x['median_stages']:g}/8, invented {x['median_invented']:g}" \
+            of = f"/{x['stages_total']}" if x.get("stages_total") else ""
+            extra = f"  stages {x['median_stages']:g}{of}, invented {x['median_invented']:g}" \
                 if "median_invented" in x else ""
             lines.append(f"  {(x['agent'] + ' / ' + str(x['model']))[:34]:<34} {'with' if x['know_how'] else 'without':<8}"
                          f" {x['runs']:>4}  {x['g']}/{x['c']}/{x['f']:<3} {x['success']:>7.0%} {x['median_s']:>6}s "
