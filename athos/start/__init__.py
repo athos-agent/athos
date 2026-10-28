@@ -16,13 +16,13 @@ from athos import paths, store
 
 STARTERS = Path(__file__).resolve().parents[1] / "starters"
 LANGS = ("es", "en")
-PROFILES = ("law", "medicine", "other")
+PROFILES = ("law", "sports", "other")
 
 # The words the person sees. Model-facing text stays in English; what a person reads follows their language.
 TEXT = {
     "en": {
         "ask_lang": "Language / Idioma:  1) Español  2) English  [2] ",
-        "ask_profile": "What is your work?  1) Law  2) Medicine  3) Something else  [3] ",
+        "ask_profile": "What is your work?  1) Law  2) Sports coaching  3) Something else  [3] ",
         "installed": "Added {n} example ways of working for your profession:",
         "skipped": "(already there: {names})",
         "none": "No examples for this profession yet: Athos learns your ways of working as you use it.",
@@ -33,7 +33,7 @@ TEXT = {
         "terminal": "2. From a terminal: run `claude`, `codex` or `muse` inside that folder; Athos works the same.",
         "try": "Try asking, in your own words:",
         "privacy": "Your ways of working never leave this machine. The AI model you use (Claude, Codex, Meta's Muse) "
-                   "does see the documents you show it: anonymise client or patient data, or use a local model "
+                   "does see the documents you show it: anonymise client or personal data, or use a local model "
                    "(`athos delegate`).",
         "after": "After each task, mark how it went (Good / Corrected / Failed): Athos learns which ways of working "
                  "help you, and improves them with you.",
@@ -43,7 +43,7 @@ TEXT = {
     },
     "es": {
         "ask_lang": "Language / Idioma:  1) Español  2) English  [1] ",
-        "ask_profile": "¿A qué te dedicás?  1) Abogacía  2) Medicina  3) Otra cosa  [3] ",
+        "ask_profile": "¿A qué te dedicás?  1) Abogacía  2) Entrenamiento deportivo  3) Otra cosa  [3] ",
         "installed": "Agregué {n} formas de trabajar de ejemplo para tu profesión:",
         "skipped": "(ya estaban: {names})",
         "none": "Todavía no hay ejemplos para esta profesión: Athos aprende tus formas de trabajar mientras lo usás.",
@@ -54,7 +54,7 @@ TEXT = {
         "terminal": "2. Desde una terminal: corré `claude`, `codex` o `muse` dentro de esa carpeta; Athos funciona igual.",
         "try": "Probá pedir, con tus palabras:",
         "privacy": "Tus formas de trabajar nunca salen de esta máquina. El modelo de IA que uses (Claude, Codex, Muse "
-                   "de Meta) sí ve los documentos que le muestres: anonimizá los datos de clientes o pacientes, o "
+                   "de Meta) sí ve los documentos que le muestres: anonimizá los datos de clientes o datos personales, o "
                    "usá un modelo local (`athos delegate`).",
         "after": "Después de cada tarea, marcá cómo salió (Salió bien / Lo corregí / Falló): Athos aprende qué formas "
                  "de trabajar te sirven y las mejora con vos.",
@@ -69,10 +69,10 @@ TRY = {
                     "Revisá este contrato de locación con mi checklist y devolveme las observaciones."],
     ("en", "law"): ["Help me build the argument of this answer to the complaint (the other side's filing is attached).",
                     "Review this lease against my checklist and give me the comments."],
-    ("es", "medicine"): ["Ordená la planificación de este reemplazo total de rodilla con estos estudios anonimizados.",
-                         "Resumí esta derivación para la consulta de mañana."],
-    ("en", "medicine"): ["Organise the planning of this total knee replacement from these anonymised studies.",
-                         "Summarise this referral for tomorrow's visit."],
+    ("es", "sports"): ["Planificá la semana que viene de este atleta con mis reglas (adjunto su registro de sesiones).",
+                       "Escribí el informe post partido con estas estadísticas."],
+    ("en", "sports"): ["Plan next week for this athlete with my rules (their session log is attached).",
+                       "Write the post-match report from these stats."],
     ("es", "other"): ["Hacé el informe semanal como lo hago yo: te explico los pasos la primera vez."],
     ("en", "other"): ["Write the weekly report the way I do it: I'll explain the steps the first time."],
 }

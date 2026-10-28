@@ -1,4 +1,4 @@
-# Athos para profesionales (abogacía, medicina y cualquier oficio)
+# Athos para profesionales (abogacía, entrenamiento deportivo y cualquier oficio)
 
 No hace falta programar. Si sabés explicarle a un colega nuevo cómo hacés tu trabajo, ya sabés usar Athos.
 
@@ -18,7 +18,7 @@ computadora, y se las da a la IA la próxima vez, para que no tengas que repetir
    /plugin install athos --marketplace athos-agent/athos
    ```
    y reiniciá Claude Desktop cuando te lo pida.
-4. Pedile a Claude, con tus palabras: *«Corré `athos start --lang es --profile law`»* (o `--profile medicine`, u
+4. Pedile a Claude, con tus palabras: *«Corré `athos start --lang es --profile law`»* (o `--profile sports`, u
    `other` para otra profesión). Eso agrega formas de trabajar de ejemplo de tu profesión y te dice cómo seguir.
 
 Athos necesita Python 3, que en una Mac se instala solo la primera vez que algo lo pide (aceptá la instalación de las
@@ -38,8 +38,8 @@ documentos: Athos funciona igual en los tres.
 
 ## El día a día
 
-- **Pedí como le pedirías a un colega.** *«Revisá este contrato con mi checklist»*, *«Ordená la planificación de esta
-  rodilla con estos estudios»*. Si Athos tiene una forma de trabajar para eso, la IA la sigue sola.
+- **Pedí como le pedirías a un colega.** *«Revisá este contrato con mi checklist»*, *«Planificá la semana de este
+  atleta con mis reglas»*. Si Athos tiene una forma de trabajar para eso, la IA la sigue sola.
 - **La primera vez, explicá.** Cuando una tarea no tiene todavía su forma de trabajar, explicale a la IA cómo la
   hacés. Al terminar, Athos le pregunta si vale la pena guardarla, y queda para la próxima.
 - **Marcá cómo salió.** Después de cada tarea aparecen tres botones: **Salió bien**, **Lo corregí**, **Falló**. Con
@@ -50,15 +50,15 @@ documentos: Athos funciona igual en los tres.
 
 ## Los ejemplos que trae
 
-Son formas de trabajar genéricas para empezar, **no son asesoramiento legal ni médico**: todas dejan las decisiones
+Son formas de trabajar genéricas para empezar, **no son asesoramiento legal**: todas dejan las decisiones
 profesionales en tus manos y le piden a la IA que pregunte en vez de decidir.
 
 | Profesión | Forma de trabajar |
 |---|---|
 | Abogacía | Armar el argumento de un escrito según el auditorio (a quién convencer, premisas acordadas, técnicas, objeciones, orden) |
 | Abogacía | Revisar un contrato con tu checklist (cláusula por cláusula, tabla de observaciones) |
-| Medicina | Ordenar la planificación de un reemplazo total de rodilla (estudios, mediciones con su fuente, decisiones del cirujano) |
-| Medicina | Resumir una derivación para la consulta (cada dato con su documento, faltantes) |
+| Entrenamiento | Planificar la semana de entrenamiento con tus reglas (cargas calculadas con código, objetivo, días duros, descanso después de la tirada larga) |
+| Entrenamiento | Escribir el informe post partido en tu formato (números con su fuente, tres cosas bien y tres a corregir) |
 
 Reemplazalas por las tuyas: la mejor forma de trabajar es la que ya usás.
 
@@ -66,7 +66,7 @@ Reemplazalas por las tuyas: la mejor forma de trabajar es la que ya usás.
 
 - **Tus formas de trabajar no salen de tu computadora.** Athos no tiene servidor ni cuenta; no envía nada.
 - **La IA sí ve lo que le mostrás.** Claude, Codex y Muse procesan en la nube los documentos que abrís en la sesión.
-  Con datos de clientes o pacientes: anonimizá (sin nombres, documentos ni fechas de nacimiento) o usá un modelo que
+  Con datos de clientes o datos personales: anonimizá (sin nombres, documentos ni fechas de nacimiento) o usá un modelo que
   corre en tu computadora, sin internet (`athos delegate`, con [Ollama](https://ollama.com)).
 - **Muse Code:** dejá apagado el modo *Contributor* (`/settings`), salvo que quieras que Meta entrene con tus sesiones.
 - La responsabilidad profesional sigue siendo tuya: la IA propone, vos decidís y firmás.

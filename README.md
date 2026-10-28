@@ -10,7 +10,7 @@ with it on your own tasks.
 
 Why this should exist, and what isn't solved yet: [WHY.md](WHY.md).
 
-Not a programmer? Lawyers, doctors and any professional can start without a terminal: [docs/PROFESSIONALS.md](docs/PROFESSIONALS.md) · en español: [docs/PROFESIONALES.md](docs/PROFESIONALES.md).
+Not a programmer? Lawyers, coaches and any professional can start without a terminal: [docs/PROFESSIONALS.md](docs/PROFESSIONALS.md) · en español: [docs/PROFESIONALES.md](docs/PROFESIONALES.md).
 
 ![Claude Code learns how a package is released; Codex does the next release in the same folder with no explanation. The bars show each agent's success and how much shorter the request was.](demo/athos-claude-to-codex.gif)
 
@@ -53,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/athos-agent/athos/main/install.sh |
 athos export --muse          your pieces as skills Muse Code and Codex read
 ```
 
-Then `athos start` asks your language and profession and adds example ways of working (law and medicine today).
+Then `athos start` asks your language and profession and adds example ways of working (law and sports coaching today).
 
 Requires Python 3.11+ (the installer picks the newest one you have). No other dependencies. Your know-how lives in
 `~/.athos/know-how`, the same for every agent.
@@ -91,7 +91,7 @@ times on each agent and model, with and without the know-how, and checks what ea
 the files) instead of taking the agent's word:
 
 ```
-athos bench --list                                         four cases: code, data, devices and a planning method
+athos bench --list                                         five cases: code, data, devices, a planning method, sports coaching
 athos bench all --agents claude,meta,local --runs 5 --without --max-usd 5
 athos bench report                                         success, time, tokens and cost per agent; the cheapest that keeps up
 ```
