@@ -63,7 +63,7 @@ class CaptureTest(TempHome):
             del os.environ["ATHOS_CAPTURE"]
 
     def test_stop_suggests_improving_loaded_pieces(self):
-        session.update("s1", loaded=["fix-flaky-test"], tools_since_capture=capture.THRESHOLD)
+        session.update("s1", loaded=["fix-flaky-test"], tools_since_capture=capture.THRESHOLD, work_since_capture=1)
         self.assertIn("fix-flaky-test", capture.stop_decision({"session_id": "s1"})["reason"])
 
 
@@ -120,3 +120,31 @@ class QuietCaptureTest(TempHome):
         piece, _ = capture.save_text(PIECE, "s5")
         self.assertTrue((d / f"athos-{piece.id}" / "SKILL.md").exists())
         self.assertEqual(session.load("s5")["last_saved"]["platforms"], ["Claude Code", "Codex", "Muse Code"])
+
+
+class RealWorkTest(TempHome):
+    """The Stop hook asks only after a turn that changed something; a turn of reads and checks ends quietly."""
+
+    def _bash(self, cmd):
+        capture.count_tool({"session_id": "s9", "tool_name": "Bash", "tool_input": {"command": cmd}})
+
+    def test_reads_and_checks_alone_never_ask(self):
+        # Found live: "¿por qué veo este texto?" answered with a grep and `claude plugin list`-style checks still asked.
+        for cmd in ("ls ~/.athos", "grep -n x a.py | head -3", "git status --short && git log --oneline -3",
+                    "gh pr view 28 --json state", "sed -n 1,20p a.py", "which -a athos", "cat a 2>&1 | tail -2"):
+            self._bash(cmd)
+        capture.count_tool({"session_id": "s9", "tool_name": "Read", "tool_input": {"file_path": "/x"}})
+        self.assertIsNone(capture.stop_decision({"session_id": "s9"}))
+
+    def test_one_change_among_the_calls_asks(self):
+        self._bash("ls")
+        self._bash("git status")
+        capture.count_tool({"session_id": "s9", "tool_name": "Edit", "tool_input": {"file_path": "/x"}})
+        self.assertIsNotNone(capture.stop_decision({"session_id": "s9"}))
+
+    def test_what_counts_as_a_change(self):
+        for cmd in ("git commit -s -m x", "gh pr merge 28 --squash", "sed -i '' s/a/b/ f", "python3 t.py",
+                    "echo x > f.txt", "ls && rm f", "gh api -X PUT repos/o/r/branches/main/protection"):
+            self.assertFalse(capture._read_only_shell(cmd), cmd)
+        for cmd in ("git log --oneline origin/main..wiki", "ls > /dev/null", "grep x f 2>&1", "FOO=1 git diff"):
+            self.assertTrue(capture._read_only_shell(cmd), cmd)
