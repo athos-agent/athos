@@ -15,6 +15,8 @@
     athos delegate <id> "<request>" --backend meta   the same on Meta Model API (muse-spark-1.3), recorded as `meta`
     athos mark g|c|f [task]            your verdict on the last task: good, corrected or failed
     athos report [--json]              what each piece and each model brings to your work
+    athos bench <case|all> --agents claude,meta [--runs 5] [--without] [--max-usd 5]   the same task on each agent,
+                                       checked by what it left behind; `athos bench --list`, `athos bench report`
     athos status --json                what the terminal's status line and band show
     athos hook <event>                 used by the Claude Code plugin's hooks (reads the event JSON on stdin)
 """
@@ -259,6 +261,31 @@ def cmd_report(args) -> int:
     return 0
 
 
+def cmd_bench(args) -> int:
+    from athos import bench
+    all_cases = bench.cases()
+    if args.list or not args.target:
+        for name, c in all_cases.items():
+            print(f"{name:<15} {c['domain']:<8} {c['title']}: \"{c['request']}\"")
+        return 0
+    if args.target == "report":
+        r = bench.report()
+        print(json.dumps(r, indent=1, ensure_ascii=False) if args.json else bench.render(r))
+        return 0
+    names = list(all_cases) if args.target == "all" else args.target.split(",")
+    agents = args.agents.split(",")
+    bad = [n for n in names if n not in all_cases] + [a for a in agents if a not in bench.AGENTS]
+    if bad:
+        print(f"unknown: {', '.join(bad)}. Cases: {', '.join(all_cases)}. Agents: {', '.join(bench.AGENTS)}.",
+              file=sys.stderr)
+        return 1
+    models = dict(m.split("=", 1) for m in args.model or [])
+    bench.run(names, agents, args.runs, with_piece=not args.only_without, without_piece=args.without or
+              args.only_without, models=models, max_usd=args.max_usd, keep=args.keep)
+    print(f"\n{bench.render(bench.report([r for r in bench.load_results() if r['case'] in names]))}")
+    return 0
+
+
 def status() -> dict:
     """For the plugin's status line and band: the store, this session's pieces and its last task."""
     cur = _current_session(os.getcwd())
@@ -329,6 +356,18 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("report")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_report)
+    s = sub.add_parser("bench", help="the same tasks on several agents and models, checked by what they leave behind")
+    s.add_argument("target", nargs="?", help="a case, several (a,b), all, or report")
+    s.add_argument("--list", action="store_true", help="the cases")
+    s.add_argument("--agents", default="claude,meta", help="claude, codex, muse, meta, local (comma-separated)")
+    s.add_argument("--runs", type=int, default=5)
+    s.add_argument("--without", action="store_true", help="also run each agent without the know-how, to compare")
+    s.add_argument("--only-without", action="store_true", help="only without the know-how")
+    s.add_argument("--model", action="append", help="agent=model, e.g. local=gemma4:12b-mlx (repeatable)")
+    s.add_argument("--max-usd", type=float, help="stop once this much has been spent in this call")
+    s.add_argument("--keep", action="store_true", help="keep each run's workspace to look at it")
+    s.add_argument("--json", action="store_true", help="with report: the numbers as JSON")
+    s.set_defaults(fn=cmd_bench)
     s = sub.add_parser("watch", help="a live panel of how each agent applies this project's know-how")
     s.add_argument("--once", action="store_true", help="print the panel once and exit")
     s.set_defaults(fn=lambda a: __import__("athos.watch", fromlist=["run"]).run(once=a.once))

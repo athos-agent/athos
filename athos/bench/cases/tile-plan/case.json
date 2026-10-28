@@ -1,0 +1,6 @@
+{
+  "title": "Plan a tiling job",
+  "domain": "method",
+  "when": "planning a tiling job for a room described in room.json, with the supplier price list in suppliers.csv",
+  "request": "Plan the tiling for the room in room.json."
+}

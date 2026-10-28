@@ -1,0 +1,6 @@
+{
+  "title": "Make the monthly sales report",
+  "domain": "data",
+  "when": "making the monthly sales report from the orders CSV in data/",
+  "request": "Make the October 2026 sales report."
+}
