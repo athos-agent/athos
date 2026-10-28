@@ -10,6 +10,8 @@ with it on your own tasks.
 
 Why this should exist, and what isn't solved yet: [WHY.md](WHY.md).
 
+Not a programmer? Lawyers, doctors and any professional can start without a terminal: [docs/PROFESSIONALS.md](docs/PROFESSIONALS.md) · en español: [docs/PROFESIONALES.md](docs/PROFESIONALES.md).
+
 ![Claude Code learns how a package is released; Codex does the next release in the same folder with no explanation. The bars show each agent's success and how much shorter the request was.](demo/athos-claude-to-codex.gif)
 
 *Claude Code learns once how this package is released. Codex then does the next release in the same folder with a
@@ -50,6 +52,8 @@ From a **terminal**, for **Muse Code** or anywhere without Claude Code:
 curl -fsSL https://raw.githubusercontent.com/athos-agent/athos/main/install.sh | sh
 athos export --muse          your pieces as skills Muse Code and Codex read
 ```
+
+Then `athos start` asks your language and profession and adds example ways of working (law and medicine today).
 
 Requires Python 3.11+ (the installer picks the newest one you have). No other dependencies. Your know-how lives in
 `~/.athos/know-how`, the same for every agent.

@@ -14,6 +14,7 @@ from athos import control, eval as ev, session, store
 INDEX_CAP = 4000
 INJECT_CAP = 8000
 TOP_K = 2
+RUNNER_UP = 0.5      # a second piece loads only with at least half the best piece's score (one shared word is noise)
 MIN_SCORE = 1.2
 STEM = 5               # words match on their first letters, so "release" finds "releasing" and "releases"
 
@@ -74,7 +75,10 @@ def rank(prompt: str, pieces: list[store.Piece]) -> list[tuple[float, store.Piec
 
 def relevant(prompt: str, pieces: list[store.Piece]) -> list[store.Piece]:
     out, size = [], 0
-    for _, p in rank(prompt, pieces)[:TOP_K]:
+    ranked = rank(prompt, pieces)[:TOP_K]
+    for score, p in ranked:
+        if out and score < RUNNER_UP * ranked[0][0]:  # a second piece only when it matches nearly as well
+            break
         text = store.render(p)
         if size + len(text) > INJECT_CAP:
             break
