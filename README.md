@@ -77,6 +77,18 @@ other. Nothing is delegated unless you run `athos delegate`. The default is `gem
 not enough for a release task, and the 12B one did it in about a minute and a half but still needed a correction.
 `--yes` runs the model's commands without asking: use it only in a folder you can throw away.
 
+To see what the know-how is worth before trusting a cheaper model with it, `athos bench` runs the same task several
+times on each agent and model, with and without the know-how, and checks what each run left behind (git, the tests,
+the files) instead of taking the agent's word:
+
+```
+athos bench --list                                         four cases: code, data, devices and a planning method
+athos bench all --agents claude,meta,local --runs 5 --without --max-usd 5
+athos bench report                                         success, time, tokens and cost per agent; the cheapest that keeps up
+```
+
+Each run gets a throwaway folder and its own Athos home, so your store and your recorded tasks stay untouched.
+
 Your know-how lives in `~/.athos/know-how/`, one markdown file per piece. Choose what may load with
 `/athos:load all | project <name> | pieces <id>... | none`, and copy everything out with `/athos:export <folder>`.
 

@@ -1,0 +1,6 @@
+{
+  "title": "Set up a sensor gateway",
+  "domain": "devices",
+  "when": "setting up a new sensor gateway device with devctl: hostname, VLAN, NTP, reporting interval, firewall, network, save",
+  "request": "Set up the new sensor gateway for site mvd as unit 3."
+}
