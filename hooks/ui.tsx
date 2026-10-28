@@ -1,4 +1,4 @@
-// Athos in the terminal. The status line counts the know-how ("athos · N pieces · K loaded here · M to mark"); the
+// Athos in the terminal. The status line counts the know-how ("athos · N ways of working · K in use · M to mark"); the
 // band above the prompt appears when the last task ended without a verdict, with one-key marking, and says when that
 // task saved or improved a piece. Both read `athos status --json` and stay silent where there is nothing to say.
 import { atom, read, update } from 'claude-code'
@@ -10,10 +10,34 @@ const snap = atom({ plugin: 'athos', key: 'snap' } as const, null)
 const dismissed = atom({ plugin: 'athos', key: 'dismissed' } as const, null)
 const announced = atom({ plugin: 'athos', key: 'announced' } as const, null)
 
+// What the person reads, in the language they chose with `athos start` (English by default), in plain words.
+const WORDS = {
+  en: {
+    ways: (n: number) => `${n} way${n === 1 ? '' : 's'} of working`, inUse: (n: number) => `${n} in use`,
+    toMark: (n: number) => `${n} to mark`, following: 'following', steps: (n: number) => `${n} step${n === 1 ? '' : 's'}`,
+    numbered: 'numbered steps', more: (n: number) => `+${n} more`, ready: 'ready in', saved: 'saved',
+    improved: 'improved', good: 'good', notUsed: 'not used yet', notMarked: 'not marked yet',
+    shorter: (p: number) => `${p}% shorter prompt`, longer: (p: number) => `${p}% longer prompt`,
+    ask: 'How did this task go? ', ok: 'Good', corrected: 'Corrected', failed: 'Failed', skip: 'Skip',
+  },
+  es: {
+    ways: (n: number) => `${n} forma${n === 1 ? '' : 's'} de trabajar`, inUse: (n: number) => `${n} en uso`,
+    toMark: (n: number) => `${n} por marcar`, following: 'siguiendo', steps: (n: number) => `${n} paso${n === 1 ? '' : 's'}`,
+    numbered: 'pasos numerados', more: (n: number) => `+${n} más`, ready: 'lista en', saved: 'guardé',
+    improved: 'mejoré', good: 'bien', notUsed: 'sin usar todavía', notMarked: 'sin marcar todavía',
+    shorter: (p: number) => `pedido ${p}% más corto`, longer: (p: number) => `pedido ${p}% más largo`,
+    ask: '¿Cómo salió esta tarea? ', ok: 'Salió bien', corrected: 'Lo corregí', failed: 'Falló', skip: 'Omitir',
+  },
+}
+export function words(s: Status | null) {
+  return WORDS[s?.lang === 'es' ? 'es' : 'en']
+}
+
 export function statusText(s: Status | null): string | undefined {
   if (!s) return undefined
-  const parts = [`athos · ${s.pieces} piece${s.pieces === 1 ? '' : 's'}`, `${s.loaded.length} loaded here`]
-  if (s.to_mark) parts.push(`${s.to_mark} to mark`)
+  const w = words(s)
+  const parts = [`athos · ${w.ways(s.pieces)}`, w.inUse(s.loaded.length)]
+  if (s.to_mark) parts.push(w.toMark(s.to_mark))
   return parts.join(' · ')
 }
 
@@ -21,17 +45,19 @@ export function statusText(s: Status | null): string | undefined {
 export function followingText(s: Status | null): string | undefined {
   const f = s?.following?.[0]
   if (!f) return undefined
-  const size = f.wiki ? `${f.steps} step${f.steps === 1 ? '' : 's'}` : 'numbered steps'
-  const more = (s?.following.length ?? 1) > 1 ? ` (+${s!.following.length - 1} more)` : ''
-  return `athos · following «${f.title}» v${f.version} · ${size}${more} · ready in ${f.platforms.join(' · ')}`
+  const w = words(s)
+  const size = f.wiki ? w.steps(f.steps) : w.numbered
+  const more = (s?.following.length ?? 1) > 1 ? ` (${w.more(s!.following.length - 1)})` : ''
+  return `athos · ${w.following} «${f.title}» v${f.version} · ${size}${more} · ${w.ready} ${f.platforms.join(' · ')}`
 }
 
 /** The one line shown under the answer after a save: what, which version, and where it is ready. */
 export function announceText(s: Status | null): string | undefined {
   const l = s?.last_saved
   if (!l) return undefined
-  const what = l.version > 1 ? `improved «${l.title}» → v${l.version}` : `saved «${l.title}»`
-  return `athos · ${what} · ready in ${l.platforms.join(' · ')}`
+  const w = words(s)
+  const what = l.version > 1 ? `${w.improved} «${l.title}» → v${l.version}` : `${w.saved} «${l.title}»`
+  return `athos · ${what} · ${w.ready} ${l.platforms.join(' · ')}`
 }
 
 export function savedText(s: Status | null): string {
@@ -47,17 +73,18 @@ const BAR_WIDTH = 20
 const BAR_COLORS: Record<string, string> = { 'claude-code': '#d38b5d', codex: '#6fa8dc', 'muse-code': '#9b8cf2' }
 
 /** A bar filled by the success rate, and the words beside it; the same as `athos watch` prints. */
-export function barText(b: Bar): { filled: string; empty: string; words: string } {
+export function barText(b: Bar, s: Status | null = null): { filled: string; empty: string; words: string } {
   const n = Math.round((b.success_rate ?? 0) * BAR_WIDTH)
-  const words: string[] = []
-  if (!b.uses) words.push('not used yet')
+  const w = words(s)
+  const out: string[] = []
+  if (!b.uses) out.push(w.notUsed)
   else {
-    words.push(b.evaluated ? `${b.ok}/${b.evaluated} good` : 'not marked yet')
+    out.push(b.evaluated ? `${b.ok}/${b.evaluated} ${w.good}` : w.notMarked)
     if (b.prompt_saved !== null)
-      words.push(b.prompt_saved >= 0 ? `${Math.round(b.prompt_saved * 100)}% shorter prompt`
-        : `${Math.round(-b.prompt_saved * 100)}% longer prompt`)
+      out.push(b.prompt_saved >= 0 ? w.shorter(Math.round(b.prompt_saved * 100))
+        : w.longer(Math.round(-b.prompt_saved * 100)))
   }
-  return { filled: '█'.repeat(n), empty: '░'.repeat(BAR_WIDTH - n), words: words.join(' · ') }
+  return { filled: '█'.repeat(n), empty: '░'.repeat(BAR_WIDTH - n), words: out.join(' · ') }
 }
 
 async function athos($: EngineInterface, args: string[]): Promise<string> {
@@ -137,7 +164,7 @@ export const register: Register = on => {
         <Text dimColor>{e.props.hint}</Text>
         <Text dimColor>{`  athos · ${bars.title}`}</Text>
         {bars.agents.map(a => {
-          const t = barText(a)
+          const t = barText(a, s)
           return (
             <Text key={a.platform}>
               <Text>{`  ${a.label.padEnd(width)} `}</Text>
@@ -160,14 +187,15 @@ export const register: Register = on => {
 
     const { Box, Button, Text } = $.ui.resolve(e)
     const hide = () => update($, dismissed, () => last.task_id)
+    const w = words(s)
     return (
       <Box>
         <Text color="cyan">athos </Text>
-        <Text dimColor>How did this task go? </Text>
-        <Button key="g" label="Good" onPress={() => mark($, 'g')} />
-        <Button key="c" label="Corrected" onPress={() => mark($, 'c')} />
-        <Button key="f" label="Failed" onPress={() => mark($, 'f')} />
-        <Button key="hide" label="Skip" onPress={hide} />
+        <Text dimColor>{w.ask}</Text>
+        <Button key="g" label={w.ok} onPress={() => mark($, 'g')} />
+        <Button key="c" label={w.corrected} onPress={() => mark($, 'c')} />
+        <Button key="f" label={w.failed} onPress={() => mark($, 'f')} />
+        <Button key="hide" label={w.skip} onPress={hide} />
       </Box>
     )
   })

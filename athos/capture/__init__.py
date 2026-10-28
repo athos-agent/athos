@@ -210,6 +210,11 @@ def stop_decision(event: dict, cmd: str = "athos") -> dict | None:
     if state.get("guide"):
         # One short line: the full instructions went in at session start, out of the user's sight (and again after a
         # compaction, which starts the session anew).
+        from athos import start
+        if start.lang() == "es":            # the person reads this line too: in their language
+            return {"decision": "block",
+                    "reason": f"Athos: ¿algo de esta tarea vale la pena guardar? Guardá o mejorá una forma de "
+                              f"trabajar con `{cmd} save` como dice la guía de la sesión, o terminá."}
         return {"decision": "block",
                 "reason": f"Athos: anything reusable to keep? Save or improve one piece with `{cmd} save` as the "
                           f"session guide says, or just stop."}

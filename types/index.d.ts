@@ -1,6 +1,8 @@
 /** What `athos status --json` reports: the store, this session's pieces and its last task. */
 export type Status = {
   pieces: number
+  /** The language the person chose with `athos start`: what they read follows it. */
+  lang?: 'en' | 'es'
   enabled: number
   loading: string
   loaded: string[]
