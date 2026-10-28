@@ -57,7 +57,7 @@ def check(d: Path) -> dict:
         1 for words in DECISIONS.values() if not any(w in open_text for w in words))
     n = sum(done.values())
     verdict = "f" if n < 5 else ("g" if n == len(STAGES) and invented == 0 else "c")
-    return {"verdict": verdict, "score": round(n / len(STAGES), 3), "stages_done": n, "invented": invented,
+    return {"verdict": verdict, "score": round(n / len(STAGES), 3), "stages_done": n, "stages_total": len(STAGES), "invented": invented,
             "missed": [k for k, v in done.items() if not v]}
 
 

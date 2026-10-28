@@ -87,7 +87,9 @@ athos bench all --agents claude,meta,local --runs 5 --without --max-usd 5
 athos bench report                                         success, time, tokens and cost per agent; the cheapest that keeps up
 ```
 
-Each run gets a throwaway folder and its own Athos home, so your store and your recorded tasks stay untouched.
+Each run gets a throwaway folder and its own Athos home, so your store and your recorded tasks stay untouched. Your own cases
+(a folder with `case.json`, `piece.md`, `setup.py` and `check.py`, like the ones in `athos/bench/cases/`) go in
+`~/.athos/bench/cases/` and never leave your machine.
 
 Your know-how lives in `~/.athos/know-how/`, one markdown file per piece. Choose what may load with
 `/athos:load all | project <name> | pieces <id>... | none`, and copy everything out with `/athos:export <folder>`.

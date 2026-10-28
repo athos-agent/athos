@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -8,7 +9,7 @@ from pathlib import Path
 from athos import bench
 from tests.helpers import TempHome
 
-CASES = bench.cases()
+CASES = {k: v for k, v in bench.cases().items() if v["dir"].parent == bench.CASES}   # the shipped ones
 
 
 def solve(case: dict, ws: Path) -> None:
@@ -136,12 +137,18 @@ class Runner(TempHome):
         self.assertEqual(len(rows), 2)
         self.assertIn("cap", said[-1])
 
+    def test_report_survives_runs_without_a_score(self):
+        rows = [{"case": "x", "agent": "claude", "model": "m", "know_how": True, "verdict": "f", "score": 0.0,
+                 "duration_s": 1.0, "tokens": {}, "cost_usd": None, "stages_done": None, "invented": None}]
+        self.assertIn("stages ?", bench.render(bench.report(rows)))
+
     def test_a_crashing_agent_is_a_failed_run(self):
         def boom(*_a, **_k):
             raise RuntimeError("no network")
         row = bench.run_once("tile-plan", CASES["tile-plan"], "meta", runner=boom)
         self.assertEqual(row["verdict"], "f")
         self.assertIn("no network", row["note"])
+        self.assertEqual(row["model"], "muse-spark-1.3")
 
     def test_workspace_hides_agent_folders_from_git(self):
         tmp = tempfile.TemporaryDirectory()
@@ -152,6 +159,28 @@ class Runner(TempHome):
         (ws / ".agents" / "skills" / "x.md").write_text("x")
         out = subprocess.run(["git", "status", "--porcelain"], cwd=ws, capture_output=True, text=True).stdout
         self.assertEqual(out.strip(), "")
+
+    def test_own_cases_folder_and_env(self):
+        own = Path(self.home) / "bench" / "cases" / "mine"
+        own.mkdir(parents=True)
+        (own / "case.json").write_text(json.dumps({"title": "Mine", "domain": "x", "when": "w", "request": "r",
+                                                   "timeout_s": 5400}))
+        (own / "piece.md").write_text("p")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        other = Path(tmp.name) / "theirs"
+        other.mkdir()
+        (other / "case.json").write_text(json.dumps({"title": "T", "domain": "x", "when": "w", "request": "r"}))
+        (other / "piece.md").write_text("p")
+        old = os.environ.get("ATHOS_BENCH_CASES")
+        os.environ["ATHOS_BENCH_CASES"] = tmp.name
+        try:
+            found = bench.cases()
+        finally:
+            os.environ.pop("ATHOS_BENCH_CASES") if old is None else os.environ.__setitem__("ATHOS_BENCH_CASES", old)
+        self.assertIn("release", found)
+        self.assertEqual(bench._timeout(found["mine"]), 5400)
+        self.assertEqual(bench._timeout(found["theirs"]), bench.TIMEOUT)
 
     def test_cli_list_and_empty_report(self):
         from athos import cli
