@@ -17,6 +17,15 @@ export function statusText(s: Status | null): string | undefined {
   return parts.join(' · ')
 }
 
+/** While a task runs: the know-how it follows, how big it is, and where else it is ready. */
+export function followingText(s: Status | null): string | undefined {
+  const f = s?.following?.[0]
+  if (!f) return undefined
+  const size = f.wiki ? `${f.steps} step${f.steps === 1 ? '' : 's'}` : 'numbered steps'
+  const more = (s?.following.length ?? 1) > 1 ? ` (+${s!.following.length - 1} more)` : ''
+  return `athos · following «${f.title}» v${f.version} · ${size}${more} · ready in ${f.platforms.join(' · ')}`
+}
+
 /** The one line shown under the answer after a save: what, which version, and where it is ready. */
 export function announceText(s: Status | null): string | undefined {
   const l = s?.last_saved
@@ -106,9 +115,22 @@ export const register: Register = on => {
 
   // Under the prompt: the engine's own line, then one bar per agent for the piece this project used last.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    const bars = (await read($, snap))?.bars
-    if (e.surface !== 'terminal' || !bars?.agents.length) return next(e)
+    const s = await read($, snap)
+    const bars = s?.bars
+    const card = e.props.isWorking ? followingText(s) : undefined
+    if (e.surface !== 'terminal' && e.surface !== 'desktop') return next(e)
+    if (!card && !bars?.agents.length) return next(e)
     const { Box, Text } = $.ui.resolve(e)
+    if (card) {
+      // While the task runs: one line saying which of the person's know-how it follows.
+      return (
+        <Box flexDirection="column">
+          <Text dimColor>{e.props.hint}</Text>
+          <Text color="cyan">{`  ${card}`}</Text>
+        </Box>
+      )
+    }
+    if (!bars?.agents.length) return next(e)
     const width = Math.max(...bars.agents.map(a => a.label.length))
     return (
       <Box flexDirection="column">

@@ -7,6 +7,8 @@ export type Status = {
   to_mark: number
   /** The piece this session saved or improved last, and the agents where it is ready. */
   last_saved: { id: string; title: string; version: number; platforms: string[] } | null
+  /** The know-how the current task follows. */
+  following: { id: string; title: string; version: number; steps: number; wiki: boolean; platforms: string[] }[]
   bars: {
     piece: string
     title: string

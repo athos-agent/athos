@@ -332,6 +332,22 @@ def cmd_bench(args) -> int:
     return 0
 
 
+def following(state: dict) -> list[dict]:
+    """The know-how the current task follows: each piece loaded for it, its size in steps and where it is ready."""
+    from athos import wiki
+    from athos.adapters import codex
+    out = []
+    for pid in (state.get("task_loaded") or [])[:3]:
+        p = store.get(pid)
+        if p is None:
+            continue
+        ready = ["Claude Code"] + (["Codex", "Muse Code"]
+                                   if (codex.skills_dir() / f"{codex.SKILL_PREFIX}{pid}").is_dir() else [])
+        out.append({"id": pid, "title": p.title, "version": p.version, "steps": len(wiki.statements(p)),
+                    "wiki": wiki.is_wiki(p), "platforms": ready})
+    return out
+
+
 def status() -> dict:
     """For the plugin's status line and band: the store, this session's pieces and its last task."""
     cur = _current_session(os.getcwd())
@@ -345,6 +361,7 @@ def status() -> dict:
             "bars": ev.bars(paths.project_of(os.getcwd())),
             "loading": control.describe(), "loaded": state.get("loaded", []),
             "last_saved": state.get("last_saved"),
+            "following": following(state),
             "to_mark": sum(1 for t in tasks if t["result"] == "unevaluated"),
             "last": {"task_id": last["task_id"], "result": last["result"], "pieces": last.get("pieces", []),
                      "saved": [x for x in saved if x not in improved], "improved": improved} if last else None}

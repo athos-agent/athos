@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { announceText, barText, savedText, statusText } from './ui'
+import { announceText, barText, followingText, savedText, statusText } from './ui'
 
 const BAND = { plugin: 'athos', component: 'AbovePrompt', props: { hasSurvey: false } } as const
 
@@ -13,6 +13,7 @@ const STATUS = {
   last: { task_id: 't1', result: 'unevaluated', pieces: ['cut-a-release'], saved: [], improved: ['cut-a-release'] },
   bars: null,
   last_saved: null,
+  following: [],
 }
 
 const CLAUDE = { platform: 'claude-code', label: 'Claude Code', uses: 5, evaluated: 5, ok: 4, success_rate: 0.8,
@@ -34,6 +35,15 @@ test('a save is one line: what, which version, where it is ready', () => {
   expect(announceText({ ...STATUS, last_saved: { ...saved, version: 3, platforms: ['Claude Code'] } } as never))
     .toBe('athos · improved «Cut a release» → v3 · ready in Claude Code')
   expect(announceText(STATUS as never)).toBe(undefined)
+})
+
+test('while a task runs, one line says which know-how it follows', () => {
+  const f = { id: 'land', title: 'Land a change', version: 5, steps: 8, wiki: true, platforms: ['Claude Code', 'Codex'] }
+  expect(followingText({ ...STATUS, following: [f] } as never))
+    .toBe('athos · following «Land a change» v5 · 8 steps · ready in Claude Code · Codex')
+  expect(followingText({ ...STATUS, following: [{ ...f, wiki: false }, f] } as never))
+    .toBe('athos · following «Land a change» v5 · numbered steps (+1 more) · ready in Claude Code · Codex')
+  expect(followingText(STATUS as never)).toBe(undefined)
 })
 
 test('an unmarked task gets one-key marking above the prompt', async ($, on) => {

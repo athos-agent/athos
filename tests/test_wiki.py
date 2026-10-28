@@ -92,3 +92,14 @@ class WikiTest(TempHome):
         self.assertTrue((target / "athos-land.md").exists())
         self.assertEqual(cli.main(["wiki", "agents", "--uninstall", "--dir", str(target)]), 0)
         self.assertFalse((target / "athos-land.md").exists())
+
+
+class FollowingTest(TempHome):
+    def test_following_names_the_loaded_pieces_and_where_they_are_ready(self):
+        from athos import cli
+        from athos.adapters import codex
+        store.create("Land a change", "committing", LAND, piece_id="land")
+        (codex.skills_dir() / "athos-land").mkdir(parents=True)
+        out = cli.following({"task_loaded": ["land", "gone"]})
+        self.assertEqual(out, [{"id": "land", "title": "Land a change", "version": 1, "steps": 2, "wiki": True,
+                                "platforms": ["Claude Code", "Codex", "Muse Code"]}])
