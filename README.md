@@ -19,10 +19,15 @@ time (real run, 17 s, waits cut).*
 - **Captures and improves your know-how.** When a task in Claude Code teaches something reusable (your steps, your
   conventions, the mistakes to avoid), Athos saves it as a plain markdown file you can read and edit. Next time, only
   the pieces that match the request are loaded, and each reuse can improve them, with a version history.
-- **Free to move.** The same know-how works in Codex, through its skills and hooks, from the one store on your
-  machine. Nothing leaves your machine unless you move it.
+- **Yours, and free to move.** Your know-how is plain files in `~/.athos` that you can read, edit, version and copy.
+  It is not tied to one agent or one model provider: the same store works in Claude Code, Codex, Muse Code and
+  Claude Desktop. Nothing leaves your machine unless you move it.
 - **Your own benchmark.** Benchmarks measure someone else's tests; Athos measures yours. Mark each task with one key,
   and `/athos:report` shows what every piece of know-how and every model brings to your own work.
+- **Hands mastered tasks to cheaper models.** Once a piece has proven itself, `athos delegate` runs the task on a
+  smaller model, local or hosted, and `athos bench` shows whether it keeps up. On the four public bench cases, Meta's
+  Muse Spark did 19 of 20 runs right with the know-how and 2 of 20 without it, at 8 to 24 times less per run than
+  Claude Code (5 runs per case; small cases written for the bench; reproduce with `athos bench all --without`).
 
 ## Install
 
@@ -142,6 +147,10 @@ starts), show and list pieces, and save what a conversation taught (`athos_save`
 - OpenCode.
 - **Athos Cloud**: sync between your devices, a visual map of your know-how, daily control over what is shared, and an
   improvement agent as a service.
+
+## Thanks
+
+To the people whose ideas shaped Athos: see [WHY.md](WHY.md#thanks).
 
 ## License
 
