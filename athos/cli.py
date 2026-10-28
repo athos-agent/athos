@@ -15,6 +15,7 @@
     athos delegate <id> "<request>" --backend meta   the same on Meta Model API (muse-spark-1.3), recorded as `meta`
     athos mark g|c|f [task]            your verdict on the last task: good, corrected or failed
     athos report [--json]              what each piece and each model brings to your work
+    athos mcp                          your know-how as an MCP server (stdio), for Claude Desktop's chat
     athos wiki [--json]                rebuild Index.md and check the links between pieces (pages of a wiki)
     athos wiki agents [--install]      the trajectory subagents (a walk across pages); --install puts them in
                                        ~/.claude/agents and keeps them in step with every save
@@ -439,6 +440,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--dir", help="with agents: where to install (default ~/.claude/agents)")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_wiki)
+    s = sub.add_parser("mcp", help="serve your know-how as an MCP server over stdio (Claude Desktop's chat, any MCP app)")
+    s.set_defaults(fn=lambda a: __import__("athos.mcp", fromlist=["serve"]).serve())
     s = sub.add_parser("watch", help="a live panel of how each agent applies this project's know-how")
     s.add_argument("--once", action="store_true", help="print the panel once and exit")
     s.set_defaults(fn=lambda a: __import__("athos.watch", fromlist=["run"]).run(once=a.once))

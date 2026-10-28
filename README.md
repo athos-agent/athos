@@ -123,6 +123,20 @@ the pieces it read, so `athos watch` and `/athos:report` show Muse Code beside C
 Contributor mode off (`muse` → `/settings`) unless you want Meta to train on your sessions; Athos warns when a task
 ran with it.
 
+### In Claude Desktop
+
+In the **Code** tab, Claude Desktop runs Claude Code with the same settings, so the plugin works as it is, including
+the lines under the prompt. For the regular **chat**, which takes MCP servers but not plugins, Athos serves your
+know-how over MCP: add it in Settings → Developer → Edit Config (`claude_desktop_config.json`), with the absolute path
+of the `athos` command (`command -v athos`, after `install.sh`):
+
+```json
+{ "mcpServers": { "athos": { "command": "/Users/you/.local/bin/athos", "args": ["mcp"] } } }
+```
+
+Restart Claude Desktop. The chat can then find the know-how for a request (`athos_find`, with the trajectory each piece
+starts), show and list pieces, and save what a conversation taught (`athos_save`), into the same `~/.athos`.
+
 ## Roadmap
 
 - OpenCode.
