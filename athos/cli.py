@@ -100,7 +100,11 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
 def cmd_list(_args) -> int:
     pieces = store.all_pieces()
     on = {p.id for p in load.enabled(os.getcwd())}
-    print(f"{len(pieces)} piece(s) in {paths.know_how()} · loading: {control.describe()}")
+    from athos import start
+    if start.lang() == "es":
+        print(f"{len(pieces)} forma(s) de trabajar en {paths.know_how()} · se cargan: {control.describe()}")
+    else:
+        print(f"{len(pieces)} piece(s) in {paths.know_how()} · loading: {control.describe()}")
     for p in sorted(pieces, key=lambda p: p.last_used, reverse=True):
         mark = "●" if p.id in on else "○"
         print(f"{mark} {p.id}  v{p.version}  {p.title}\n    when: {p.when}  · last used {p.last_used}")
@@ -308,7 +312,11 @@ def cmd_mark(args) -> int:
     except (ValueError, LookupError) as e:
         print(e, file=sys.stderr)
         return 1
-    print(f"task {tid} marked {res}")
+    from athos import start
+    if start.lang() == "es":
+        print(f"tarea marcada: {dict(ok='salió bien', corrected='lo corregí', failed='falló').get(res, res)}")
+    else:
+        print(f"task {tid} marked {res}")
     return 0
 
 
@@ -378,7 +386,8 @@ def status() -> dict:
     last = next((t for t in reversed(tasks) if sid and t.get("task_id") == state.get("task_id")), None)
     saved = last.get("saved", []) if last else []
     improved = [pid for pid in saved if (store.get(pid) and store.get(pid).version > 1)]
-    return {"pieces": len(store.all_pieces()), "enabled": len(load.enabled(os.getcwd())),
+    from athos import start
+    return {"pieces": len(store.all_pieces()), "lang": start.lang(), "enabled": len(load.enabled(os.getcwd())),
             "bars": ev.bars(paths.project_of(os.getcwd())),
             "loading": control.describe(), "loaded": state.get("loaded", []),
             "last_saved": state.get("last_saved"),
@@ -393,7 +402,10 @@ def cmd_status(args) -> int:
     if args.json:
         print(json.dumps(s, ensure_ascii=False))
     else:
-        print(f"athos · {s['pieces']} piece(s) · {len(s['loaded'])} loaded here · {s['to_mark']} to mark")
+        if s["lang"] == "es":
+            print(f"athos · {s['pieces']} formas de trabajar · {len(s['loaded'])} en uso · {s['to_mark']} por marcar")
+        else:
+            print(f"athos · {s['pieces']} ways of working · {len(s['loaded'])} in use · {s['to_mark']} to mark")
     return 0
 
 

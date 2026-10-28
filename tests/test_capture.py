@@ -148,3 +148,17 @@ class RealWorkTest(TempHome):
             self.assertFalse(capture._read_only_shell(cmd), cmd)
         for cmd in ("git log --oneline origin/main..wiki", "ls > /dev/null", "grep x f 2>&1", "FOO=1 git diff"):
             self.assertTrue(capture._read_only_shell(cmd), cmd)
+
+
+class SpanishTest(TempHome):
+    def test_the_stop_line_follows_the_persons_language(self):
+        from athos import load, start
+        store.create("Ship", "shipping", "1. ship")
+        load.on_session_start({"session_id": "s5", "cwd": self.home})
+        capture.count_tool({"session_id": "s5", "tool_name": "Edit"})
+        for _ in range(capture.THRESHOLD):
+            capture.count_tool({"session_id": "s5"})
+        start.save_choice("es", "law")
+        reason = capture.stop_decision({"session_id": "s5"})["reason"]
+        self.assertIn("¿algo de esta tarea vale la pena guardar?", reason)
+        self.assertIn("athos save", reason)
