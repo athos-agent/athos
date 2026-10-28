@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { barText, savedText, statusText } from './ui'
+import { announceText, barText, savedText, statusText } from './ui'
 
 const BAND = { plugin: 'athos', component: 'AbovePrompt', props: { hasSurvey: false } } as const
 
@@ -12,6 +12,7 @@ const STATUS = {
   to_mark: 1,
   last: { task_id: 't1', result: 'unevaluated', pieces: ['cut-a-release'], saved: [], improved: ['cut-a-release'] },
   bars: null,
+  last_saved: null,
 }
 
 const CLAUDE = { platform: 'claude-code', label: 'Claude Code', uses: 5, evaluated: 5, ok: 4, success_rate: 0.8,
@@ -24,6 +25,15 @@ test('the status line counts pieces, loaded and unmarked tasks', () => {
   expect(statusText({ ...STATUS, to_mark: 0 } as never)).toBe('athos · 3 pieces · 1 loaded here')
   expect(statusText(null)).toBe(undefined)
   expect(savedText(STATUS as never)).toBe('improved cut-a-release')
+})
+
+test('a save is one line: what, which version, where it is ready', () => {
+  const saved = { id: 'cut-a-release', title: 'Cut a release', version: 1, platforms: ['Claude Code', 'Codex', 'Muse Code'] }
+  expect(announceText({ ...STATUS, last_saved: saved } as never))
+    .toBe('athos · saved «Cut a release» · ready in Claude Code · Codex · Muse Code')
+  expect(announceText({ ...STATUS, last_saved: { ...saved, version: 3, platforms: ['Claude Code'] } } as never))
+    .toBe('athos · improved «Cut a release» → v3 · ready in Claude Code')
+  expect(announceText(STATUS as never)).toBe(undefined)
 })
 
 test('an unmarked task gets one-key marking above the prompt', async ($, on) => {
@@ -43,7 +53,7 @@ test('an unmarked task gets one-key marking above the prompt', async ($, on) => 
 
   await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /improved cut-a-release/ }))?.text).toBeTruthy()
+  expect((await ui.find({ type: 'Text', text: /How did this task go/ }))?.text).toBeTruthy()
   await ui.press({ key: 'g' })
   expect(calls.some(a => a.join(' ') === 'mark g')).toBe(true)
   await ui.unmount()

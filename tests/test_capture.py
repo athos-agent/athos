@@ -88,3 +88,35 @@ class CounterTest(TempHome):
         ev.task_start({"session_id": "s1", "prompt": "next request"})
         capture.count_tool({"session_id": "s1"})
         self.assertIsNone(capture.stop_decision({"session_id": "s1"}))
+
+
+class QuietCaptureTest(TempHome):
+    def test_with_the_guide_given_the_stop_line_is_short(self):
+        from athos import load
+        store.create("Ship", "shipping", "1. ship")
+        text = load.on_session_start({"session_id": "s2", "cwd": self.home})
+        self.assertIn("Saving know-how (Athos)", text)
+        for _ in range(capture.THRESHOLD):
+            capture.count_tool({"session_id": "s2"})
+        reason = capture.stop_decision({"session_id": "s2"})["reason"]
+        self.assertLess(len(reason), 140)
+        self.assertIn("athos save", reason)
+
+    def test_without_the_guide_the_stop_line_carries_the_format(self):
+        for _ in range(capture.THRESHOLD):
+            capture.count_tool({"session_id": "s3"})
+        self.assertIn("save <<'EOF'", capture.stop_decision({"session_id": "s3"})["reason"])
+
+    def test_save_records_where_the_piece_is_ready(self):
+        piece, _ = capture.save_text(PIECE, "s4")
+        self.assertEqual(session.load("s4")["last_saved"],
+                         {"id": piece.id, "title": piece.title, "version": 1, "platforms": ["Claude Code"]})
+
+    def test_save_refreshes_an_existing_export_for_codex_and_muse(self):
+        from athos.adapters import codex
+        d = codex.skills_dir()
+        self.assertTrue(str(d).startswith(self.home))
+        (d / "athos-old").mkdir(parents=True)
+        piece, _ = capture.save_text(PIECE, "s5")
+        self.assertTrue((d / f"athos-{piece.id}" / "SKILL.md").exists())
+        self.assertEqual(session.load("s5")["last_saved"]["platforms"], ["Claude Code", "Codex", "Muse Code"])

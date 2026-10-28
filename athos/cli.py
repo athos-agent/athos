@@ -298,6 +298,7 @@ def status() -> dict:
     return {"pieces": len(store.all_pieces()), "enabled": len(load.enabled(os.getcwd())),
             "bars": ev.bars(paths.project_of(os.getcwd())),
             "loading": control.describe(), "loaded": state.get("loaded", []),
+            "last_saved": state.get("last_saved"),
             "to_mark": sum(1 for t in tasks if t["result"] == "unevaluated"),
             "last": {"task_id": last["task_id"], "result": last["result"], "pieces": last.get("pieces", []),
                      "saved": [x for x in saved if x not in improved], "improved": improved} if last else None}

@@ -33,7 +33,8 @@ def codex_home() -> Path:
 
 
 def skills_dir() -> Path:
-    return Path.home() / ".agents" / "skills"
+    """Where Codex and Muse Code read skills from (`ATHOS_SKILLS_DIR` overrides it, for tests)."""
+    return Path(os.environ.get("ATHOS_SKILLS_DIR") or Path.home() / ".agents" / "skills")
 
 
 # ------------------------------------------------------------------------------------------------ hooks

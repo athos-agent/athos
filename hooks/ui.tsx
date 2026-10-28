@@ -8,12 +8,21 @@ import type { Bar, Status } from '../types'
 
 const snap = atom({ plugin: 'athos', key: 'snap' } as const, null)
 const dismissed = atom({ plugin: 'athos', key: 'dismissed' } as const, null)
+const announced = atom({ plugin: 'athos', key: 'announced' } as const, null)
 
 export function statusText(s: Status | null): string | undefined {
   if (!s) return undefined
   const parts = [`athos · ${s.pieces} piece${s.pieces === 1 ? '' : 's'}`, `${s.loaded.length} loaded here`]
   if (s.to_mark) parts.push(`${s.to_mark} to mark`)
   return parts.join(' · ')
+}
+
+/** The one line shown under the answer after a save: what, which version, and where it is ready. */
+export function announceText(s: Status | null): string | undefined {
+  const l = s?.last_saved
+  if (!l) return undefined
+  const what = l.version > 1 ? `improved «${l.title}» → v${l.version}` : `saved «${l.title}»`
+  return `athos · ${what} · ready in ${l.platforms.join(' · ')}`
 }
 
 export function savedText(s: Status | null): string {
@@ -83,10 +92,16 @@ export const register: Register = on => {
     return done
   }).catch(($, e, next) => next(e))
 
+  // Under the answer, once per save: the line that replaces the model announcing it.
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
     await refresh($)
-    return done
+    const s = await read($, snap)
+    const key = s?.last_saved ? `${s.last_saved.id}@${s.last_saved.version}` : null
+    const line = announceText(s)
+    if (!line || key === (await read($, announced))) return done
+    await update($, announced, () => key)
+    return { ...done, text: line }
   }).catch(($, e, next) => next(e))
 
   // Under the prompt: the engine's own line, then one bar per agent for the piece this project used last.
@@ -119,20 +134,18 @@ export const register: Register = on => {
     const last = s?.last
     if (e.props.hasSurvey || !last || last.task_id === (await read($, dismissed))) return next(e)
     const unmarked = last.result === 'unevaluated'
-    const saved = savedText(s)
-    if (!unmarked && !saved) return next(e)
+    if (!unmarked) return next(e)                 // a save is announced under the answer (turn.complete)
 
     const { Box, Button, Text } = $.ui.resolve(e)
     const hide = () => update($, dismissed, () => last.task_id)
     return (
       <Box>
         <Text color="cyan">athos </Text>
-        {saved ? <Text>{saved}. </Text> : null}
-        {unmarked ? <Text dimColor>How did this task go? </Text> : null}
-        {unmarked ? <Button key="g" label="Good" onPress={() => mark($, 'g')} /> : null}
-        {unmarked ? <Button key="c" label="Corrected" onPress={() => mark($, 'c')} /> : null}
-        {unmarked ? <Button key="f" label="Failed" onPress={() => mark($, 'f')} /> : null}
-        <Button key="hide" label={unmarked ? 'Skip' : 'OK'} onPress={hide} />
+        <Text dimColor>How did this task go? </Text>
+        <Button key="g" label="Good" onPress={() => mark($, 'g')} />
+        <Button key="c" label="Corrected" onPress={() => mark($, 'c')} />
+        <Button key="f" label="Failed" onPress={() => mark($, 'f')} />
+        <Button key="hide" label="Skip" onPress={hide} />
       </Box>
     )
   })

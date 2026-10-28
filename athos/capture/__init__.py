@@ -26,6 +26,23 @@ message formats, paths, flags); never turn them into placeholders. No secrets, t
 EOF"""
 
 
+GUIDE = """## Saving know-how (Athos)
+
+When a task in this session teaches something reusable (how it was solved, the criteria, the steps, the mistakes
+avoided), Athos's Stop hook asks once with a short line. Then either save exactly one piece by running:
+
+{format}
+
+or, if nothing reusable came out of it, just stop. If a piece already loaded in this session covers the task, improve
+it (its `id:` and a `note:`) instead of creating a new one. Don't announce the save in your answer and don't print the
+piece: Athos itself shows the user one line with what was saved and where it is available."""
+
+
+def guide(cmd: str = "athos") -> str:
+    """The capture instructions, given once at session start (out of the user's sight) so the Stop hook can be short."""
+    return GUIDE.format(format=FORMAT.format(cmd=cmd))
+
+
 def origin_for(session_id: str, transcript_path: str | None = None) -> dict:
     state = session.load(session_id)
     model = state.get("model") or session.model_from_transcript(transcript_path)
@@ -58,7 +75,25 @@ def save_text(text: str, session_id: str = "default", cwd: str | None = None,
     state["tools_since_capture"] = 0
     session.save(session_id, state)
     ev.note_saved(session_id, piece.id)
+    state = session.load(session_id)
+    state["last_saved"] = {"id": piece.id, "title": piece.title, "version": piece.version,
+                           "platforms": ["Claude Code", *sync_other_agents()]}
+    session.save(session_id, state)
     return piece, diff
+
+
+def sync_other_agents() -> list[str]:
+    """Where the new piece is also ready: once the person exported the know-how for Codex and Muse Code (both read
+    ~/.agents/skills), every save refreshes that export, so the piece is there with no extra step."""
+    from athos.adapters import codex
+    d = codex.skills_dir()
+    try:
+        if not any(x.name.startswith(codex.SKILL_PREFIX) for x in d.iterdir()):
+            return []
+        codex.export_skills(d)
+    except OSError:
+        return []
+    return ["Codex", "Muse Code"]
 
 
 def _counts(event: dict) -> bool:
@@ -79,9 +114,13 @@ def count_tool(event: dict) -> None:
     session.save(sid, state)
 
 
+def enabled() -> bool:
+    return os.environ.get("ATHOS_CAPTURE", "").lower() not in ("off", "0", "false", "no")
+
+
 def stop_decision(event: dict, cmd: str = "athos") -> dict | None:
     """The Stop hook's answer: `{"decision": "block", "reason": ...}` asks Claude to capture; None lets it stop."""
-    if os.environ.get("ATHOS_CAPTURE", "").lower() in ("off", "0", "false", "no"):
+    if not enabled():
         return None
     if event.get("stop_hook_active"):
         return None
@@ -92,11 +131,17 @@ def stop_decision(event: dict, cmd: str = "athos") -> dict | None:
     state["tools_since_capture"] = 0
     state["asked"] = state.get("asked", 0) + 1
     session.save(sid, state)
+    if state.get("guide"):
+        # One short line: the full instructions went in at session start, out of the user's sight (and again after a
+        # compaction, which starts the session anew).
+        return {"decision": "block",
+                "reason": f"Athos: anything reusable to keep? Save or improve one piece with `{cmd} save` as the "
+                          f"session guide says, or just stop."}
     used = state.get("loaded", [])
     improve = (f" Pieces loaded in this session: {', '.join(used)}. If this task refined one of them, improve it "
                f"(give its id and a note) instead of creating a duplicate.") if used else ""
     reason = ("Athos: before you stop, decide whether this task taught reusable know-how: how it was solved, the "
-              "criteria, the steps, the mistakes avoided. If it did not, reply with one line, \"Athos: nothing to "
-              "capture\", and stop. If it did, save exactly one piece by running:\n\n"
-              + FORMAT.format(cmd=cmd) + "\n\nThen tell the user in one line which piece was saved." + improve)
+              "criteria, the steps, the mistakes avoided. If it did not, just stop. If it did, save exactly one piece "
+              "by running:\n\n" + FORMAT.format(cmd=cmd) + "\n\nDon't announce it: Athos shows the user what was "
+              "saved." + improve)
     return {"decision": "block", "reason": reason}

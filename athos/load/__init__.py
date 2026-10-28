@@ -119,4 +119,9 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
         model = model.get("id") or model.get("display_name")
     if model:
         session.update(sid, model=str(model))
-    return index_text(enabled(event.get("cwd")), cmd)
+    from athos import capture
+    text = index_text(enabled(event.get("cwd")), cmd)
+    if text and capture.enabled():               # with the guide given here, the Stop hook only needs one line
+        text += "\n\n" + capture.guide(cmd)
+        session.update(sid, guide=True)
+    return text
