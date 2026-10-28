@@ -97,7 +97,12 @@ def save_text(text: str, session_id: str = "default", cwd: str | None = None,
     state = session.load(session_id)
     state["last_saved"] = {"id": piece.id, "title": piece.title, "version": piece.version,
                            "platforms": ["Claude Code", *sync_other_agents()]}
-    state["wiki"] = rebuilt and {"broken": rebuilt["lint"]["broken"], "agents": rebuilt["agents"]}
+    try:
+        same_moment = wiki.overlaps(piece)
+    except OSError:
+        same_moment = []
+    state["wiki"] = rebuilt and {"broken": rebuilt["lint"]["broken"], "agents": rebuilt["agents"],
+                                 "overlaps": same_moment}
     session.save(session_id, state)
     return piece, diff
 
