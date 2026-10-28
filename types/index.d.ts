@@ -5,6 +5,8 @@ export type Status = {
   loading: string
   loaded: string[]
   to_mark: number
+  /** The piece this session saved or improved last, and the agents where it is ready. */
+  last_saved: { id: string; title: string; version: number; platforms: string[] } | null
   bars: {
     piece: string
     title: string
@@ -34,6 +36,6 @@ export type Bar = {
 
 declare module 'claude-code' {
   interface PluginState {
-    athos: { snap: Status | null; dismissed: string | null }
+    athos: { snap: Status | null; dismissed: string | null; announced: string | null }
   }
 }
