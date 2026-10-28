@@ -91,7 +91,9 @@ Each run gets a throwaway folder and its own Athos home, so your store and your 
 (a folder with `case.json`, `piece.md`, `setup.py` and `check.py`, like the ones in `athos/bench/cases/`) go in
 `~/.athos/bench/cases/` and never leave your machine.
 
-Your know-how lives in `~/.athos/know-how/`, one markdown file per piece. Choose what may load with
+Your know-how lives in `~/.athos/know-how/`, one markdown page per piece, as a wiki: each step is a statement
+(when / do / because / links), the links follow the order things are done in a task, and `Index.md` says where each
+kind of task starts. Walks that cross pages become subagents that improve with the pages. See [docs/WIKI.md](docs/WIKI.md). Choose what may load with
 `/athos:load all | project <name> | pieces <id>... | none`, and copy everything out with `/athos:export <folder>`.
 
 ### In Codex
@@ -120,6 +122,20 @@ Athos records each Muse Code task from Muse's own session logs (no hooks to trus
 the pieces it read, so `athos watch` and `/athos:report` show Muse Code beside Claude Code and Codex. Keep Muse Code's
 Contributor mode off (`muse` → `/settings`) unless you want Meta to train on your sessions; Athos warns when a task
 ran with it.
+
+### In Claude Desktop
+
+In the **Code** tab, Claude Desktop runs Claude Code with the same settings, so the plugin works as it is, including
+the lines under the prompt. For the regular **chat**, which takes MCP servers but not plugins, Athos serves your
+know-how over MCP: add it in Settings → Developer → Edit Config (`claude_desktop_config.json`), with the absolute path
+of the `athos` command (`command -v athos`, after `install.sh`):
+
+```json
+{ "mcpServers": { "athos": { "command": "/Users/you/.local/bin/athos", "args": ["mcp"] } } }
+```
+
+Restart Claude Desktop. The chat can then find the know-how for a request (`athos_find`, with the trajectory each piece
+starts), show and list pieces, and save what a conversation taught (`athos_save`), into the same `~/.athos`.
 
 ## Roadmap
 
