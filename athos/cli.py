@@ -17,6 +17,7 @@
     athos report [--json]              what each piece and each model brings to your work
     athos mcp                          your know-how as an MCP server (stdio), for Claude Desktop's chat
     athos wiki [--json]                rebuild Index.md and check the links between pieces (pages of a wiki)
+    athos export --dataset FILE        your statements and marked tasks as JSON lines (evals, training data)
     athos wiki agents [--install]      the trajectory subagents (a walk across pages); --install puts them in
                                        ~/.claude/agents and keeps them in step with every save
     athos bench <case|all> --agents claude,meta [--runs 5] [--without] [--max-usd 5]   the same task on each agent,
@@ -139,6 +140,11 @@ def cmd_save(_args) -> int:
     if broken:                                     # the wiki improves in the same turn: the model fixes what it broke
         print("\nwiki: links that lead nowhere; fix them with another `athos save` (id: of the page):\n  "
               + "\n  ".join(broken[:10]))
+    same = (session.load(cur.get("session_id", "default")).get("wiki") or {}).get("overlaps") or []
+    if same:                                       # possible contradictions: the model checks them now
+        print("\nwiki: other pages say what to do at the same moment. Check they agree; if one is wrong or "
+              "outdated, fix it with `athos save` (id: of that page), or link them if they apply together:\n  "
+              + "\n  ".join(same[:10]))
     return 0
 
 
@@ -178,6 +184,9 @@ def cmd_wiki(args) -> int:
                        ("pages still in the old numbered format", "old_format")):
         if lint[key]:
             print(f"\n{label} ({len(lint[key])}):\n  " + "\n  ".join(lint[key][:20]))
+    if r.get("stale"):
+        print(f"\ncandidates to retire, from your recorded tasks (review them; nothing is removed) "
+              f"({len(r['stale'])}):\n  " + "\n  ".join(r["stale"][:20]))
     return 0 if not (lint["broken"] or lint["duplicate_ids"]) else 1
 
 
@@ -196,6 +205,16 @@ def cmd_load(args) -> int:
 
 
 def cmd_export(args) -> int:
+    if args.dataset:
+        from athos import wiki
+        rows = wiki.dataset()
+        dest = Path(args.dataset).expanduser()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+        n_st = sum(r["kind"] == "statement" for r in rows)
+        print(f"{n_st} statements and {len(rows) - n_st} marked tasks to {dest} (JSON lines). It holds your requests "
+              "as you typed them: it stays on this machine unless you move it.")
+        return 0
     if args.codex or args.muse:
         from athos.adapters import codex
         dest = Path(args.dir).expanduser() if args.dir else codex.skills_dir()
@@ -392,6 +411,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("dir", nargs="?")
     s.add_argument("--codex", action="store_true", help="write each piece as a Codex skill (default ~/.agents/skills)")
     s.add_argument("--muse", action="store_true", help="the same skills for Muse Code, which reads ~/.agents/skills too")
+    s.add_argument("--dataset", metavar="FILE", help="your statements and marked tasks as JSON lines, to evaluate or "
+                   "specialise a model on")
     s.set_defaults(fn=cmd_export)
     s = sub.add_parser("codex")
     s.add_argument("action", choices=["install", "uninstall"])

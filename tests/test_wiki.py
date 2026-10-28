@@ -111,3 +111,56 @@ class FollowingTest(TempHome):
         out = cli.following({"task_loaded": ["land", "gone"]})
         self.assertEqual(out, [{"id": "land", "title": "Land a change", "version": 1, "steps": 2, "wiki": True,
                                 "platforms": ["Claude Code", "Codex", "Muse Code"]}])
+
+
+class HygieneTest(TempHome):
+    """The wiki keeps itself clean: same-moment statements reported on save, retire candidates from real use."""
+
+    def test_overlap_reports_another_page_for_the_same_moment(self):
+        store.create("Land", "committing", LAND, projects=["athos"], piece_id="land")
+        other = ("## #guard_first\n**When:** about to commit to the public repo, the guard step.\n"
+                 "**Do:** skip the guard when in a hurry.\n")
+        p = store.create("Other", "committing fast", other, projects=["athos"], piece_id="fast")
+        self.assertEqual(wiki.overlaps(p), ["fast#guard_first ~ land#run_guard"])
+        store.create("Elsewhere", "x", other, projects=["shop"], piece_id="elsewhere")
+        self.assertNotIn("elsewhere", " ".join(wiki.overlaps(p)))              # other project: not compared
+        linked = other + "**Links:** [[land#run_guard]]\n"
+        q = store.create("Linked", "y", linked, projects=["athos"], piece_id="linked")
+        self.assertNotIn("land#run_guard", " ".join(wiki.overlaps(q)))         # linked on purpose: applied together
+
+    def test_save_reports_the_overlap_in_the_same_turn(self):
+        store.create("Land", "committing", LAND, projects=["athos"], piece_id="land")
+        text = ("---\ntitle: Fast commit\nwhen: committing fast\n---\n## #guard_first\n"
+                "**When:** about to commit to the public repo, the guard step.\n**Do:** skip the guard.\n")
+        capture.save_text(text, "s1", cwd=str(Path(self.home) / "athos"))
+        self.assertTrue(session.load("s1")["wiki"]["overlaps"])
+
+    def test_stale_pages_failing_pages_and_unfollowed_links(self):
+        store.create("Land", "committing", LAND, projects=["athos"], piece_id="land")
+        store.create("Bump", "bump", BUMP, projects=["athos"], piece_id="bump-version")
+        old = store.get("bump-version")
+        old.created = "2026-01-01"
+        store._write(old)
+        land = store.get("land")
+        land.history = ["v1 2026-09-01: created"]
+        store._write(land)
+        tasks = [{"task_id": str(i), "pieces": ["land"], "started": "2026-10-0%dT10:00" % (i + 1),
+                  "result": "failed" if i < 2 else "ok"} for i in range(3)]
+        out = wiki.stale(tasks=tasks, today="2026-10-28")
+        self.assertIn("bump-version: not loaded in 30 days", out)
+        self.assertIn("land: most of its 3 marked tasks failed", out)
+        self.assertIn("land → bump-version: never loaded together in 3 tasks since v1", out)
+        land.history = ["v2 2026-10-02: links added"]                         # tasks before the link don't count
+        store._write(land)
+        self.assertFalse([x for x in wiki.stale(tasks=tasks, today="2026-10-28") if "→" in x])
+
+    def test_dataset_rows(self):
+        store.create("Land", "committing", LAND, projects=["athos"], piece_id="land")
+        tasks = [{"task_id": "t1", "pieces": ["land"], "request": "ship it", "result": "ok", "started": "x"},
+                 {"task_id": "t2", "pieces": ["land"], "request": "again", "result": "unevaluated"}]
+        rows = wiki.dataset(tasks=tasks)
+        st = [r for r in rows if r["kind"] == "statement"]
+        self.assertEqual([r["id"] for r in st], ["run_guard", "open_pr"])
+        self.assertEqual(st[0]["outcome"], {"ok": 1, "corrected": 0, "failed": 0})
+        self.assertEqual(st[0]["links"], ["land#open_pr", "bump-version#bump"])
+        self.assertEqual([r["request"] for r in rows if r["kind"] == "task"], ["ship it"])   # unmarked left out

@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import sys
 
-from athos import capture, load, store, wiki
+from athos import capture, load, session, store, wiki
 
 PROTOCOL = "2025-06-18"
 INSTRUCTIONS = ("The person's own know-how, kept by Athos as a wiki of pieces. Before a task, call athos_find with "
@@ -60,7 +60,14 @@ def call(name: str, args: dict, session_id: str = "mcp") -> str:
         return "\n".join(f"- `{p.id}` {p.title}. When: {p.when}" for p in store.all_pieces()) or "No pieces yet."
     if name == "athos_save":
         piece, diff = capture.save_text(args.get("text", ""), session_id)
-        return f"improved {piece.id} → v{piece.version}" if diff else f"saved {piece.id}"
+        out = f"improved {piece.id} → v{piece.version}" if diff else f"saved {piece.id}"
+        w = session.load(session_id).get("wiki") or {}
+        if w.get("broken"):
+            out += "\nLinks that lead nowhere (fix with another athos_save): " + "; ".join(w["broken"][:10])
+        if w.get("overlaps"):
+            out += ("\nOther pages say what to do at the same moment; check they agree and fix the wrong one: "
+                    + "; ".join(w["overlaps"][:10]))
+        return out
     raise KeyError(name)
 
 

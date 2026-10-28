@@ -32,6 +32,10 @@ STATEMENT = re.compile(r"^## #([a-z0-9_]+)\s*$", re.M)
 FIELD = re.compile(r"^\*\*(When|Do|Because|Links):\*\*\s*(.*)$", re.M)
 LINK = re.compile(r"\[\[([a-z0-9][a-z0-9-]*)(?:#([a-z0-9_]+))?(?:\|[^\]]*)?\]\]")
 AGENT_PREFIX = "athos-"
+OVERLAP = 0.4          # share of the words two **When** lines have in common to call them the same moment
+STALE_DAYS = 30
+STOPWORDS = set("the a an and or to of in on for with when about is are be it its this that from by as at into after "
+                "before any your you user asked asks ask".split())
 
 
 @dataclass
@@ -105,6 +109,89 @@ def lint(pieces: list[store.Piece] | None = None) -> dict:
             "links": sum(len(links_of(p)) for p in pieces), "broken": broken, "duplicate_ids": dupes,
             "entries": sorted(pages.keys() - linked_to),
             "old_format": sorted(p.id for p in pieces if not is_wiki(p))}
+
+
+def _words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9_]{3,}", text.lower())} - STOPWORDS
+
+
+def overlaps(piece: store.Piece, pieces: list[store.Piece] | None = None) -> list[str]:
+    """Statements of other pages, in the same project, for the same moment as one of this page's statements, that
+    neither links to the other. Two pages saying what to do at the same moment can contradict each other: the agent
+    that saved this page checks they agree, and keeps what is right in one place (the save reports them in the same
+    turn; nothing is overwritten)."""
+    pieces = store.all_pieces() if pieces is None else pieces
+    projects = set(piece.projects)
+    out = []
+    for s in statements(piece):
+        ws = _words(s.when)
+        if s.id == "steps" or len(ws) < 3:
+            continue
+        for p in pieces:
+            if p.id == piece.id or (projects and p.projects and not projects & set(p.projects)):
+                continue
+            for o in statements(p):
+                wo = _words(o.when)
+                if o.id == "steps" or len(wo) < 3 or len(ws & wo) / len(ws | wo) < OVERLAP:
+                    continue
+                if (o.page, o.id) in s.links or (o.page, None) in s.links or (s.page, s.id) in o.links:
+                    continue                                   # linked on purpose: applied together
+                out.append(f"{s.ref} ~ {o.ref}")
+    return out
+
+
+def stale(pieces: list[store.Piece] | None = None, tasks: list[dict] | None = None,
+          today: str | None = None) -> list[str]:
+    """Candidates to retire, from the recorded tasks (nothing is removed): pages no task loaded in the last
+    STALE_DAYS days, pages whose marked tasks mostly failed, and links between pages that were never loaded together
+    although the first one was, three times or more since the version that wrote the link."""
+    import datetime as dt
+    from athos import eval as ev
+    pieces = store.all_pieces() if pieces is None else pieces
+    tasks = ev.tasks() if tasks is None else tasks
+    day = dt.date.fromisoformat(today) if today else dt.date.today()
+    cutoff = (day - dt.timedelta(days=STALE_DAYS)).isoformat()
+    out = []
+    for p in sorted(pieces, key=lambda p: p.id):
+        used = [t for t in tasks if p.id in t.get("pieces", [])]
+        if p.created and p.created <= cutoff and not any((t.get("started") or "") >= cutoff for t in used):
+            out.append(f"{p.id}: not loaded in {STALE_DAYS} days")
+        marked = [t for t in used if t.get("result") in ("ok", "corrected", "failed")]
+        if len(marked) >= 3 and sum(t["result"] == "failed" for t in marked) * 2 > len(marked):
+            out.append(f"{p.id}: most of its {len(marked)} marked tasks failed")
+        # A link counts only from the version that wrote it: tasks before it could not follow it.
+        since = next((m.group(1) for h in p.history[:1] for m in [re.match(r"v\d+ (\d{4}-\d{2}-\d{2})", h)] if m),
+                     p.created or "")
+        after = [t for t in used if (t.get("started") or "")[:10] > since]   # the day after: history keeps dates only
+        if len(after) >= 3:
+            for nxt in links_of(p):
+                if not any(nxt in t.get("pieces", []) for t in after):
+                    out.append(f"{p.id} → {nxt}: never loaded together in {len(after)} tasks since v{p.version}")
+    return out
+
+
+def dataset(pieces: list[store.Piece] | None = None, tasks: list[dict] | None = None) -> list[dict]:
+    """The know-how as data to evaluate or specialise a model on: one row per statement (what to do at which moment,
+    and why, with how the tasks that used its page turned out) and one row per marked task (the request, the pages it
+    used, the agent and model, and your mark). Unmarked tasks are left out: their outcome is unknown."""
+    from athos import eval as ev
+    pieces = store.all_pieces() if pieces is None else pieces
+    tasks = ev.tasks() if tasks is None else tasks
+    marked = [t for t in tasks if t.get("result") in ("ok", "corrected", "failed")]
+    rows: list[dict] = []
+    for p in sorted(pieces, key=lambda p: p.id):
+        outcome = {r: sum(1 for t in marked if p.id in t.get("pieces", []) and t["result"] == r)
+                   for r in ("ok", "corrected", "failed")}
+        for st in statements(p):
+            rows.append({"kind": "statement", "page": p.id, "id": st.id, "title": p.title, "version": p.version,
+                         "projects": p.projects, "when": st.when, "do": st.do, "because": st.because,
+                         "links": [f"{pg}#{sid}" if sid else pg for pg, sid in st.links], "outcome": outcome})
+    for t in sorted(marked, key=lambda t: t.get("started") or ""):
+        rows.append({"kind": "task", "task_id": t["task_id"], "request": t.get("request", ""),
+                     "pieces": t.get("pieces", []), "saved": t.get("saved", []), "platform": t.get("platform"),
+                     "model": t.get("model"), "project": t.get("project"), "result": t["result"],
+                     "started": t.get("started")})
+    return rows
 
 
 def index_text(pieces: list[store.Piece] | None = None) -> str:
@@ -216,7 +303,11 @@ def rebuild(pieces: list[store.Piece] | None = None) -> dict:
         if f.name not in keep:
             f.unlink()
             removed.append(f.name)
-    return {"agents": sorted(keep), "written": written, "removed": removed, "lint": lint(pieces)}
+    try:
+        retire = stale(pieces)
+    except (OSError, ValueError):
+        retire = []
+    return {"agents": sorted(keep), "written": written, "removed": removed, "lint": lint(pieces), "stale": retire}
 
 
 def agents_target() -> Path | None:

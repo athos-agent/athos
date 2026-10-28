@@ -46,6 +46,29 @@ athos wiki                  rebuild Index.md; pages, statements, links; what to 
 athos wiki --json           the same, as JSON
 ```
 
+## Keeping it clean
+
+A wiki nobody tends fills with stale and conflicting advice, so Athos checks two things for you; neither removes
+anything on its own.
+
+- **Same moment, two answers.** When a page is saved, Athos looks in the other pages of the same project for a
+  statement whose **When** describes the same moment. If they are not linked, the save says so in the same turn, and
+  the agent checks they agree: it fixes the outdated one, or links them if they apply together.
+- **Candidates to retire.** `athos wiki` lists, from your recorded tasks, the pages no task loaded in the last 30 days,
+  the pages whose marked tasks mostly failed, and the links whose pages were never loaded together in three or more
+  tasks since the version that wrote the link. You decide what to drop the next time the page is improved.
+
+## Your know-how as data
+
+```
+athos export --dataset know-how.jsonl
+```
+
+One JSON line per statement (when, do, because, links, and how the tasks that used its page turned out) and one per
+task you marked (the request, the pages it used, the agent and model, your mark). It is what you need to evaluate a
+model on your own work, or to specialise one, and it stays on your machine unless you move it: it holds your requests
+as you typed them.
+
 ## Trajectory agents
 
 A walk that crosses pages (a release that runs the guard, then bumps the version, then opens the PR) is a
