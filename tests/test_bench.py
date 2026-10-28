@@ -137,6 +137,11 @@ class Runner(TempHome):
         self.assertEqual(len(rows), 2)
         self.assertIn("cap", said[-1])
 
+    def test_report_survives_runs_without_a_score(self):
+        rows = [{"case": "x", "agent": "claude", "model": "m", "know_how": True, "verdict": "f", "score": 0.0,
+                 "duration_s": 1.0, "tokens": {}, "cost_usd": None, "stages_done": None, "invented": None}]
+        self.assertIn("stages ?", bench.render(bench.report(rows)))
+
     def test_a_crashing_agent_is_a_failed_run(self):
         def boom(*_a, **_k):
             raise RuntimeError("no network")

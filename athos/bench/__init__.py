@@ -329,7 +329,9 @@ def render(rep: dict) -> str:
             cost = f"${x['median_cost_usd']:.3f}" if x["median_cost_usd"] is not None else "?"
             tok = f"{int(x['median_tokens']):,}" if x["median_tokens"] else "?"
             of = f"/{x['stages_total']}" if x.get("stages_total") else ""
-            extra = f"  stages {x['median_stages']:g}{of}, invented {x['median_invented']:g}" \
+            st = "?" if x.get("median_stages") is None else f"{x['median_stages']:g}"
+            inv = "?" if x.get("median_invented") is None else f"{x['median_invented']:g}"
+            extra = f"  stages {st}{of}, invented {inv}" \
                 if "median_invented" in x else ""
             lines.append(f"  {(x['agent'] + ' / ' + str(x['model']))[:34]:<34} {'with' if x['know_how'] else 'without':<8}"
                          f" {x['runs']:>4}  {x['g']}/{x['c']}/{x['f']:<3} {x['success']:>7.0%} {x['median_s']:>6}s "
