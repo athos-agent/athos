@@ -1,5 +1,6 @@
 """The `athos` command.
 
+    athos start                        first run: language, profession, example ways of working (no programming needed)
     athos list                         the pieces, with what is enabled
     athos show <id>                    one piece
     athos save                         save a piece from stdin (creates it, or improves the one named by `id:`)
@@ -396,9 +397,36 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_start(args) -> int:
+    from athos import start
+    def pick(prompt: str, options: tuple, default: str) -> str:
+        if not sys.stdin.isatty():
+            return default
+        try:
+            ans = input(prompt).strip()
+        except EOFError:
+            return default
+        return options[int(ans) - 1] if ans.isdigit() and 1 <= int(ans) <= len(options) else default
+    language = args.lang or pick(start.TEXT["en"]["ask_lang"], start.LANGS, start.lang() if start.config() else "es")
+    profile = args.profile or pick(start.TEXT[language]["ask_profile"], start.PROFILES, "other")
+    start.save_choice(language, profile)
+    added, skipped = start.install(language, profile)
+    print("\n" + start.welcome(language, profile, added, skipped))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv:                                   # a bare `athos` greets instead of failing with a usage error
+        from athos import start
+        print(start.t("hello"))
+        return 0
     ap = argparse.ArgumentParser(prog="athos", description="Your AI know-how. Free to move, fast to run.")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("start", help="first run: your language, your profession, example ways of working")
+    s.add_argument("--lang", choices=["es", "en"])
+    s.add_argument("--profile", choices=["law", "medicine", "other"])
+    s.set_defaults(fn=cmd_start)
     sub.add_parser("list").set_defaults(fn=cmd_list)
     s = sub.add_parser("show")
     s.add_argument("id")

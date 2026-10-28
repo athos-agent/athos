@@ -4,6 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from athos import store
 from tests.helpers import TempHome
 
 ATHOS = str(Path(__file__).resolve().parents[1] / "bin" / "athos")
@@ -82,3 +83,52 @@ class CliTest(TempHome):
         self.assertEqual(r.returncode, 1)
         self.assertIn("writable_roots", r.stderr)
         self.assertNotIn("Traceback", r.stderr)
+
+
+class StartTest(TempHome):
+    """A first run for people who don't program: language, profession, example ways of working."""
+
+    def run_cli(self, args):
+        r = subprocess.run([sys.executable, ATHOS, *args], capture_output=True, text=True, cwd=self.home,
+                           env=dict(os.environ), stdin=subprocess.DEVNULL)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_bare_athos_greets_instead_of_failing(self):
+        out = self.run_cli([])
+        self.assertIn("athos start", out)
+
+    def test_start_installs_the_profession_examples_in_the_chosen_language(self):
+        from athos import start
+        out = self.run_cli(["start", "--lang", "es", "--profile", "law"])
+        self.assertIn("Agregué 2 formas de trabajar", out)
+        self.assertIn("pestaña Code", out)
+        self.assertEqual(start.lang(), "es")
+        ids = {p.id for p in store.all_pieces()}
+        self.assertIn("revisar-un-contrato-con-tu-checklist", ids)
+        self.assertEqual(start.config()["profile"], "law")
+        again = self.run_cli(["start", "--lang", "es", "--profile", "law"])        # never overwrites the person's
+        self.assertIn("ya estaban", again)
+
+    def test_every_starter_is_a_clean_wiki_page_that_leaves_decisions_to_the_person(self):
+        from athos import start, wiki
+        for lang in start.LANGS:
+            for prof in ("law", "medicine"):
+                files = start.starters(lang, prof)
+                self.assertGreaterEqual(len(files), 2, (lang, prof))
+                for f in files:
+                    meta, body = store.parse_frontmatter(f.read_text())
+                    self.assertTrue(meta.get("id") and meta.get("title") and meta.get("when"), f)
+                    self.assertIn("## #", body)
+        for lang in start.LANGS:
+            for prof in ("law", "medicine"):
+                start.install(lang, prof)
+        lint = wiki.lint()
+        self.assertEqual((lint["broken"], lint["duplicate_ids"], lint["old_format"]), ([], [], []))
+
+    def test_a_spanish_request_loads_its_piece_alone(self):
+        from athos import load, start
+        start.install("es", "law")
+        start.install("es", "medicine")
+        got = [p.id for p in load.relevant("ordená la planificación de esta rodilla", store.all_pieces())]
+        self.assertEqual(got, ["planificar-un-reemplazo-total-de-rodilla"])
