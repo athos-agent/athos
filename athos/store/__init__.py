@@ -137,7 +137,7 @@ def all_pieces() -> list[Piece]:
     d = paths.know_how()
     if not d.is_dir():
         return []
-    return [parse(f.read_text()) for f in sorted(d.glob("*.md"))]
+    return [parse(f.read_text()) for f in sorted(d.glob("*.md")) if f.name != "Index.md"]   # the wiki's index
 
 
 def get(piece_id: str) -> Piece | None:
@@ -224,4 +224,4 @@ def export(dest: Path) -> int:
     if not src.is_dir():
         return 0
     shutil.copytree(src, dest, dirs_exist_ok=True)
-    return len(list(src.glob("*.md")))
+    return len([f for f in src.glob("*.md") if f.name != "Index.md"])

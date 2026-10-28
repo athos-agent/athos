@@ -91,7 +91,9 @@ Each run gets a throwaway folder and its own Athos home, so your store and your 
 (a folder with `case.json`, `piece.md`, `setup.py` and `check.py`, like the ones in `athos/bench/cases/`) go in
 `~/.athos/bench/cases/` and never leave your machine.
 
-Your know-how lives in `~/.athos/know-how/`, one markdown file per piece. Choose what may load with
+Your know-how lives in `~/.athos/know-how/`, one markdown page per piece, as a wiki: each step is a statement
+(when / do / because / links), the links follow the order things are done in a task, and `Index.md` says where each
+kind of task starts. Walks that cross pages become subagents that improve with the pages. See [docs/WIKI.md](docs/WIKI.md). Choose what may load with
 `/athos:load all | project <name> | pieces <id>... | none`, and copy everything out with `/athos:export <folder>`.
 
 ### In Codex

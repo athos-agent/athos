@@ -21,9 +21,21 @@ when: <the situation this applies to, specific enough to match a future request>
 id: <only to improve an existing piece: its id>
 note: <only when improving: what changed and why>
 ---
-<how it was solved: steps, criteria, commands, mistakes to avoid. Keep the user's exact conventions verbatim (names,
-message formats, paths, flags); never turn them into placeholders. No secrets, tokens or personal data.>
-EOF"""
+## #<statement_id>
+**When:** <the moment in the task this step applies, as you would recognise it mid-task>
+**Do:** <the action, concrete enough to check: a command, a file, a question to the person, a refusal>
+**Because:** <the reason or the evidence: an incident, a measurement, the person's decision>
+**Links:** <[[page#statement]] of what applies next or alongside, in this piece or another one>
+
+## #<next_statement_id>
+...
+EOF
+
+One statement per step, in the order the task goes. Keep the person's exact conventions verbatim (names, message
+formats, paths, flags); never turn them into placeholders. No secrets, tokens or personal data. Links are the
+trajectory: link a statement to the one applied right after it or with it in this task, including statements of
+other pieces loaded in this session; never link by topic alone. When improving an old piece written as numbered steps,
+rewrite it as statements."""
 
 
 GUIDE = """## Saving know-how (Athos)
@@ -75,9 +87,17 @@ def save_text(text: str, session_id: str = "default", cwd: str | None = None,
     state["tools_since_capture"] = 0
     session.save(session_id, state)
     ev.note_saved(session_id, piece.id)
+    from athos import wiki
+    try:
+        rebuilt = wiki.rebuild()
+        if wiki.agents_target():
+            wiki.install_agents(wiki.agents_target())
+    except OSError:
+        rebuilt = None
     state = session.load(session_id)
     state["last_saved"] = {"id": piece.id, "title": piece.title, "version": piece.version,
                            "platforms": ["Claude Code", *sync_other_agents()]}
+    state["wiki"] = rebuilt and {"broken": rebuilt["lint"]["broken"], "agents": rebuilt["agents"]}
     session.save(session_id, state)
     return piece, diff
 
