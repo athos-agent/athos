@@ -247,7 +247,12 @@ def _rollout_tasks(path: Path) -> list[dict]:
                 tasks.append(cur)
                 cur = None
             if cur is not None and ("athos-" in line or "`, v" in line):
-                cur["pieces"] |= set(SKILL_USE.findall(line)) | set(HOOK_USE.findall(line))
+                # Codex lists every available skill, with its path, in a developer message and in `world_state` on
+                # each turn: that catalog is not a use. A skill counts when a command, its output or the answer
+                # names it (Codex reads it with `cat .agents/skills/athos-<id>/SKILL.md`).
+                catalog = o.get("type") == "world_state" or (kind == ("response_item", "message")
+                                                               and p.get("role") in ("developer", "system"))
+                cur["pieces"] |= (set() if catalog else set(SKILL_USE.findall(line))) | set(HOOK_USE.findall(line))
     for t in tasks:
         t["session_id"], t["cwd"], t["path"] = meta.get("id", path.stem), meta.get("cwd", ""), str(path)
     return tasks
