@@ -133,16 +133,28 @@ def index_text(pieces: list[store.Piece] | None = None) -> str:
 
 
 def trajectories(pieces: list[store.Piece] | None = None) -> dict[str, list[str]]:
-    """Every walk that reaches more than one page, keyed by the page it starts from. Only entry pages start one (pages
-    nothing links to), so a trajectory is the whole chain, never its tail again."""
+    """Every walk that reaches more than one page, keyed by the page it starts from. Entry pages (nothing links to
+    them) start one, so a trajectory is the whole chain, never its tail again; a loop with no entry page starts at
+    the page that reaches the most."""
     pieces = store.all_pieces() if pieces is None else pieces
     pages = {p.id: p for p in pieces}
     linked_to = {t for p in pieces for t in links_of(p)}
-    out = {}
+    out, covered = {}, set()
     for pid in sorted(pages.keys() - linked_to):
         trail = walk(pid, pages)
         if len(trail) > 1:
             out[pid] = trail
+            covered |= set(trail)
+    # Pages that only link in a loop (A ↔ B) have no entry page: start from the one that leads to the most pages.
+    rest = sorted((pid for pid in pages if pid not in covered and links_of(pages[pid])),
+                  key=lambda pid: (-len(walk(pid, pages)), pid))
+    for pid in rest:
+        if pid in covered:
+            continue
+        trail = walk(pid, pages)
+        if len(trail) > 1:
+            out[pid] = trail
+            covered |= set(trail)
     return out
 
 

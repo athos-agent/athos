@@ -94,6 +94,14 @@ class WikiTest(TempHome):
         self.assertFalse((target / "athos-land.md").exists())
 
 
+class LoopTest(TempHome):
+    def test_a_loop_with_no_entry_page_is_still_a_trajectory(self):
+        store.create("A", "a", "## #x\n**Do:** a\n**Links:** [[b#y]]", piece_id="a")
+        store.create("B", "b", "## #y\n**Do:** b\n**Links:** [[a#x]] · [[c#z]]", piece_id="b")
+        store.create("C", "c", "## #z\n**Do:** c", piece_id="c")
+        self.assertEqual(wiki.trajectories(), {"a": ["a", "b", "c"]})       # a tie goes to the first id
+
+
 class FollowingTest(TempHome):
     def test_following_names_the_loaded_pieces_and_where_they_are_ready(self):
         from athos import cli
