@@ -171,3 +171,24 @@ class CodexImportTest(TempHome):
         ev.task_start({"session_id": "sess-1", "prompt": "a", "model": "gpt-6.1-sol"}, platform="codex")
         root = self.write("/work/greet", [("a", 5, None)])
         self.assertEqual(codex.import_sessions(root)["imported"], 0)
+
+
+class SkillCatalogTest(TempHome):
+    def test_the_skill_catalog_codex_injects_is_not_a_use(self):
+        # Found live (2026-10-28): Codex lists every skill with its path in a developer message and in world_state
+        # on each turn, so a task that read one skill was credited with all of them.
+        store.create("Review a contract", "contracts", "x", piece_id="review-a-contract")
+        store.create("Build an argument", "briefs", "x", piece_id="build-an-argument")
+        text = rollout("/work/firm", [("Review this lease", 12, "review-a-contract")])
+        catalog = " ".join(f".agents/skills/athos-{i}/SKILL.md" for i in ("review-a-contract", "build-an-argument"))
+        extra = [{"timestamp": "2026-10-25T22:00:00.000Z", "type": "response_item",
+                  "payload": {"type": "message", "role": "developer", "content": [{"type": "input_text",
+                                                                                   "text": catalog}]}},
+                 {"timestamp": "2026-10-25T22:00:00.000Z", "type": "world_state", "payload": {"skills": catalog}}]
+        lines = text.splitlines()
+        lines[3:3] = [json.dumps(x) for x in extra]                  # inside the turn, after task_started
+        d = Path(self.home) / "sessions" / "2026" / "10" / "25"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "rollout-2026-10-25T22-00-00-sess-1.jsonl").write_text("\n".join(lines) + "\n")
+        codex.import_sessions(Path(self.home) / "sessions")
+        self.assertEqual(ev.tasks()[0]["pieces"], ["review-a-contract"])
