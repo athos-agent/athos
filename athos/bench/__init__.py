@@ -5,7 +5,8 @@ Each case is a folder in `cases/`, or in your own `~/.athos/bench/cases/` (and a
 separated by `:`), for cases whose data must stay on your machine: `case.json` (title, domain, when, request), `piece.md` (the know-how), `setup.py <dir>`
 (builds a fresh workspace) and `check.py <dir>` (prints `{"verdict": "g|c|f", "score": 0..1, "missed": [...]}`).
 `case.json` may also set `timeout_s` (default 900), `max_usd_per_run` (Claude Code's own budget cap), `max_steps`
-(Athos's loop, default 20) and `check_timeout_s` (default 300) for long tasks.
+(Athos's loop, default 20), `check_timeout_s` (default 300) and `network` (true lets Codex's and Muse Code's sandboxes
+reach the network, e.g. to install packages) for long tasks.
 Every run gets its own temporary workspace and its own temporary Athos home, so nothing touches the user's store or
 their recorded tasks. Results go to `~/.athos/bench/results.jsonl`, apart from the real-work events.
 """
@@ -116,6 +117,8 @@ def run_codex(case, ws, home, with_piece, model=None):
         cmd += ["-c", f'sandbox_workspace_write.writable_roots=["{ws / ".git"}"]']
     if model:
         cmd += ["-m", model]
+    if case.get("network"):
+        cmd += ["-c", "sandbox_workspace_write.network_access=true"]
     r = subprocess.run(cmd + [case["request"]], cwd=ws, env=_env(home), capture_output=True, text=True,
                        timeout=_timeout(case), stdin=subprocess.DEVNULL)
     tokens = {"input": 0, "output": 0}
@@ -139,7 +142,10 @@ def run_muse(case, ws, home, with_piece, model=None):
         d.mkdir(parents=True, exist_ok=True)
         (d / "SKILL.md").write_text(_skill(case))
     cmd = ["muse", "exec", "--json", "--model", model, "--trust-workspace", "--disable-approval",
-           "--no-foreign-personal-context", "--workspace", str(ws), case["request"]]
+           "--no-foreign-personal-context", "--workspace", str(ws)]
+    if case.get("network"):
+        cmd += ["--sandbox-network", "enabled"]
+    cmd.append(case["request"])
     r = subprocess.run(cmd, cwd=ws, env=_env(home), capture_output=True, text=True, timeout=_timeout(case),
                        stdin=subprocess.DEVNULL)
     tokens, note = {"input": 0, "output": 0}, ""
