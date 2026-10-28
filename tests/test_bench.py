@@ -148,6 +148,7 @@ class Runner(TempHome):
         row = bench.run_once("tile-plan", CASES["tile-plan"], "meta", runner=boom)
         self.assertEqual(row["verdict"], "f")
         self.assertIn("no network", row["note"])
+        self.assertEqual(row["model"], "muse-spark-1.3")
 
     def test_workspace_hides_agent_folders_from_git(self):
         tmp = tempfile.TemporaryDirectory()

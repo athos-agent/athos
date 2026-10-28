@@ -31,6 +31,7 @@ AGENTS = ("claude", "codex", "muse", "meta", "local")
 TIMEOUT = 900
 # Meta Model API list price for muse-spark-1.3 (US$ per 1M tokens, input / output), from third-party sources.
 MUSE_SPARK_PRICE = (1.25, 4.25)
+DEFAULT_MODELS = {"meta": "muse-spark-1.3", "muse": "muse-spark-1.3", "local": "gemma4:12b"}
 CLAUDE_TOOLS = "Bash Read Edit Write Glob Grep"
 
 
@@ -215,6 +216,7 @@ def run_once(name: str, case: dict, agent: str, with_piece: bool = True, model: 
     home.mkdir()
     setup(case, ws)
     t0 = time.monotonic()
+    model = model or DEFAULT_MODELS.get(agent)        # so a run that crashes still says which model it was
     try:
         out = (runner or RUNNERS[agent])(case, ws, home, with_piece, model)
     except subprocess.TimeoutExpired:
