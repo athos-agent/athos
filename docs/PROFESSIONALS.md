@@ -1,4 +1,4 @@
-# Athos for professionals (law, medicine and any other trade)
+# Athos for professionals (law, sports coaching and any other trade)
 
 No programming needed. If you can explain to a new colleague how you do your work, you can use Athos.
 
@@ -17,7 +17,7 @@ and gives them to the AI next time, so you never repeat them.
    /plugin install athos --marketplace athos-agent/athos
    ```
    and restart Claude Desktop when it asks.
-4. Ask Claude, in your own words: *"Run `athos start --lang en --profile law`"* (or `--profile medicine`, or `other`).
+4. Ask Claude, in your own words: *"Run `athos start --lang en --profile law`"* (or `--profile sports`, or `other`).
    It adds example ways of working for your profession and tells you what to do next.
 
 Athos needs Python 3; on a Mac it installs itself the first time something asks for it (accept the command line tools).
@@ -36,8 +36,8 @@ works the same in all three.
 
 ## Day to day
 
-- **Ask as you would ask a colleague.** *"Review this contract against my checklist"*, *"Organise the planning of this
-  knee from these studies"*. If Athos has a way of working for it, the AI follows it on its own.
+- **Ask as you would ask a colleague.** *"Review this contract against my checklist"*, *"Plan this athlete's week with my
+  rules"*. If Athos has a way of working for it, the AI follows it on its own.
 - **The first time, explain.** When a task has no way of working yet, explain to the AI how you do it. At the end,
   Athos asks whether it is worth keeping, and it is there next time.
 - **Mark how it went.** After each task three buttons appear: **Good**, **Corrected**, **Failed**. With those marks
@@ -48,15 +48,15 @@ works the same in all three.
 
 ## The examples it brings
 
-Generic ways of working to start with, **not legal or medical advice**: all of them leave professional decisions to
+Generic ways of working to start with, **not legal advice**: all of them leave professional decisions to
 you and ask the AI to ask instead of deciding.
 
 | Profession | Way of working |
 |---|---|
 | Law | Build the argument of a brief for its audience (whom to convince, agreed premises, techniques, objections, order) |
 | Law | Review a contract against your checklist (clause by clause, a table of comments) |
-| Medicine | Organise the planning of a total knee replacement (studies, measurements with their source, the surgeon's decisions) |
-| Medicine | Summarise a referral for the visit (every item with its document, gaps) |
+| Sports coaching | Plan the training week with your rules (loads computed with code, target, hard days, easy day after the long run) |
+| Sports coaching | Write the post-match report in your format (numbers with their source, three things that went well and three to fix) |
 
 Replace them with yours: the best way of working is the one you already use.
 
@@ -64,7 +64,7 @@ Replace them with yours: the best way of working is the one you already use.
 
 - **Your ways of working never leave your computer.** Athos has no server and no account; it sends nothing.
 - **The AI does see what you show it.** Claude, Codex and Muse process in the cloud the documents you open in the
-  session. With client or patient data: anonymise (no names, IDs or birth dates) or use a model that runs on your
+  session. With client or personal data: anonymise (no names, IDs or birth dates) or use a model that runs on your
   computer, offline (`athos delegate`, with [Ollama](https://ollama.com)).
 - **Muse Code:** keep *Contributor* mode off (`/settings`) unless you want Meta to train on your sessions.
 - Professional responsibility stays yours: the AI proposes, you decide and sign.
