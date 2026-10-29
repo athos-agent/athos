@@ -103,6 +103,16 @@ def _without_ours(data: dict) -> dict:
     return data
 
 
+def installed() -> bool:
+    """Athos's hooks in Codex's hooks.json, or its plugin in Codex's plugin cache."""
+    try:
+        if "athos" in (codex_home() / "hooks.json").read_text():
+            return True
+    except OSError:
+        pass
+    return any((codex_home() / "plugins" / "cache").glob("*/athos"))
+
+
 def uninstall(hooks_file: Path | None = None) -> bool:
     hooks_file = hooks_file or codex_home() / "hooks.json"
     if not hooks_file.is_file():

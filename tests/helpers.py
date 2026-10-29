@@ -12,15 +12,17 @@ class TempHome(unittest.TestCase):
         self._old_codex = os.environ.get("CODEX_HOME")
         self._old_xdg = os.environ.get("XDG_DATA_HOME")
         self._old_skills = os.environ.get("ATHOS_SKILLS_DIR")
+        self._old_cfg = os.environ.get("XDG_CONFIG_HOME")
         os.environ["ATHOS_HOME"] = self._tmp.name
         os.environ["CODEX_HOME"] = os.path.join(self._tmp.name, "codex-home")      # never the user's real ~/.codex
         os.environ["XDG_DATA_HOME"] = os.path.join(self._tmp.name, "xdg-data")     # nor their Muse Code sessions
         os.environ["ATHOS_SKILLS_DIR"] = os.path.join(self._tmp.name, "agents-skills")  # nor their exported skills
+        os.environ["XDG_CONFIG_HOME"] = os.path.join(self._tmp.name, "xdg-config")  # nor their OpenCode plugins
         self.home = self._tmp.name
 
     def tearDown(self):
         for key, old in (("ATHOS_HOME", self._old), ("CODEX_HOME", self._old_codex), ("XDG_DATA_HOME", self._old_xdg),
-                         ("ATHOS_SKILLS_DIR", self._old_skills)):
+                         ("ATHOS_SKILLS_DIR", self._old_skills), ("XDG_CONFIG_HOME", self._old_cfg)):
             if old is None:
                 os.environ.pop(key, None)
             else:

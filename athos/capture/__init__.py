@@ -14,6 +14,12 @@ from athos import eval as ev, paths, session, store
 
 THRESHOLD = 3          # tool calls in the turn before a Stop asks for one (a release took 3); one must change something
 
+# A task that follows a checklist carries know-how worth keeping even when it changes no file (a lawyer reviewing a
+# contract only reads and answers): the word itself, a list the person pasted, or a checklist file the agent opened.
+CHECKLIST = re.compile(r"check[- ]?lists?\b|lista de (verificaci[oó]n|control|chequeo|comprobaci[oó]n)"
+                       r"|\bprotocol[oe]?s?\b", re.IGNORECASE)
+LIST_ITEM = re.compile(r"^\s*(?:[-*•]|\d{1,2}[.)]|\[[ xX]\])\s+\S", re.MULTILINE)
+
 FORMAT = """{cmd} save <<'EOF'
 ---
 title: <short imperative title>
@@ -180,11 +186,28 @@ def _does_work(event: dict) -> bool:
     return True
 
 
+def mentions_checklist(text: str) -> bool:
+    """A checklist in the request: named as such, or three or more list items the person typed or pasted."""
+    return bool(CHECKLIST.search(text or "")) or len(LIST_ITEM.findall(text or "")) >= 3
+
+
+def note_request(event: dict) -> None:
+    """UserPromptSubmit, after the task has started: remember whether this request works from a checklist."""
+    prompt = event.get("prompt", "")
+    # Per request, like the rest of capture. A list the person typed is new know-how even when a piece was loaded:
+    # their own checklist on top of a generic one is exactly what the piece should learn.
+    session.update(event.get("session_id", "default"), checklist=mentions_checklist(prompt),
+                   checklist_typed=len(LIST_ITEM.findall(prompt)) >= 3)
+
+
 def count_tool(event: dict) -> None:
     if not _counts(event):
         return
     sid = event.get("session_id", "default")
     state = session.load(sid)
+    tin = event.get("tool_input") or {}
+    if any(CHECKLIST.search(str(tin.get(k, ""))) for k in ("file_path", "path", "command", "pattern")):
+        state["checklist"] = True                               # the agent opened or searched a checklist
     state["tools_since_capture"] = state.get("tools_since_capture", 0) + 1
     if _does_work(event):
         state["work_since_capture"] = state.get("work_since_capture", 0) + 1
@@ -205,15 +228,27 @@ def stop_decision(event: dict, cmd: str = "athos") -> dict | None:
     state = session.load(sid)
     # Ask only after real work: enough tool calls, and at least one that changed something. A turn of reads and
     # checks (answering a question, looking at a PR) ends quietly.
-    if state.get("tools_since_capture", 0) < THRESHOLD or not state.get("work_since_capture", 0):
+    # A checklist the task followed is worth asking about even without file changes, unless a piece already led it
+    # and the person added nothing to it.
+    checklist = bool(state.get("checklist")) and (not state.get("task_loaded") or bool(state.get("checklist_typed")))
+    if not checklist and (state.get("tools_since_capture", 0) < THRESHOLD or not state.get("work_since_capture", 0)):
         return None
     state["tools_since_capture"] = state["work_since_capture"] = 0
+    state["checklist"] = state["checklist_typed"] = False
     state["asked"] = state.get("asked", 0) + 1
     session.save(sid, state)
     if state.get("guide"):
         # One short line: the full instructions went in at session start, out of the user's sight (and again after a
         # compaction, which starts the session anew).
         from athos import start
+        if checklist:                       # the reason it asks is the checklist: say so
+            if start.lang() == "es":
+                return {"decision": "block",
+                        "reason": f"Athos: esta tarea siguió un checklist, y eso es know-how valioso. Guardalo como "
+                                  f"forma de trabajar con `{cmd} save`, como dice la guía de la sesión, o terminá."}
+            return {"decision": "block",
+                    "reason": f"Athos: this task followed a checklist, which is know-how worth keeping. Save it as a "
+                              f"piece with `{cmd} save` as the session guide says, or just stop."}
         if start.lang() == "es":            # the person reads this line too: in their language
             return {"decision": "block",
                     "reason": f"Athos: ¿algo de esta tarea vale la pena guardar? Guardá o mejorá una forma de "
@@ -224,7 +259,8 @@ def stop_decision(event: dict, cmd: str = "athos") -> dict | None:
     used = state.get("loaded", [])
     improve = (f" Pieces loaded in this session: {', '.join(used)}. If this task refined one of them, improve it "
                f"(give its id and a note) instead of creating a duplicate.") if used else ""
-    reason = ("Athos: before you stop, decide whether this task taught reusable know-how: how it was solved, the "
+    lead = "Athos: this task followed a checklist, which is know-how worth keeping. " if checklist else "Athos: "
+    reason = (lead + "Before you stop, decide whether this task taught reusable know-how: how it was solved, the "
               "criteria, the steps, the mistakes avoided. If it did not, just stop. If it did, save exactly one piece "
               "by running:\n\n" + FORMAT.format(cmd=cmd) + "\n\nDon't announce it: Athos shows the user what was "
               "saved." + improve)

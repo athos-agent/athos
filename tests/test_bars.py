@@ -37,6 +37,18 @@ class BarsTest(TempHome):
         self.assertEqual(ev.bar_line(cx)[1], "1/1 good · 85% shorter prompt")
         self.assertEqual([a["platform"] for a in b["agents"]], ["claude-code", "codex"])   # Muse only once used
 
+    def test_opencode_and_muse_code_show_once_athos_is_installed_there(self):
+        import os
+        from pathlib import Path
+        from athos.adapters import opencode
+        p = self.piece.id
+        task("t1", "claude-code", "greet", 500, saved=[p])
+        opencode.plugins_dir().mkdir(parents=True)
+        (opencode.plugins_dir() / "athos.js").write_text("//")
+        (Path(os.environ["XDG_DATA_HOME"]) / "muse" / "plugins" / "cache" / "local" / "athos").mkdir(parents=True)
+        self.assertEqual([a["label"] for a in ev.bars("greet")["agents"]],
+                         ["Claude Code", "Codex", "Muse Code", "OpenCode"])
+
     def test_only_this_projects_tasks_count(self):
         p = self.piece.id
         task("t1", "claude-code", "greet", 500, saved=[p])

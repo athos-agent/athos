@@ -110,7 +110,18 @@ class FollowingTest(TempHome):
         (codex.skills_dir() / "athos-land").mkdir(parents=True)
         out = cli.following({"task_loaded": ["land", "gone"]})
         self.assertEqual(out, [{"id": "land", "title": "Land a change", "version": 1, "steps": 2, "wiki": True,
+                                "step_names": ["run_guard", "open_pr"],
                                 "platforms": ["Claude Code", "Codex", "Muse Code"]}])
+
+    def test_following_names_opencode_and_muse_code_once_athos_is_installed_there(self):
+        from athos import cli
+        from athos.adapters import opencode
+        store.create("Land a change", "committing", LAND, piece_id="land")
+        opencode.plugins_dir().mkdir(parents=True)
+        (opencode.plugins_dir() / "athos.js").write_text("//")
+        (Path(os.environ["XDG_DATA_HOME"]) / "muse" / "plugins" / "cache" / "local" / "athos").mkdir(parents=True)
+        out = cli.following({"task_loaded": ["land"]})
+        self.assertEqual(out[0]["platforms"], ["Claude Code", "Muse Code", "OpenCode"])
 
 
 class HygieneTest(TempHome):

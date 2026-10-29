@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { announceText, barText, followingText, savedText, statusText } from './ui'
+import { announceText, barText, followingText, savedText, statusText, stepsText } from './ui'
 
 const BAND = { plugin: 'athos', component: 'AbovePrompt', props: { hasSurvey: false } } as const
 
@@ -103,4 +103,14 @@ test('in Spanish, the person reads plain Spanish', () => {
   expect(announceText({ ...es, last_saved: { id: 'x', title: 'Revisar un contrato', version: 1, platforms: ['Claude Code'] } } as never))
     .toBe('athos · guardé «Revisar un contrato» · lista en Claude Code')
   expect(barText(CLAUDE as never, es as never).words).toBe('4/5 bien · pedido 85% más corto')
+})
+
+test('while a task runs, the steps of the know-how it follows are listed in order', () => {
+  const f = { id: 'review', title: 'Review a contract', version: 2, steps: 7, wiki: true,
+    step_names: ['client_data', 'summary', 'clauses', 'table', 'decision', 'missing'], platforms: ['Claude Code'] }
+  expect(stepsText({ ...STATUS, following: [f] } as never))
+    .toBe('#client_data → #summary → #clauses → #table → #decision → #missing → …')
+  expect(stepsText({ ...STATUS, following: [{ ...f, steps: 6 }] } as never)).toContain('#missing')
+  expect(stepsText({ ...STATUS, following: [{ ...f, step_names: [] }] } as never)).toBe(undefined)
+  expect(stepsText(STATUS as never)).toBe(undefined)
 })
