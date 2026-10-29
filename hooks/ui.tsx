@@ -53,6 +53,13 @@ export function recordText(r: { uses: number; ok: number; marked: number; agents
   return w.record(r.ok, r.marked, r.agents)
 }
 
+/** The band's first row, kept to one line so the terminal never wraps it (a wrapped row lost its space after
+ * "athos"): the piece, its record, and at most three of the words that loaded it. */
+export function whyText(l: NonNullable<Status['loads']>[number], w: ReturnType<typeof words>): string {
+  const shown = l.why.slice(0, 3).join(', ') + (l.why.length > 3 ? '…' : '')
+  return `${w.used} «${l.title}» · ${recordText(l.record, w)} · ${w.matched}: ${shown}`
+}
+
 export function statusText(s: Status | null): string | undefined {
   if (!s) return undefined
   const w = words(s)
@@ -241,7 +248,7 @@ export const register: Register = on => {
         {why ? (
           <Box>
             <Text color="cyan">athos </Text>
-            <Text dimColor>{`${w.used} «${why.title}» · ${recordText(why.record, w)} · ${w.matched}: ${why.why.join(', ')} `}</Text>
+            <Text dimColor>{`${whyText(why, w)} `}</Text>
             <Button key="x" label={w.didntApply} onPress={notIt} />
           </Box>
         ) : null}
