@@ -4,7 +4,7 @@ No programming needed. If you can explain to a new colleague how you do your wor
 
 ## What it does, in one sentence
 
-Every time you work with an AI (Claude, Codex or Meta's Muse) you explain how you do things: your checklist, your
+Every time you work with an AI (Claude, Codex, Meta's Muse Code or OpenCode) you explain how you do things: your checklist, your
 format, what must never be forgotten. Athos keeps those **ways of working** as plain files of yours, on your computer,
 and gives them to the AI next time, so you never repeat them.
 
@@ -24,22 +24,28 @@ Athos needs Python 3; on a Mac it installs itself the first time something asks 
 
 ## Start from a terminal
 
-If you already use `claude`, `codex` or `muse` in a terminal:
+If you already use `claude`, `codex`, `muse` or `opencode` in a terminal:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/athos-agent/athos/main/install.sh | sh
 athos start
 ```
 
-`athos start` asks your language and profession. Then open `claude`, `codex` or `muse` in your documents' folder: Athos
-works the same in all three.
+`athos start` asks your language and profession. For Muse Code and OpenCode, also install their plugin (commands in
+the [README](../README.md#install)). Then open the tool in your documents' folder: Athos works the same in all four.
+
+**Step-by-step guides:** [for lawyers](guides/lawyer.md) · [for coaches](guides/coach.md) ·
+[your checklist is know-how](guides/checklist-en.md).
 
 ## Day to day
 
 - **Ask as you would ask a colleague.** *"Review this contract against my checklist"*, *"Plan this athlete's week with my
   rules"*. If Athos has a way of working for it, the AI follows it on its own.
 - **The first time, explain.** When a task has no way of working yet, explain to the AI how you do it. At the end,
-  Athos asks whether it is worth keeping, and it is there next time.
+  Athos asks whether it is worth keeping, and it is there next time. If you worked from a checklist it always asks:
+  a checklist is valuable know-how.
+- **You know which method is applied.** When one of your ways of working matches the request, the AI opens by saying
+  which one it follows and how it applies to this case.
 - **Mark how it went.** After each task three buttons appear: **Good**, **Corrected**, **Failed**. With those marks
   Athos knows which ways of working help you, and on which model.
 - **Change them any time.** They are text files in `~/.athos/know-how`. Open them in any editor (or in
@@ -63,7 +69,7 @@ Replace them with yours: the best way of working is the one you already use.
 ## Your data
 
 - **Your ways of working never leave your computer.** Athos has no server and no account; it sends nothing.
-- **The AI does see what you show it.** Claude, Codex and Muse process in the cloud the documents you open in the
+- **The AI does see what you show it.** Claude, Codex, Muse and OpenCode's models process in the cloud the documents you open in the
   session. With client or personal data: anonymise (no names, IDs or birth dates) or use a model that runs on your
   computer, offline (`athos delegate`, with [Ollama](https://ollama.com)).
 - **Muse Code:** keep *Contributor* mode off (`/settings`) unless you want Meta to train on your sessions.
