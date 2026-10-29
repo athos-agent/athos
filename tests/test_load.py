@@ -80,3 +80,9 @@ class LoadRegressionTest(TempHome):
         store.create("Change a function output", "change what a SQL function returns", "x")
         notice = "<task-notification>\n<task-id>b1</task-id>\n<summary>output changed</summary>"
         self.assertEqual(load.relevant(notice, store.all_pieces()), [])
+
+    def test_file_names_and_punctuation_split_into_words(self):
+        # 2026-10-29: "Revisá contrato-servicios.md, represento al Proveedor." loaded nothing: the file name was one word.
+        store.create("Revisar un contrato con tu checklist", "revisar un contrato de servicios o de locación", "x")
+        self.assertEqual(len(load.relevant("Revisá contrato-servicios.md, represento al Proveedor.",
+                                           store.all_pieces())), 1)
