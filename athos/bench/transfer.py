@@ -297,8 +297,14 @@ def report(name: str, teach_id: str | None = None, rows: list[dict] | None = Non
     elif rows:
         teach_id = rows[-1].get("teach")
         rows = [r for r in rows if r.get("teach") == teach_id]
+    # A run whose agent read a teaching folder or a know-how store outside its workspace measured a leak, not a
+    # transfer: it is counted apart and left out of every rate.
+    leaked: dict[tuple, int] = {}
     groups: dict[tuple, list] = {}
     for r in rows:
+        if r.get("looked_outside"):
+            leaked[(r["agent"], r["arm"])] = leaked.get((r["agent"], r["arm"]), 0) + 1
+            continue
         groups.setdefault((r["agent"], r["arm"]), []).append(r)
     lines = []
     for (agent, arm), rs in sorted(groups.items(), key=lambda kv: (bench.AGENTS.index(kv[0][0]), kv[0][1])):
@@ -314,7 +320,7 @@ def report(name: str, teach_id: str | None = None, rows: list[dict] | None = Non
                       "median_tokens": bench._median([sum((r.get("tokens") or {}).values()) or None for r in rs]),
                       "median_cost_usd": bench._median([r.get("cost_usd") for r in rs]),
                       "named_page": sum(r.get("named_page", False) for r in rs),
-                      "looked_outside": sum(r.get("looked_outside", False) for r in rs)})
+                      "looked_outside": leaked.get((agent, arm), 0)})
     teach_info = {}
     for d in teach_root().glob(f"{teach_id}/teach.json") if teach_id else []:
         teach_info = json.loads(d.read_text())
@@ -348,9 +354,9 @@ def render(rep: dict) -> str:
                    + " | ".join(f"{x['items'].get(k, 0) * 100:.0f}%" for k in keys) + " |")
     leaks = [x for x in rep["lines"] if x.get("looked_outside")]
     if leaks:
-        out += ["", "Runs whose agent read a teaching folder or a know-how store outside its workspace (not transfer): "
-                + ", ".join(f"{label.get(x['agent'], x['agent'])} {x['arm']} {x['looked_outside']}/{x['runs']}"
-                            for x in leaks) + "."]
+        out += ["", "Left out of the table: runs whose agent read a teaching folder or a know-how store outside its "
+                "workspace (a leak, not a transfer): "
+                + ", ".join(f"{label.get(x['agent'], x['agent'])} {x['arm']} {x['looked_outside']}" for x in leaks) + "."]
     taught = rep.get("taught") or []
     if taught:
         out += ["", "Points come from the person's own checklist or guide, except " + " and ".join(f"`{k}`" for k in taught)
