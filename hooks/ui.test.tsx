@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { announceText, barText, followingText, savedText, statusText, stepsText } from './ui'
+import { announceText, barText, followingText, savedText, statusText, stepsText, whyText, words } from './ui'
 
 const BAND = { plugin: 'athos', component: 'AbovePrompt', props: { hasSurvey: false } } as const
 
@@ -154,3 +154,10 @@ test('while a task runs, the steps of the know-how it follows are listed in orde
   expect(stepsText({ ...STATUS, following: [{ ...f, step_names: [] }] } as never)).toBe(undefined)
   expect(stepsText(STATUS as never)).toBe(undefined)
 })
+
+test('the "used" row keeps to one line: at most three matched words', () => {
+  const w = words(STATUS as never)
+  expect(whyText({ id: 'x', title: 'Review a contract', why: ['against', 'checklist', 'lease', 'review'] }, w))
+    .toBe('used «Review a contract» · first time · matched: against, checklist, lease…')
+})
+
