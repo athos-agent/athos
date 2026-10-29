@@ -1,3 +1,5 @@
+import unittest
+import shlex
 import json
 import os
 import subprocess
@@ -132,3 +134,13 @@ class StartTest(TempHome):
         start.install("es", "sports")
         got = [p.id for p in load.relevant("planificá la semana de entrenamiento de este atleta", store.all_pieces())]
         self.assertEqual(got, ["planificar-la-semana-de-entrenamiento"])
+
+
+class CommandNameTest(unittest.TestCase):
+    def test_lines_say_plain_athos_when_the_shell_finds_it(self):
+        from unittest import mock
+        from athos import cli
+        with mock.patch("shutil.which", return_value="/somewhere/bin/athos"):
+            self.assertEqual(cli._cmd(), "athos")
+        with mock.patch("shutil.which", return_value=None):
+            self.assertEqual(cli._cmd(), shlex.quote(str(cli.ME)))

@@ -44,7 +44,10 @@ ME = Path(__file__).resolve().parents[1] / "bin" / "athos"
 
 
 def _cmd() -> str:
-    return shlex.quote(str(ME)) if ME.exists() else "athos"
+    """How the agent should call Athos in the lines it and the person read: plain `athos` when the agent's shell finds
+    it (the plugin puts its own bin on PATH; the installer adds ~/.local/bin), else the full path. A full path also
+    showed the person's user name in every line."""
+    return "athos" if shutil.which("athos") or not ME.exists() else shlex.quote(str(ME))
 
 
 # ------------------------------------------------------------------------------------- which session a shell is in

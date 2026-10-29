@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 
 from athos import control, eval as ev, session, store
 
@@ -29,7 +30,13 @@ sus mi mis tu tus al me te nos""".split())
 
 
 def words(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-záéíóúñü0-9_.-]{3,}", text.lower()) if w not in STOP}
+    """Whole words, for the exact match: file names and punctuation split ("contrato-servicios.md" is "contrato" and
+    "servicios"), accents dropped ("locación" is "locacion")."""
+    plain = unicodedata.normalize("NFKD", text.lower()).encode("ascii", "ignore").decode()
+    return {w for w in re.findall(r"[a-z0-9]{3,}", plain) if w not in STOP_PLAIN}
+
+
+STOP_PLAIN = {unicodedata.normalize("NFKD", w).encode("ascii", "ignore").decode() for w in STOP}
 
 
 def tokens(text: str) -> list[str]:
@@ -114,13 +121,16 @@ def relevant(prompt: str, pieces: list[store.Piece]) -> list[store.Piece]:
 def inject_text(pieces: list[store.Piece]) -> str:
     if not pieces:
         return ""
+    first = pieces[0].title
     parts = ["# Athos — know-how that matches this request\n\nThe user's own know-how for this kind of task. "
-             "Follow it unless the request says otherwise. Before you start, tell the person in one short line, in "
-             "their language, which of their ways of working you are following and how it applies to this request "
-             "(e.g. «Following your “Review a contract against your checklist”: client data first, then the summary "
-             "and the clause table.»); if it does not fit, say so and don't follow it.\n"]
+             "Follow it unless the request says otherwise.\n"]
     for p in pieces:
         parts.append(f"## {p.title} (`{p.id}`, v{p.version})\nWhen: {p.when}\n\n{p.body}\n")
+    # Last, so it is the freshest instruction: the person sees which of their know-how is applied, in every agent.
+    parts.append(f"**The first line of your reply** names the way of working you follow and how it applies to this "
+                 f"request, in the person's language, in this form: `Athos · «{first}»: <how it applies here, in a few "
+                 f"words>` (in Spanish the same, with the explanation in Spanish). If it does not fit this request, "
+                 f"say so in that line and don't follow it.\n")
     return "\n".join(parts)
 
 
