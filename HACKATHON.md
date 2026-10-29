@@ -67,6 +67,7 @@ from what was built during the event.
 - [#50](https://github.com/athos-agent/athos/pull/50) `athos project sync`: the project's know-how in `.athos/` (wiki, METHOD.md, subagents, skills, tools), read by Claude Code, Codex, Muse Code and OpenCode without the plugin (0.1.39)
 - [#51](https://github.com/athos-agent/athos/pull/51) `athos bench transfer`: teach a task in Claude Code, replay it in Claude Code, Codex, Muse Code and OpenCode (Muse Spark through Meta Model API) with no Athos, `.athos/` only, or `.athos/` + plugin, judged point by point; an `opencode` bench agent; Muse Code bench runs isolated from the person's plugins; the law case `contract-transfer` (0.1.40)
 - [#52](https://github.com/athos-agent/athos/pull/52) A literature transfer case, `chapter-transfer`: an author's editing rules taught in Claude Code, applied to the next chapter by every agent; transfer cases can leave several files (0.1.41)
+- [#53](https://github.com/athos-agent/athos/pull/53) Less noise, more control: in Claude Code a [Save] button instead of asking the model after every task; elsewhere, asks only after an edit or several commands (49 → 37 asks per 100 real requests); the band shows which know-how was used, its record and why it loaded, with [Didn't apply]; plain words mark the last task; only the last week waits for a mark; the person's language when none was chosen (0.1.42)
 
 ## Meta models used
 

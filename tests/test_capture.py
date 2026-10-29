@@ -31,31 +31,31 @@ class CaptureTest(TempHome):
 
     def test_save_resets_the_counter(self):
         for _ in range(7):
-            capture.count_tool({"session_id": "s1"})
+            capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
         capture.save_text(PIECE, "s1")
         self.assertEqual(session.load("s1")["tools_since_capture"], 0)
 
     def test_stop_waits_for_enough_work(self):
         for _ in range(capture.THRESHOLD - 1):
-            capture.count_tool({"session_id": "s1"})
+            capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
         self.assertIsNone(capture.stop_decision({"session_id": "s1"}))
-        capture.count_tool({"session_id": "s1"})
+        capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
         out = capture.stop_decision({"session_id": "s1"})
         self.assertEqual(out["decision"], "block")
         self.assertIn("save <<'EOF'", out["reason"])
 
     def test_stop_asks_once_then_lets_claude_stop(self):
         for _ in range(capture.THRESHOLD):
-            capture.count_tool({"session_id": "s1"})
+            capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
         self.assertIsNotNone(capture.stop_decision({"session_id": "s1"}))
         self.assertIsNone(capture.stop_decision({"session_id": "s1"}))                       # counter was reset
         for _ in range(capture.THRESHOLD):
-            capture.count_tool({"session_id": "s1"})
+            capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
         self.assertIsNone(capture.stop_decision({"session_id": "s1", "stop_hook_active": True}))
 
     def test_stop_can_be_turned_off(self):
         for _ in range(capture.THRESHOLD):
-            capture.count_tool({"session_id": "s1"})
+            capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
         os.environ["ATHOS_CAPTURE"] = "off"
         try:
             self.assertIsNone(capture.stop_decision({"session_id": "s1"}))
@@ -63,7 +63,8 @@ class CaptureTest(TempHome):
             del os.environ["ATHOS_CAPTURE"]
 
     def test_stop_suggests_improving_loaded_pieces(self):
-        session.update("s1", loaded=["fix-flaky-test"], tools_since_capture=capture.THRESHOLD, work_since_capture=1)
+        session.update("s1", loaded=["fix-flaky-test"], tools_since_capture=capture.THRESHOLD, work_since_capture=1,
+                       edits_since_capture=1)
         self.assertIn("fix-flaky-test", capture.stop_decision({"session_id": "s1"})["reason"])
 
 
@@ -84,9 +85,9 @@ class CounterTest(TempHome):
     def test_a_new_request_starts_the_count_again(self):
         from athos import eval as ev
         for _ in range(capture.THRESHOLD - 1):
-            capture.count_tool({"session_id": "s1"})
+            capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
         ev.task_start({"session_id": "s1", "prompt": "next request"})
-        capture.count_tool({"session_id": "s1"})
+        capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
         self.assertIsNone(capture.stop_decision({"session_id": "s1"}))
 
 
@@ -97,14 +98,14 @@ class QuietCaptureTest(TempHome):
         text = load.on_session_start({"session_id": "s2", "cwd": self.home})
         self.assertIn("Saving know-how (Athos)", text)
         for _ in range(capture.THRESHOLD):
-            capture.count_tool({"session_id": "s2"})
+            capture.count_tool({"session_id": "s2", "tool_name": "Edit"})
         reason = capture.stop_decision({"session_id": "s2"})["reason"]
         self.assertLess(len(reason), 140)
         self.assertIn("athos save", reason)
 
     def test_without_the_guide_the_stop_line_carries_the_format(self):
         for _ in range(capture.THRESHOLD):
-            capture.count_tool({"session_id": "s3"})
+            capture.count_tool({"session_id": "s3", "tool_name": "Edit"})
         self.assertIn("save <<'EOF'", capture.stop_decision({"session_id": "s3"})["reason"])
 
     def test_save_records_where_the_piece_is_ready(self):
@@ -157,7 +158,7 @@ class SpanishTest(TempHome):
         load.on_session_start({"session_id": "s5", "cwd": self.home})
         capture.count_tool({"session_id": "s5", "tool_name": "Edit"})
         for _ in range(capture.THRESHOLD):
-            capture.count_tool({"session_id": "s5"})
+            capture.count_tool({"session_id": "s5", "tool_name": "Edit"})
         start.save_choice("es", "law")
         reason = capture.stop_decision({"session_id": "s5"})["reason"]
         self.assertIn("¿algo de esta tarea vale la pena guardar?", reason)
@@ -205,3 +206,35 @@ class ChecklistTest(TempHome):
         capture.note_request({"session_id": "s6", "prompt": "Revisá contrato.md con mi checklist (mi-checklist.md)."})
         session.update("s6", task_loaded=["revisar-un-contrato-con-tu-checklist"])
         self.assertIsNotNone(capture.stop_decision({"session_id": "s6"}))
+
+    def test_commands_alone_ask_only_after_several_and_reads_never(self):
+        for _ in range(capture.WORK_MIN - 1):
+            capture.count_tool({"session_id": "w", "tool_name": "Bash", "tool_input": {"command": "pytest -q"}})
+        for _ in range(5):
+            capture.count_tool({"session_id": "w", "tool_name": "Bash", "tool_input": {"command": "git status"}})
+        self.assertIsNone(capture.stop_decision({"session_id": "w"}))         # 4 commands and reads: quiet
+        capture.count_tool({"session_id": "w", "tool_name": "Bash", "tool_input": {"command": "pytest -q"}})
+        self.assertIsNotNone(capture.stop_decision({"session_id": "w"}))
+
+    def test_a_word_in_a_command_is_not_the_persons_checklist(self):
+        for _ in range(2):
+            capture.count_tool({"session_id": "c", "tool_name": "Bash", "tool_input": {"command": "grep -rn checklist ."}})
+        self.assertFalse(session.load("c").get("checklist"))
+        capture.count_tool({"session_id": "c", "tool_name": "Read", "tool_input": {"file_path": "/w/mi-checklist.md"}})
+        self.assertTrue(session.load("c").get("checklist_typed"))
+
+    def test_never_asks_in_a_request_that_already_saved(self):
+        for _ in range(capture.THRESHOLD):
+            capture.count_tool({"session_id": "v", "tool_name": "Edit"})
+        capture.count_tool({"session_id": "v", "tool_name": "Bash", "tool_input": {"command": "athos save <<'EOF'"}})
+        self.assertIsNone(capture.stop_decision({"session_id": "v"}))
+
+    def test_an_interactive_session_gets_an_offer_not_a_question(self):
+        session.update("o", task_id="t1")
+        for _ in range(capture.THRESHOLD):
+            capture.count_tool({"session_id": "o", "tool_name": "Edit"})
+        self.assertIsNone(capture.stop_decision({"session_id": "o"}, offer=True))
+        self.assertEqual(session.load("o")["offer"], {"task_id": "t1", "reason": "work"})
+        capture.note_request({"session_id": "o", "prompt": "next"})               # a new request clears it
+        self.assertIsNone(session.load("o")["offer"])
+

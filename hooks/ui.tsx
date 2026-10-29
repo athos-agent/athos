@@ -8,6 +8,8 @@ import type { Bar, Status } from '../types'
 
 const snap = atom({ plugin: 'athos', key: 'snap' } as const, null)
 const dismissed = atom({ plugin: 'athos', key: 'dismissed' } as const, null)
+const offered = atom({ plugin: 'athos', key: 'offered' } as const, null)
+const misfired = atom({ plugin: 'athos', key: 'misfired' } as const, null)
 
 // What the person reads, in the language they chose with `athos start` (English by default), in plain words.
 const WORDS = {
@@ -18,6 +20,12 @@ const WORDS = {
     improved: 'improved', good: 'good', notUsed: 'not used yet', notMarked: 'not marked yet',
     shorter: (p: number) => `${p}% shorter prompt`, longer: (p: number) => `${p}% longer prompt`,
     ask: 'How did this task go? ', ok: 'Good', corrected: 'Corrected', failed: 'Failed', skip: 'Skip',
+    offerWork: 'This task can become a way of working. Save it? ',
+    offerChecklist: 'This task followed a checklist. Save it as a way of working? ', save: 'Save', notNow: 'Not now',
+    used: 'used', matched: 'matched', didntApply: "Didn't apply",
+    record: (ok: number, marked: number, agents: string[]) =>
+      `${ok}/${marked} good` + (agents.length ? ` in ${agents.join(', ')}` : ''),
+    firstTime: 'first time',
   },
   es: {
     ways: (n: number) => `${n} forma${n === 1 ? '' : 's'} de trabajar`, inUse: (n: number) => `${n} en uso`,
@@ -26,10 +34,23 @@ const WORDS = {
     improved: 'mejoré', good: 'bien', notUsed: 'sin usar todavía', notMarked: 'sin marcar todavía',
     shorter: (p: number) => `pedido ${p}% más corto`, longer: (p: number) => `pedido ${p}% más largo`,
     ask: '¿Cómo salió esta tarea? ', ok: 'Salió bien', corrected: 'Lo corregí', failed: 'Falló', skip: 'Omitir',
+    offerWork: 'Esta tarea puede quedar como forma de trabajar. ¿La guardo? ',
+    offerChecklist: 'Esta tarea siguió un checklist. ¿Lo guardo como forma de trabajar? ', save: 'Guardar',
+    notNow: 'Ahora no', used: 'usó', matched: 'coincidió', didntApply: 'No aplicaba',
+    record: (ok: number, marked: number, agents: string[]) =>
+      `${ok}/${marked} bien` + (agents.length ? ` en ${agents.join(', ')}` : ''),
+    firstTime: 'primera vez',
   },
 }
 export function words(s: Status | null) {
   return WORDS[s?.lang === 'es' ? 'es' : 'en']
+}
+
+/** How a piece has done so far, in a few words: "4/4 good in Claude Code, OpenCode", or "first time". */
+export function recordText(r: { uses: number; ok: number; marked: number; agents: string[] } | undefined,
+                           w: ReturnType<typeof words>): string {
+  if (!r || r.uses <= 1 || !r.marked) return w.firstTime
+  return w.record(r.ok, r.marked, r.agents)
 }
 
 export function statusText(s: Status | null): string | undefined {
@@ -190,14 +211,48 @@ export const register: Register = on => {
     // The save is announced here and not under the answer: text a plugin adds there is drawn with an engine prefix.
     const savedNow = s?.last_saved && [...last.saved, ...last.improved].includes(s.last_saved.id)
     const saved = savedNow ? announceText(s) : undefined
-    if (!unmarked && !saved) return next(e)
+    // Worth keeping: the person decides with one key, instead of the model being asked after every task.
+    const offer = !saved && s?.offer?.task_id === last.task_id && (await read($, offered)) !== last.task_id
+      ? s!.offer : null
+    // Which of the person's know-how this task loaded and why, with one key to say it didn't fit.
+    const load = s?.loads?.[0]
+    const why = load && (await read($, misfired)) !== `${last.task_id}:${load.id}` ? load : null
+    if (!unmarked && !saved && !offer && !why) return next(e)
 
     const { Box, Button, Text } = $.ui.resolve(e)
     const hide = () => update($, dismissed, () => last.task_id)
+    const later = () => update($, offered, () => last.task_id)
+    const keep = async () => {
+      await update($, offered, () => last.task_id)
+      await $.prompt.submit({ text: s!.save_prompt || 'Athos · save: keep what this task taught with `athos save`.' })
+    }
+    const notIt = async () => {
+      await update($, misfired, () => `${last.task_id}:${why!.id}`)
+      try {
+        $.ui.toast(`athos: ${await athos($, ['dismiss', why!.id])}`)
+      } catch (err) {
+        $.ui.toast(`athos: ${String(err).slice(0, 120)}`)
+      }
+    }
     const w = words(s)
     return (
       <Box flexDirection="column">
+        {why ? (
+          <Box>
+            <Text color="cyan">athos </Text>
+            <Text dimColor>{`${w.used} «${why.title}» · ${recordText(why.record, w)} · ${w.matched}: ${why.why.join(', ')} `}</Text>
+            <Button key="x" label={w.didntApply} onPress={notIt} />
+          </Box>
+        ) : null}
         {saved ? <Box><Text color="cyan">athos </Text><Text color="green">{saved}</Text></Box> : null}
+        {offer ? (
+          <Box>
+            <Text color="cyan">athos </Text>
+            <Text>{offer.reason === 'checklist' ? w.offerChecklist : w.offerWork}</Text>
+            <Button key="s" label={w.save} onPress={keep} />
+            <Button key="n" label={w.notNow} onPress={later} />
+          </Box>
+        ) : null}
         {unmarked ? (
           <Box>
             <Text color="cyan">athos </Text>

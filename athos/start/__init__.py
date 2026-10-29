@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 from athos import paths, store
@@ -90,9 +91,31 @@ def config() -> dict:
 
 
 def lang() -> str:
-    """The person's language for what Athos shows them: ATHOS_LANG, then `athos start`'s choice, then English."""
-    v = (os.environ.get("ATHOS_LANG") or config().get("lang") or "en").lower()[:2]
+    """The person's language for what Athos shows them: ATHOS_LANG, then `athos start`'s choice, then the language
+    they write their requests in, then English."""
+    c = config()
+    v = (os.environ.get("ATHOS_LANG") or c.get("lang") or c.get("lang_seen") or "en").lower()[:2]
     return v if v in LANGS else "en"
+
+
+ES_WORDS = set("que de la el en los las por para con una como esta este pero hay ahora luego puedes hace hacer "
+               "tengo quiero dime revisa revisá arranca mergea también sí cómo qué está están".split())
+EN_WORDS = set("the and to of is are you can this that with what how please now then could would should".split())
+
+
+def note_language(prompt: str) -> None:
+    """Without a language chosen with `athos start`, remember the one the person writes in (clear cases only), so
+    the lines Athos shows them read in it."""
+    c = config()
+    if c.get("lang"):
+        return
+    ws = re.findall(r"[a-záéíóúñ]+", (prompt or "").lower())
+    es, en = sum(w in ES_WORDS for w in ws), sum(w in EN_WORDS for w in ws)
+    seen = "es" if es >= 2 and es > 2 * en else "en" if en >= 2 and en > 2 * es else None
+    if seen and seen != c.get("lang_seen"):
+        c["lang_seen"] = seen
+        config_file().parent.mkdir(parents=True, exist_ok=True)
+        config_file().write_text(json.dumps(c, indent=1) + "\n")
 
 
 def t(key: str, **kw) -> str:

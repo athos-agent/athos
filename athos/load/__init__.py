@@ -6,11 +6,12 @@ of the one or two pieces whose title and "when" match the request best, under a 
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import unicodedata
 
-from athos import control, eval as ev, session, store
+from athos import control, eval as ev, paths, session, store
 
 INDEX_CAP = 4000
 INJECT_CAP = 8000
@@ -72,6 +73,33 @@ def index_text(pieces: list[store.Piece], cmd: str = "athos") -> str:
     return head + "\n".join(lines)
 
 
+def misfires_file():
+    return paths.home() / "misfires.json"
+
+
+def misfires() -> dict[str, list[list[str]]]:
+    """Loads the person said did not apply ([Didn't apply]): per piece, the shared words that loaded it then."""
+    try:
+        return json.loads(misfires_file().read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def why(prompt: str, piece: store.Piece) -> list[str]:
+    """The request's words found in the piece's title and "when": what made it load, as the person can read it."""
+    return sorted({_plain(w) for w in words(prompt)} & {_plain(w) for w in words(piece.title + " " + piece.when)})
+
+
+def dismiss(piece_id: str, shared: list[str]) -> None:
+    """The person said this load did not apply: the same words never load this piece again."""
+    data = misfires()
+    sets = data.setdefault(piece_id, [])
+    if sorted(shared) not in sets:
+        sets.append(sorted(shared))
+    misfires_file().parent.mkdir(parents=True, exist_ok=True)
+    misfires_file().write_text(json.dumps(data, indent=1, ensure_ascii=False))
+
+
 def rank(prompt: str, pieces: list[store.Piece]) -> list[tuple[float, store.Piece]]:
     """Score each piece by the request's words found in its title and "when" (weighted by how rare the word is
     among the pieces), plus a little for words found in its body."""
@@ -95,10 +123,14 @@ def rank(prompt: str, pieces: list[store.Piece]) -> list[tuple[float, store.Piec
         same = qwords & hw
         return len(same) >= 2 or any(len(w) >= 5 and sum(1 for o in title_words if w in o) <= ONE_WORD_DF
                                      for w in same & tw)
+    wrong = misfires()
     scored = []
     for p, h, hw, tw, b in zip(pieces, heads, head_words, title_words, bodies):
         shared = q & h
         s = sum(idf(w) for w in shared) + 0.25 * sum(idf(w) for w in (q & b) - h)
+        # Words the person already said were not enough for this piece don't load it again.
+        if any(set(qwords & hw) <= set(m) for m in wrong.get(p.id, [])):
+            continue
         if shared and s >= MIN_SCORE and enough(hw, tw):
             scored.append((s, p))
     return sorted(scored, key=lambda t: (-t[0], t[1].id))
@@ -147,8 +179,12 @@ def mark_loaded(session_id: str, ids: list[str]) -> None:
 
 
 def on_prompt(event: dict) -> str:
-    """UserPromptSubmit: the pieces that match the request, recorded as loaded in this session."""
-    found = relevant(event.get("prompt", ""), enabled(event.get("cwd")))
+    """UserPromptSubmit: the pieces that match the request, recorded as loaded in this session, with the words that
+    loaded each one (the band shows them, and [Didn't apply] remembers them)."""
+    prompt = event.get("prompt", "")
+    found = relevant(prompt, enabled(event.get("cwd")))
+    if found:
+        session.update(event.get("session_id", "default"), task_why={p.id: why(prompt, p) for p in found})
     mark_loaded(event.get("session_id", "default"), [p.id for p in found])
     return inject_text(found)
 

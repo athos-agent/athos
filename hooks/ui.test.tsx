@@ -69,6 +69,46 @@ test('an unmarked task gets one-key marking above the prompt', async ($, on) => 
   await ui.unmount()
 })
 
+test('a task worth keeping offers [Save], which sends the save, not a question to the model', async ($, on) => {
+  const status = { ...STATUS, offer: { task_id: STATUS.last.task_id, reason: 'work' },
+                   save_prompt: 'Athos · save: keep it' }
+  const sent: string[] = []
+  on('session.root', () => ({ value: '/work' }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: JSON.stringify(status), stderr: '' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('prompt.submit', (_, e) => { const text = (e as unknown as { text: string }).text; sent.push(text); return { text } })
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /can become a way of working/ }))?.text).toBeTruthy()
+  await ui.press({ key: 's' })
+  expect(sent).toEqual(['Athos · save: keep it'])
+  await ui.unmount()
+})
+
+test('the band says which know-how the task used, why, how it has done, and takes a "didn\'t apply"', async ($, on) => {
+  const status = { ...STATUS, loads: [{ id: 'cut-a-release', title: 'Cut a release', why: ['release', 'version'],
+                                        record: { uses: 5, ok: 4, marked: 4, agents: ['Claude Code', 'Codex'] } }] }
+  const calls: string[][] = []
+  on('session.root', () => ({ value: '/work' }))
+  on('process.run', (_, e) => {
+    const argv = (e as unknown as { argv: string[] }).argv
+    calls.push(argv.slice(2))
+    return { value: { exitCode: 0, stdout: argv[2] === 'dismiss' ? 'ok' : JSON.stringify(status), stderr: '' } }
+  })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.toast', () => ({ value: undefined }))
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const line = await ui.find({ type: 'Text', text: /used «Cut a release»/ })
+  expect(line?.text).toContain('4/4 good in Claude Code, Codex')
+  expect(line?.text).toContain('matched: release, version')
+  await ui.press({ key: 'x' })
+  expect(calls.some(a => a.join(' ') === 'dismiss cut-a-release')).toBe(true)
+  await ui.unmount()
+})
+
 test('a bar fills with the success rate and says how much shorter the prompt is', () => {
   const t = barText(CLAUDE as never)
   expect(t.filled.length).toBe(16)

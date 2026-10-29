@@ -48,8 +48,9 @@ What you will see:
   the summary and the clause table."* You know which method it applies.
 - Before opening the contract it asks whether it holds client data that should not leave your computer.
 - While it works, the steps it follows show under the input box, in order.
-- When it finishes, since the task followed a checklist, Athos asks the AI whether it is worth keeping. Your checklist
-  becomes a way of working: a plain text file of yours, on your computer.
+- When it finishes, since the task followed a checklist, Athos offers **Save** above the input box (in Muse Code,
+  OpenCode and Codex it asks the AI instead). Your checklist becomes a way of working: a plain text file of yours, on
+  your computer.
 
 Next time: *"Review this services agreement, I act for the supplier."*
 

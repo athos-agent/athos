@@ -59,6 +59,11 @@ La segunda vez alcanza con: *«Revisá este contrato de servicios, represento al
 
 Después de cada tarea aparecen tres botones: **Salió bien**, **Lo corregí**, **Falló**. Tardás un segundo, y con esas
 marcas Athos te muestra qué formas de trabajar te sirven y en qué herramienta (la barra debajo del cuadro de texto).
+Si escribís «perfecto, ahora…» o «está mal…», Athos lo toma como marca.
+
+Arriba del cuadro de texto Athos también te dice qué forma de trabajar usó, cómo le fue hasta ahora y por qué palabras
+la eligió. Si no correspondía, tocá **No aplicaba**: con esas palabras no se vuelve a cargar. Y cuando una tarea vale la
+pena, aparece **Guardar**: la forma de trabajar se guarda solo si vos querés.
 
 ## 4. Lo mismo, en tus otras herramientas
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 
@@ -132,7 +133,7 @@ def task_start(event: dict, platform: str = "claude-code") -> str:
     started = _iso(now())
     # Capture is per request: only the work done for this request can trigger the Stop hook's ask.
     state.update(task_id=tid, task_started=started, task_loaded=[], task_saved=[], tools_since_capture=0,
-                 work_since_capture=0)
+                 work_since_capture=0, edits_since_capture=0, task_why={})
     session.save(sid, state)
     append({"type": "task_start", "task_id": tid, "session_id": sid, "platform": platform, "model": model,
             "project": paths.project_of(event.get("cwd")), "at": started, **request_fields(event.get("prompt"))})
@@ -213,6 +214,44 @@ def mark(result: str, task_id: str | None = None, session_id: str | None = None,
         raise LookupError("no task to mark yet")
     append({"type": "mark", "task_id": tid, "result": res, "at": _iso(now())})
     return tid, res
+
+
+# What the person says right after a task, when it plainly judges it: the mark nobody has to click. Looked for in
+# the first words only ("ok excelente, ¿cómo viene?", "no funciona el login"). Over 702 real follow-ups only 5 judged
+# the task this plainly: it helps, but the [Good] key stays.
+SAID_OK = re.compile(r"\b(excelente|perfect[oa]?|genial|buen[ií]simo|muy bien|bien hecho|gracias|anduvo|funciona|"
+                     r"funcion[oó]|great|perfect|excellent|thanks|thank you|awesome|works|well done|lgtm)\b", re.IGNORECASE)
+SAID_FIX = re.compile(r"\b(no funciona|no anda|est[aá] mal|te equivocaste|no es as[ií]|sigue fallando|no veo|"
+                      r"fall[oó]|wrong|doesn'?t work|broken|not quite)\b", re.IGNORECASE)
+RECENT_DAYS = 7
+
+
+def infer_mark(session_id: str, prompt: str) -> str | None:
+    """Mark the session's previous task from the person's next words when they plainly judge it ("perfecto" → ok,
+    "no, está mal" → corrected), if it has no mark yet. Returns the result, or None."""
+    head = " ".join((prompt or "").split()[:6])
+    res = "corrected" if SAID_FIX.search(head) else "ok" if SAID_OK.search(head) else None
+    tid = session.load(session_id).get("task_id")
+    if not res or not tid:
+        return None
+    if any(e.get("type") == "mark" and e.get("task_id") == tid for e in events()):
+        return None
+    append({"type": "mark", "task_id": tid, "result": res, "by": "inferred", "at": _iso(now())})
+    return res
+
+
+def recent(t: dict, days: int = RECENT_DAYS) -> bool:
+    started = _parse(t.get("started") or "")
+    return bool(started) and (now() - started).days < days
+
+
+def record(piece_id: str, tasks: list[dict]) -> dict:
+    """How a piece has done: tasks that used it, how many were marked good, and the agents it ran in."""
+    used = [t for t in tasks if piece_id in t.get("pieces", [])]
+    labels = dict(AGENTS)
+    agents = sorted({labels.get(t.get("platform"), t.get("platform")) for t in used if t.get("platform")})
+    return {"uses": len(used), "ok": sum(t["result"] == "ok" for t in used),
+            "marked": sum(t["result"] != "unevaluated" for t in used), "agents": agents}
 
 
 # ------------------------------------------------------------------------------------------------ report

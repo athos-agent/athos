@@ -13,9 +13,11 @@ ATHOS = str(Path(__file__).resolve().parents[1] / "bin" / "athos")
 
 
 class CliTest(TempHome):
-    def run_athos(self, *args, stdin="", cwd=None):
+    def run_athos(self, *args, stdin="", cwd=None, env=None):
+        # Headless by default (like `claude -p`): the hooks then ask the model, as an interactive session would offer.
         return subprocess.run([sys.executable, ATHOS, *args], input=stdin, capture_output=True, text=True,
-                              cwd=cwd or self.home, env=dict(os.environ))
+                              cwd=cwd or self.home,
+                              env={**os.environ, "CLAUDE_CODE_ENTRYPOINT": "sdk-cli", **(env or {})})
 
     def hook(self, event, payload):
         r = self.run_athos("hook", event, stdin=json.dumps(payload))
@@ -39,6 +41,19 @@ class CliTest(TempHome):
         self.assertIn("bump-a-version", start["hookSpecificOutput"]["additionalContext"])
         ctx = self.hook("prompt", {"session_id": "s2", "cwd": self.home, "prompt": "release a new version please"})
         self.assertIn("Edit pyproject.", ctx["hookSpecificOutput"]["additionalContext"])
+
+    def test_an_interactive_claude_code_session_offers_a_button_instead(self):
+        ev = {"session_id": "i1", "cwd": self.home, "transcript_path": None}
+        r = self.run_athos("hook", "prompt", stdin=json.dumps({**ev, "prompt": "release it"}),
+                           env={"CLAUDE_CODE_ENTRYPOINT": "cli"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for _ in range(5):
+            self.run_athos("hook", "tool", stdin=json.dumps({**ev, "tool_name": "Edit"}),
+                           env={"CLAUDE_CODE_ENTRYPOINT": "cli"})
+        r = self.run_athos("hook", "stop", stdin=json.dumps(ev), env={"CLAUDE_CODE_ENTRYPOINT": "cli"})
+        self.assertEqual(r.stdout.strip(), "")                          # nothing for the model to read
+        from athos import session as sess
+        self.assertEqual(sess.load("i1")["offer"]["reason"], "work")
 
     def test_codex_still_gets_a_stop_block(self):
         ev = {"session_id": "s1", "cwd": self.home, "transcript_path": None}

@@ -33,8 +33,13 @@ Teach a task once, in any of these tools, and the others follow it:
 
 In all four, the pieces that match a request are loaded and the agent opens by saying which of your ways of working it
 follows and how it applies; every task is recorded with the model that answered; and after real work, or a task that
-followed a checklist, Athos asks once whether to save or improve a piece. A piece written in OpenCode loads in Claude
-Code the next day.
+followed a checklist, Athos offers to save or improve a piece. A piece written in OpenCode loads in Claude Code the
+next day.
+
+In Claude Code, the band above the prompt says it in one place: which of your ways of working the task used, how it
+has done so far and which words loaded it, with **Didn't apply** when it didn't fit (those words won't load it again);
+**Save** when the task is worth keeping, so the AI is not asked after every task; and **Good / Corrected / Failed**.
+Plain words count too: "ok excelente, …" marks the last task good. Only the last week's tasks wait for a mark.
 
 **It starts to pay off on a cheaper model.** On five public bench tasks in five domains (code, data, devices, a
 planning method, sports coaching), Meta's Muse Spark did 22 of 23 runs right with the know-how and 2 of 23 without it,

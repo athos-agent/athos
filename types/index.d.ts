@@ -17,6 +17,12 @@ export type Status = {
     baseline_request_chars: number | null
     agents: Bar[]
   } | null
+  /** The last task did enough work to be worth keeping: the band offers [Save] (interactive Claude Code). */
+  offer: { task_id: string; reason: 'work' | 'checklist' } | null
+  /** The pieces this task loaded, with the request's words that loaded each one. */
+  loads?: { id: string; title: string; why: string[]; record?: { uses: number; ok: number; marked: number; agents: string[] } }[]
+  /** What [Save] submits: the save, in the person's language. */
+  save_prompt?: string
   last: {
     task_id: string
     result: 'unevaluated' | 'ok' | 'corrected' | 'failed'
@@ -40,6 +46,6 @@ export type Bar = {
 
 declare module 'claude-code' {
   interface PluginState {
-    athos: { snap: Status | null; dismissed: string | null }
+    athos: { snap: Status | null; dismissed: string | null; offered: string | null; misfired: string | null }
   }
 }

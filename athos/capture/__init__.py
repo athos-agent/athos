@@ -12,7 +12,15 @@ import re
 
 from athos import eval as ev, paths, session, store
 
-THRESHOLD = 3          # tool calls in the turn before a Stop asks for one (a release took 3); one must change something
+THRESHOLD = 3          # tool calls before a Stop asks for one (a release took 3), when one of them edited a file
+WORK_MIN = 5           # or this many calls that changed something (commands), when no file was edited
+# Replayed over 706 real requests (8 sessions, 2026-10-25..29): any 3 calls with one command asked in 49% of requests
+# and a third of the asks ended in a save; an edit or 5 commands asks in 34% and keeps three quarters of the saves.
+# In an interactive Claude Code session the model is not asked at all: the band above the prompt offers [Save].
+EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch",
+              # Muse Code's and OpenCode's
+              "write_file", "edit_file", "write", "edit", "patch", "multiedit"}
+SAVE = re.compile(r"(^|[\s/])athos[\"']?\s+save\b")
 
 # A task that follows a checklist carries know-how worth keeping even when it changes no file (a lawyer reviewing a
 # contract only reads and answers): the word itself, a list the person pasted, or a checklist file the agent opened.
@@ -49,7 +57,8 @@ rewrite it as statements."""
 GUIDE = """## Saving know-how (Athos)
 
 When a task in this session teaches something reusable (how it was solved, the criteria, the steps, the mistakes
-avoided), Athos's Stop hook asks once with a short line. Then either save exactly one piece by running:
+avoided), the person may press [Save] (a request that starts "Athos · save:"), or Athos's Stop hook asks once with a
+short line. Then either save exactly one piece by running:
 
 {format}
 
@@ -188,6 +197,19 @@ def _does_work(event: dict) -> bool:
     return True
 
 
+# What the band's [Save] button sends: the save itself, for the task that just ended, not a new task.
+SAVE_PROMPT = {
+    "en": "Athos · save: keep what this task taught as one way of working with `athos save`, as the session guide "
+          "says (improve the piece this task used, if it used one). Don't announce it.",
+    "es": "Athos · guardar: guardá lo que enseñó esta tarea como una forma de trabajar con `athos save`, como dice la "
+          "guía de la sesión (mejorá la pieza que usó la tarea, si usó una). No lo anuncies.",
+}
+
+
+def is_save_prompt(text: str) -> bool:
+    return (text or "").lstrip().startswith(("Athos · save:", "Athos · guardar:"))
+
+
 def mentions_checklist(text: str) -> bool:
     """A checklist in the request: named as such, or three or more list items the person typed or pasted."""
     return bool(CHECKLIST.search(text or "")) or len(LIST_ITEM.findall(text or "")) >= 3
@@ -199,20 +221,29 @@ def note_request(event: dict) -> None:
     # Per request, like the rest of capture. A list the person typed is new know-how even when a piece was loaded:
     # their own checklist on top of a generic one is exactly what the piece should learn.
     session.update(event.get("session_id", "default"), checklist=mentions_checklist(prompt),
-                   checklist_typed=len(LIST_ITEM.findall(prompt)) >= 3 or bool(CHECKLIST_FILE.search(prompt)))
+                   checklist_typed=len(LIST_ITEM.findall(prompt)) >= 3 or bool(CHECKLIST_FILE.search(prompt)),
+                   saved_in_request=False, offer=None)
 
 
 def count_tool(event: dict) -> None:
+    sid = event.get("session_id", "default")
+    tin = event.get("tool_input") or {}
+    if not event.get("agent_id") and SAVE.search(str(tin.get("command", ""))):
+        # The know-how of this request is being kept: nothing left to ask about until new work happens.
+        session.update(sid, saved_in_request=True, tools_since_capture=0, work_since_capture=0, edits_since_capture=0,
+                       checklist=False, checklist_typed=False)
+        return
     if not _counts(event):
         return
-    sid = event.get("session_id", "default")
     state = session.load(sid)
-    tin = event.get("tool_input") or {}
-    if any(CHECKLIST.search(str(tin.get(k, ""))) for k in ("file_path", "path", "command", "pattern")):
-        state["checklist"] = state["checklist_typed"] = True    # the person's own checklist file: new know-how
+    # The person's own checklist file, opened by the agent (a path, not a word in a command or a search).
+    if any(CHECKLIST_FILE.search(str(tin.get(k, ""))) for k in ("file_path", "path", "filePath")):
+        state["checklist"] = state["checklist_typed"] = True
     state["tools_since_capture"] = state.get("tools_since_capture", 0) + 1
     if _does_work(event):
         state["work_since_capture"] = state.get("work_since_capture", 0) + 1
+    if (event.get("tool_name") or "") in EDIT_TOOLS:
+        state["edits_since_capture"] = state.get("edits_since_capture", 0) + 1
     session.save(sid, state)
 
 
@@ -220,22 +251,31 @@ def enabled() -> bool:
     return os.environ.get("ATHOS_CAPTURE", "").lower() not in ("off", "0", "false", "no")
 
 
-def stop_decision(event: dict, cmd: str = "athos") -> dict | None:
-    """The Stop hook's answer: `{"decision": "block", "reason": ...}` asks Claude to capture; None lets it stop."""
+def stop_decision(event: dict, cmd: str = "athos", offer: bool = False) -> dict | None:
+    """The Stop hook's answer: `{"decision": "block", "reason": ...}` asks Claude to capture; None lets it stop.
+    With `offer`, the model is not asked: the task is recorded as worth offering to save, and the band above the
+    prompt shows the person a [Save] button (interactive Claude Code)."""
     if not enabled():
         return None
     if event.get("stop_hook_active"):
         return None
     sid = event.get("session_id", "default")
     state = session.load(sid)
-    # Ask only after real work: enough tool calls, and at least one that changed something. A turn of reads and
-    # checks (answering a question, looking at a PR) ends quietly.
+    # Ask only after real work: a file edited within enough tool calls, or several commands that changed something.
+    # A turn of reads and checks (answering a question, looking at a PR, running the tests) ends quietly.
     # A checklist the task followed is worth asking about even without file changes, unless a piece already led it
     # and the person added nothing to it.
-    checklist = bool(state.get("checklist")) and (not state.get("task_loaded") or bool(state.get("checklist_typed")))
-    if not checklist and (state.get("tools_since_capture", 0) < THRESHOLD or not state.get("work_since_capture", 0)):
+    if state.get("saved_in_request"):
         return None
-    state["tools_since_capture"] = state["work_since_capture"] = 0
+    checklist = bool(state.get("checklist")) and (not state.get("task_loaded") or bool(state.get("checklist_typed")))
+    tools, work, edits = (state.get(k, 0) for k in ("tools_since_capture", "work_since_capture", "edits_since_capture"))
+    if not checklist and not ((edits and tools >= THRESHOLD) or work >= WORK_MIN):
+        return None
+    if offer:
+        state["offer"] = {"task_id": state.get("task_id"), "reason": "checklist" if checklist else "work"}
+        session.save(sid, state)
+        return None
+    state["tools_since_capture"] = state["work_since_capture"] = state["edits_since_capture"] = 0
     state["checklist"] = state["checklist_typed"] = False
     state["asked"] = state.get("asked", 0) + 1
     session.save(sid, state)
