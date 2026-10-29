@@ -193,3 +193,9 @@ class ChecklistTest(TempHome):
                                                                 "- preaviso\n- reparaciones"})
         session.update("s4", task_loaded=["revisar-un-contrato-con-tu-checklist"])
         self.assertIsNotNone(capture.stop_decision({"session_id": "s4"}))
+
+    def test_the_persons_checklist_file_on_top_of_a_loaded_piece_asks(self):
+        capture.note_request({"session_id": "s5", "prompt": "Revisá el contrato con mi checklist"})
+        session.update("s5", task_loaded=["revisar-un-contrato-con-tu-checklist"])
+        capture.count_tool({"session_id": "s5", "tool_name": "Read", "tool_input": {"file_path": "/e/mi-checklist.md"}})
+        self.assertIsNotNone(capture.stop_decision({"session_id": "s5"}))

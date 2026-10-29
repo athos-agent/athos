@@ -207,7 +207,7 @@ def count_tool(event: dict) -> None:
     state = session.load(sid)
     tin = event.get("tool_input") or {}
     if any(CHECKLIST.search(str(tin.get(k, ""))) for k in ("file_path", "path", "command", "pattern")):
-        state["checklist"] = True                               # the agent opened or searched a checklist
+        state["checklist"] = state["checklist_typed"] = True    # the person's own checklist file: new know-how
     state["tools_since_capture"] = state.get("tools_since_capture", 0) + 1
     if _does_work(event):
         state["work_since_capture"] = state.get("work_since_capture", 0) + 1
