@@ -1,3 +1,9 @@
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
 from athos import bench
 from athos.bench import transfer
 from tests.helpers import TempHome
@@ -40,3 +46,34 @@ class TransferReport(TempHome):
         self.assertTrue((case["dir"] / "teach_setup.py").is_file())
         self.assertEqual(transfer.render(transfer.report("contract-transfer", rows=[])),
                          "No transfer runs for contract-transfer yet. Run `athos bench transfer contract-transfer`.")
+
+
+class OpenCodeEvents(TempHome):
+    def test_a_run_that_used_no_tool_is_told_apart(self):
+        talk = "\n".join(json.dumps(e) for e in [
+            {"type": "text", "part": {"text": "I'll locate the agreement."}},
+            {"type": "step_finish", "part": {"tokens": {"input": 10, "output": 2, "reasoning": 1,
+                                                       "cache": {"read": 5}}}}])
+        tokens = {"input": 0, "output": 0}
+        acted, last, note = bench._opencode_events(talk, tokens)
+        self.assertEqual((acted, last, note, tokens),
+                         (False, "I'll locate the agreement.", "", {"input": 15, "output": 3}))
+        acted, _, _ = bench._opencode_events(json.dumps({"type": "tool_use", "part": {"tool": "read"}}), tokens)
+        self.assertFalse(acted)                                    # reading and stopping is the stall
+        acted, _, _ = bench._opencode_events(json.dumps({"type": "tool_use", "part": {"tool": "write"}}), tokens)
+        self.assertTrue(acted)
+
+
+class Rescore(TempHome):
+    def test_kept_reviews_are_scored_again_with_the_current_check(self):
+        teach = transfer.teach_root() / "contract-transfer-x" / "reviews"
+        teach.mkdir(parents=True)
+        case = bench.cases()["contract-transfer"]
+        ws = Path(tempfile.mkdtemp())
+        subprocess.run([sys.executable, str(case["dir"] / "solve.py"), str(ws)], check=True)
+        (teach / "muse-B-abc.md").write_text((ws / "review.md").read_text())
+        old = {**row("muse", "B", []), "id": "abc", "teach": "contract-transfer-x"}
+        bench.save(old)
+        self.assertEqual(transfer.rescore("contract-transfer", "contract-transfer-x"), 1)
+        new = [json.loads(x) for x in bench.results_file().read_text().splitlines()][0]
+        self.assertEqual((new["verdict"], new["score"]), ("g", 1.0))

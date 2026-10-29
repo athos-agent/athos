@@ -424,6 +424,10 @@ def _bench_transfer(args, all_cases: dict) -> int:
         except (RuntimeError, ValueError) as e:
             print(e, file=sys.stderr)
             return 1
+    if args.target == "transfer-report" and args.rescore:
+        teach = args.teach or transfer.report(args.case)["teach"]
+        if teach:
+            print(f"{transfer.rescore(args.case, teach)} run(s) scored again", file=sys.stderr)
     rep = transfer.report(args.case, args.teach)
     text = transfer.render(rep)
     if rep["lines"]:
@@ -574,6 +578,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--arms", default="A,B", help="with transfer: A no Athos, B .athos/ only, C .athos/ + plugin")
     s.add_argument("--teach-home", help="with transfer: reuse a teaching run's home instead of teaching again")
     s.add_argument("--teach", help="with transfer-report: which teaching run (default the latest)")
+    s.add_argument("--rescore", action="store_true",
+                   help="with transfer-report: score the kept reviews again with the case's current check")
     s.add_argument("--list", action="store_true", help="the cases")
     s.add_argument("--agents", default="claude,meta",
                    help="claude, codex, muse, opencode, meta, local (comma-separated)")

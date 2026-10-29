@@ -30,9 +30,11 @@ def check(d: Path) -> dict:
         "table_columns": any(all(w in h for w in ("clause", "issue", "propos", "priority")) for h in headers(table)),
         "priority_scale": sum(w in body for w in ("must", "should", "minor")) >= 2,
         "payment_days_and_interest": has(text, r"120", r"interest"),
-        "liability_capped": has(text, r"unlimited|without limit|no (cap|limit)", r"\bcap"),
+        "liability_capped": has(text, r"unlimited|without limit|no (cap|limit)|uncapped",
+                                r"\bcap|shall not exceed|not to exceed|limited to|aggregate liability|limit(ed)? (of|at)"),
         "security_return": has(text, r"security|deposit", r"\breturn|refund|releas"),
-        "termination_one_sided": has(text, r"terminat", r"one[- ]sided|asymmetr|unilateral|mutual|both (sides|parties)"),
+        "termination_one_sided": has(text, r"terminat", r"one[- ]sided|asymmetr|unilateral|mutual|both (sides|parties)"
+                                                     r"|either party|reciprocal|only the (client|provider|landlord|tenant)"),
         "renewal_and_jurisdiction": has(text, r"renew", r"jurisdiction|courts?"),
         "client_decides": has(text, r"(client'?s?|your) (own )?(decision|call|choice)|for (the|your|my) client to decide"
                                     r"|decision (on [^.]{0,60})?(is|stays|remains|rests) (with )?(the |your |my )?client"

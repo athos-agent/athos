@@ -6,7 +6,9 @@
 2. **Replay.** A fresh workspace with another document and no checklist, the one-line request, on each agent:
    - A: no Athos at all;
    - B: only the project's `.athos/` folder (`athos project sync`), no plugin, an empty store;
-   - C: `.athos/` plus Athos's plugin with the taught store (Claude Code and OpenCode honour `ATHOS_HOME`).
+   - C: `.athos/` plus Athos's plugin with the taught store.
+   Arm C reaches every agent: Claude Code and Codex honour `ATHOS_HOME`; OpenCode gets the plugin in the run's own
+   config; Muse Code, whose hooks get a sanitized environment, a copy whose hook commands name the run's store.
 3. **Judge.** The case's `check.py` scores each point of the person's know-how separately (`items`), and says which
    came from their checklist and which from what they added while teaching (`sources`). Completeness = points applied.
 
@@ -100,22 +102,51 @@ def _sync(ws: Path, home: Path) -> None:
             os.environ["ATHOS_HOME"] = old
 
 
+def _with_env(key: str, value: str, fn):
+    old = os.environ.get(key)
+    os.environ[key] = value
+    try:
+        return fn()
+    finally:
+        if old is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = old
+
+
+def _muse_plugin(home: Path, tmp: Path) -> None:
+    """Muse Code runs the Claude Code plugin, but hands hooks a sanitized environment without ATHOS_HOME: install a
+    copy of this checkout whose hook commands name the run's store, into the run's own Muse config."""
+    root = BIN.parent
+    copy = tmp / "athos-plugin"
+    for part in (".claude-plugin", "hooks", "bin", "athos"):
+        shutil.copytree(root / part, copy / part, ignore=shutil.ignore_patterns("__pycache__", "cases"))
+    hooks = copy / "hooks" / "hooks.json"
+    data = json.loads(hooks.read_text())
+    for groups in data["hooks"].values():
+        for g in groups:
+            for h in g["hooks"]:
+                h["command"] = f"ATHOS_HOME='{home}' {h['command']}"
+    hooks.write_text(json.dumps(data, indent=2))
+    env = {**os.environ, **bench._isolated(home)}
+    for cmd in (["muse", "plugins", "install", str(copy), "--scope", "user", "--json"],
+                ["muse", "plugins", "approve", "athos", "--json"]):
+        r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=120)
+        if r.returncode:
+            raise RuntimeError(f"{' '.join(cmd[:3])}: {(r.stderr or r.stdout).strip()[-200:]}")
+
+
 def _plugin_home(taught: Path, tmp: Path, agent: str) -> Path:
-    """Arm C: a copy of the taught store, so the run's own events never touch the kept teaching home; for OpenCode,
-    Athos's plugin in the run's own config folder."""
+    """Arm C: a copy of the taught store, so the run's own events never touch the kept teaching home, and Athos's
+    plugin where the agent loads it from: Claude Code and Codex already have it and honour ATHOS_HOME; OpenCode
+    and Muse Code get it in the run's own config folder."""
     home = tmp / "home"
-    shutil.copytree(taught, home, ignore=shutil.ignore_patterns("teach.json"))
+    shutil.copytree(taught, home, ignore=shutil.ignore_patterns("teach.json", "reviews", "REPORT.md"))
     if agent == "opencode":
         from athos.adapters import opencode
-        old = os.environ.get("XDG_CONFIG_HOME")
-        os.environ["XDG_CONFIG_HOME"] = str(home / "xdg-config")
-        try:
-            opencode.install(BIN / "athos")
-        finally:
-            if old is None:
-                os.environ.pop("XDG_CONFIG_HOME", None)
-            else:
-                os.environ["XDG_CONFIG_HOME"] = old
+        _with_env("XDG_CONFIG_HOME", str(home / "xdg-config"), lambda: opencode.install(BIN / "athos"))
+    elif agent == "muse":
+        _muse_plugin(home, tmp)
     return home
 
 
@@ -126,14 +157,18 @@ def replay_once(name: str, case: dict, agent: str, arm: str, taught: Path, teach
     if arm in ("B", "C"):
         _sync(ws, taught)
     if arm == "C":
-        home = _plugin_home(taught, tmp, agent)
+        try:
+            home = _plugin_home(taught, tmp, agent)
+        except (RuntimeError, OSError, subprocess.SubprocessError) as e:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise RuntimeError(f"arm C for {agent}: {e}") from e
     else:
         home = tmp / "home"
         home.mkdir()
     model = model or bench.DEFAULT_MODELS.get(agent)
     runner = bench.RUNNERS[agent]
     if arm == "C" and agent == "opencode":
-        runner = _opencode_with_plugin
+        runner = lambda *a: bench.run_opencode(*a, pure=False)  # noqa: E731
     t0 = time.monotonic()
     try:
         out = runner(case, ws, home, False, model)
@@ -159,39 +194,12 @@ def replay_once(name: str, case: dict, agent: str, arm: str, taught: Path, teach
     return row
 
 
-def _opencode_with_plugin(case, ws, home, with_piece, model=None):
-    """OpenCode with Athos's plugin loaded (no `--pure`), from the run's own config folder."""
-    model = model or "muse-spark-1.3"
-    cfg = home / "xdg-config" / "opencode"
-    cfg.mkdir(parents=True, exist_ok=True)
-    (cfg / "opencode.json").write_text(json.dumps(bench.OPENCODE_CONFIG))
-    cmd = ["opencode", "run", "--format", "json", "-m", f"meta/{model}", "--dir", str(ws), case["request"]]
-    env = {**bench._env(home), **bench._isolated(home), "MODEL_API_KEY": bench._meta_key(),
-           "ATHOS_BIN": str(BIN / "athos")}
-    r = subprocess.run(cmd, cwd=ws, env=env, capture_output=True, text=True, timeout=bench._timeout(case),
-                       stdin=subprocess.DEVNULL)
-    tokens = {"input": 0, "output": 0}
-    for line in r.stdout.splitlines():
-        try:
-            d = json.loads(line)
-        except ValueError:
-            continue
-        if d.get("type") == "step_finish":
-            t = (d.get("part") or {}).get("tokens") or {}
-            tokens["input"] += int(t.get("input") or 0) + int((t.get("cache") or {}).get("read") or 0)
-            tokens["output"] += int(t.get("output") or 0) + int(t.get("reasoning") or 0)
-    return {"tokens": tokens, "cost_usd": bench._spark_cost(model, tokens), "model": model,
-            "note": "" if r.returncode == 0 else r.stderr.strip()[-200:]}
-
-
 def run(name: str, agents: list[str], arms: list[str], runs: int, teach_home: Path | None = None,
         max_usd: float | None = None, out=print) -> dict:
     """Teach once (or reuse a teaching home), then replay `runs` times per agent and arm, interleaved."""
     case = bench.cases()[name]
     if "teach" not in case:
         raise ValueError(f"{name} has no teaching turns: not a transfer case")
-    if "C" in arms and "muse" in agents:
-        out("arm C skipped for Muse Code: its hooks don't receive ATHOS_HOME, so the plugin would read the real store")
     info = json.loads((teach_home / "teach.json").read_text()) if teach_home else teach(name, case, out)
     taught = Path(info["home"])
     teach_id = taught.name
@@ -200,8 +208,6 @@ def run(name: str, agents: list[str], arms: list[str], runs: int, teach_home: Pa
     for i in range(runs):
         for agent in agents:
             for arm in arms:
-                if arm == "C" and agent in ("muse", "codex"):
-                    continue
                 if max_usd is not None and spent >= max_usd:
                     out(f"stopped: US${spent:.2f} spent, the cap is US${max_usd:.2f}")
                     return {"teach": info, "rows": rows}
@@ -215,6 +221,31 @@ def run(name: str, agents: list[str], arms: list[str], runs: int, teach_home: Pa
                     + (f"  missed: {', '.join(row['missed'][:5])}" if row["missed"] else "")
                     + (f"  [{row['note']}]" if row["note"] else ""))
     return {"teach": info, "rows": rows}
+
+
+def rescore(name: str, teach_id: str) -> int:
+    """Score a teaching's kept reviews again with the case's current `check.py` (after a check was fixed), without
+    running any agent. Rewrites those rows in results.jsonl; returns how many changed."""
+    case = bench.cases()[name]
+    kept = teach_root() / teach_id / "reviews"
+    lines = bench.results_file().read_text().splitlines()
+    changed, out = 0, []
+    for line in lines:
+        row = json.loads(line) if line.strip() else None
+        f = kept / f"{row['agent']}-{row['arm']}-{row['id']}.md" if row and row.get("teach") == teach_id else None
+        if f is not None and f.is_file():
+            ws = Path(tempfile.mkdtemp(prefix="athos-rescore-"))
+            if not f.read_text().startswith("(no review.md)"):
+                (ws / "review.md").write_text(f.read_text())
+            res = bench.check(case, ws)
+            shutil.rmtree(ws, ignore_errors=True)
+            new = {**row, "verdict": res.get("verdict", "f"), "score": res.get("score"),
+                   "missed": res.get("missed", []), "items": res.get("items", {}), "sources": res.get("sources", {})}
+            changed += new != row
+            line = json.dumps(new, ensure_ascii=False)
+        out.append(line)
+    bench.results_file().write_text("\n".join(out) + "\n")
+    return changed
 
 
 # ------------------------------------------------------------------------------------------------ report

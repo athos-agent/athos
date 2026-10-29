@@ -194,8 +194,33 @@ OPENCODE_CONFIG = {"$schema": "https://opencode.ai/config.json",
                                                     "muse-wonder-1.0": {"name": "Muse Wonder 1.0"}}}}}
 
 
-def run_opencode(case, ws, home, with_piece, model=None):
-    """OpenCode on Meta Model API, with no plugin (`--pure`) and its own config and session store."""
+def _opencode_events(stdout: str, tokens: dict) -> tuple[bool, str, str]:
+    """Adds a run's tokens; returns whether it changed anything (a write, an edit, a command), its last text and an
+    error, if any. Reading files and then stopping is the stall a nudge is for."""
+    acted, last, note = False, "", ""
+    for line in stdout.splitlines():
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        kind = d.get("type")
+        if kind == "tool_use":
+            acted = acted or (d.get("part") or {}).get("tool") in ("write", "edit", "multiedit", "patch", "bash")
+        elif kind == "text":
+            last = (d.get("part") or {}).get("text") or last
+        elif kind == "step_finish":
+            t = (d.get("part") or {}).get("tokens") or {}
+            tokens["input"] += int(t.get("input") or 0) + int((t.get("cache") or {}).get("read") or 0)
+            tokens["output"] += int(t.get("output") or 0) + int(t.get("reasoning") or 0)
+        elif kind == "error":
+            note = json.dumps(d.get("error") or d)[:200]
+    return acted, last, note
+
+
+def run_opencode(case, ws, home, with_piece, model=None, pure=True):
+    """OpenCode on Meta Model API, with its own config and session store and, unless `pure` is off, no plugin.
+    Headless, Muse Spark sometimes announces what it will do and stops before changing anything; a person would say
+    "go ahead", so such a run gets that one nudge in the same session (every arm alike)."""
     model = model or "muse-spark-1.3"
     if with_piece:
         d = ws / ".agents" / "skills" / f"bench-{case['dir'].name}"
@@ -204,26 +229,22 @@ def run_opencode(case, ws, home, with_piece, model=None):
     cfg = home / "xdg-config" / "opencode"
     cfg.mkdir(parents=True, exist_ok=True)
     (cfg / "opencode.json").write_text(json.dumps(OPENCODE_CONFIG))
-    cmd = ["opencode", "run", "--pure", "--format", "json", "-m", f"meta/{model}", "--dir", str(ws), case["request"]]
-    r = subprocess.run(cmd, cwd=ws, env={**_env(home), **_isolated(home), "MODEL_API_KEY": _meta_key()},
-                       capture_output=True, text=True, timeout=_timeout(case), stdin=subprocess.DEVNULL)
-    tokens, note, last = {"input": 0, "output": 0}, "", ""
-    for line in r.stdout.splitlines():
-        try:
-            d = json.loads(line)
-        except ValueError:
-            continue
-        if d.get("type") == "text":
-            last = (d.get("part") or {}).get("text") or last
-        if d.get("type") == "step_finish":
-            t = (d.get("part") or {}).get("tokens") or {}
-            tokens["input"] += int(t.get("input") or 0) + int((t.get("cache") or {}).get("read") or 0)
-            tokens["output"] += int(t.get("output") or 0) + int(t.get("reasoning") or 0)
-        elif d.get("type") == "error":
-            note = json.dumps(d.get("error") or d)[:200]
+    env = {**_env(home), **_isolated(home), "MODEL_API_KEY": _meta_key()}
+    base = ["opencode", "run"] + (["--pure"] if pure else []) + ["--format", "json", "-m", f"meta/{model}",
+                                                                 "--dir", str(ws)]
+    tokens, nudged = {"input": 0, "output": 0}, False
+    r = subprocess.run(base + [case["request"]], cwd=ws, env=env, capture_output=True, text=True,
+                       timeout=_timeout(case), stdin=subprocess.DEVNULL)
+    acted, last, note = _opencode_events(r.stdout, tokens)
+    if not acted and r.returncode == 0:
+        nudged = True
+        r = subprocess.run(base + ["--continue", "Go ahead."], cwd=ws, env=env, capture_output=True, text=True,
+                           timeout=_timeout(case), stdin=subprocess.DEVNULL)
+        acted, last, note = _opencode_events(r.stdout, tokens)
     if r.returncode and not note:
         note = r.stderr.strip()[-200:]
-    return {"tokens": tokens, "cost_usd": _spark_cost(model, tokens), "model": model, "note": note,
+    note = ("nudged once; " if nudged else "") + note
+    return {"tokens": tokens, "cost_usd": _spark_cost(model, tokens), "model": model, "note": note.strip("; "),
             "last_text": last[-600:]}
 
 
