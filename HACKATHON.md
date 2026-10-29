@@ -70,6 +70,7 @@ from what was built during the event.
 - [#53](https://github.com/athos-agent/athos/pull/53) Less noise, more control: in Claude Code a [Save] button instead of asking the model after every task; elsewhere, asks only after an edit or several commands (49 → 37 asks per 100 real requests); the band shows which know-how was used, its record and why it loaded, with [Didn't apply]; plain words mark the last task; only the last week waits for a mark; the person's language when none was chosen (0.1.42)
 - [#54](https://github.com/athos-agent/athos/pull/54) [Save] sends one short line as the person's own words; the instruction goes in out of sight (0.1.43)
 - [#55](https://github.com/athos-agent/athos/pull/55) The band's "used" row keeps to one line; the lawyer takes press [Save] and give OpenCode the fictitious-data note (0.1.44)
+- [#56](https://github.com/athos-agent/athos/pull/56) The README GIF re-recorded with the band: which know-how was used and why, [Save], then OpenCode on Muse Spark
 
 ## Meta models used
 
