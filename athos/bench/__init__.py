@@ -27,11 +27,11 @@ from pathlib import Path
 from athos import paths
 
 CASES = Path(__file__).parent / "cases"
-AGENTS = ("claude", "codex", "muse", "meta", "local")
+AGENTS = ("claude", "codex", "muse", "opencode", "meta", "local")
 TIMEOUT = 900
 # Meta Model API list price for muse-spark-1.3 (US$ per 1M tokens, input / output), from third-party sources.
 MUSE_SPARK_PRICE = (1.25, 4.25)
-DEFAULT_MODELS = {"meta": "muse-spark-1.3", "muse": "muse-spark-1.3", "local": "gemma4:12b"}
+DEFAULT_MODELS = {"meta": "muse-spark-1.3", "muse": "muse-spark-1.3", "opencode": "muse-spark-1.3", "local": "gemma4:12b"}
 CLAUDE_TOOLS = "Bash Read Edit Write Glob Grep"
 
 
@@ -76,6 +76,25 @@ def _timeout(case: dict) -> int:
 
 def _env(home: Path) -> dict:
     return {**os.environ, "ATHOS_HOME": str(home), "ATHOS_CAPTURE": "off", "CLAUDE_CODE_AUTO_CONNECT_IDE": "false"}
+
+
+def _isolated(home: Path) -> dict:
+    """Muse Code and OpenCode keep their config, plugins and sessions under XDG folders: a run gets its own, so the
+    person's installed plugins (Athos's included) neither run nor record anything, and their sessions stay clean."""
+    return {"XDG_CONFIG_HOME": str(home / "xdg-config"), "XDG_DATA_HOME": str(home / "xdg-data")}
+
+
+def _meta_key() -> str:
+    from athos.adapters import meta
+    key = meta.api_key()
+    if not key:
+        raise PermissionError("no Meta Model API key: put a MODEL_API_KEY=... line in ~/.athos/.env")
+    return key
+
+
+def _spark_cost(model: str, tokens: dict) -> float | None:
+    return round(tokens["input"] / 1e6 * MUSE_SPARK_PRICE[0] + tokens["output"] / 1e6 * MUSE_SPARK_PRICE[1], 4) \
+        if model.startswith("muse-spark") else None
 
 
 def _skill(case: dict) -> str:
@@ -143,12 +162,12 @@ def run_muse(case, ws, home, with_piece, model=None):
         d.mkdir(parents=True, exist_ok=True)
         (d / "SKILL.md").write_text(_skill(case))
     cmd = ["muse", "exec", "--json", "--model", model, "--trust-workspace", "--disable-approval",
-           "--no-foreign-personal-context", "--workspace", str(ws)]
+           "--no-foreign-personal-context", "--api-key-stdin", "--workspace", str(ws)]
     if case.get("network"):
         cmd += ["--sandbox-network", "enabled"]
     cmd.append(case["request"])
-    r = subprocess.run(cmd, cwd=ws, env=_env(home), capture_output=True, text=True, timeout=_timeout(case),
-                       stdin=subprocess.DEVNULL)
+    r = subprocess.run(cmd, cwd=ws, env={**_env(home), **_isolated(home)}, capture_output=True, text=True,
+                       timeout=_timeout(case), input=_meta_key())
     tokens, note = {"input": 0, "output": 0}, ""
     for line in r.stdout.splitlines():
         try:
@@ -164,9 +183,69 @@ def run_muse(case, ws, home, with_piece, model=None):
             note = f"{p.get('terminal')}: {p.get('reason') or ''}"[:200]
     if r.returncode and not note:
         note = r.stderr.strip()[-200:]
-    cost = round(tokens["input"] / 1e6 * MUSE_SPARK_PRICE[0] + tokens["output"] / 1e6 * MUSE_SPARK_PRICE[1], 4) \
-        if model.startswith("muse-spark") else None
-    return {"tokens": tokens, "cost_usd": cost, "model": model, "note": note}
+    return {"tokens": tokens, "cost_usd": _spark_cost(model, tokens), "model": model, "note": note}
+
+
+OPENCODE_CONFIG = {"$schema": "https://opencode.ai/config.json",
+                   "provider": {"meta": {"npm": "@ai-sdk/openai-compatible", "name": "Meta Model API",
+                                         "options": {"baseURL": "https://api.meta.ai/v1",
+                                                     "apiKey": "{env:MODEL_API_KEY}"},
+                                         "models": {"muse-spark-1.3": {"name": "Muse Spark 1.3"},
+                                                    "muse-wonder-1.0": {"name": "Muse Wonder 1.0"}}}}}
+
+
+def _opencode_events(stdout: str, tokens: dict) -> tuple[bool, str, str]:
+    """Adds a run's tokens; returns whether it changed anything (a write, an edit, a command), its last text and an
+    error, if any. Reading files and then stopping is the stall a nudge is for."""
+    acted, last, note = False, "", ""
+    for line in stdout.splitlines():
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        kind = d.get("type")
+        if kind == "tool_use":
+            acted = acted or (d.get("part") or {}).get("tool") in ("write", "edit", "multiedit", "patch", "bash")
+        elif kind == "text":
+            last = (d.get("part") or {}).get("text") or last
+        elif kind == "step_finish":
+            t = (d.get("part") or {}).get("tokens") or {}
+            tokens["input"] += int(t.get("input") or 0) + int((t.get("cache") or {}).get("read") or 0)
+            tokens["output"] += int(t.get("output") or 0) + int(t.get("reasoning") or 0)
+        elif kind == "error":
+            note = json.dumps(d.get("error") or d)[:200]
+    return acted, last, note
+
+
+def run_opencode(case, ws, home, with_piece, model=None, pure=True):
+    """OpenCode on Meta Model API, with its own config and session store and, unless `pure` is off, no plugin.
+    Headless, Muse Spark sometimes announces what it will do and stops before changing anything; a person would say
+    "go ahead", so such a run gets that one nudge in the same session (every arm alike)."""
+    model = model or "muse-spark-1.3"
+    if with_piece:
+        d = ws / ".agents" / "skills" / f"bench-{case['dir'].name}"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "SKILL.md").write_text(_skill(case))
+    cfg = home / "xdg-config" / "opencode"
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / "opencode.json").write_text(json.dumps(OPENCODE_CONFIG))
+    env = {**_env(home), **_isolated(home), "MODEL_API_KEY": _meta_key()}
+    base = ["opencode", "run"] + (["--pure"] if pure else []) + ["--format", "json", "-m", f"meta/{model}",
+                                                                 "--dir", str(ws)]
+    tokens, nudged = {"input": 0, "output": 0}, False
+    r = subprocess.run(base + [case["request"]], cwd=ws, env=env, capture_output=True, text=True,
+                       timeout=_timeout(case), stdin=subprocess.DEVNULL)
+    acted, last, note = _opencode_events(r.stdout, tokens)
+    if not acted and r.returncode == 0:
+        nudged = True
+        r = subprocess.run(base + ["--continue", "Go ahead."], cwd=ws, env=env, capture_output=True, text=True,
+                           timeout=_timeout(case), stdin=subprocess.DEVNULL)
+        acted, last, note = _opencode_events(r.stdout, tokens)
+    if r.returncode and not note:
+        note = r.stderr.strip()[-200:]
+    note = ("nudged once; " if nudged else "") + note
+    return {"tokens": tokens, "cost_usd": _spark_cost(model, tokens), "model": model, "note": note.strip("; "),
+            "last_text": last[-600:]}
 
 
 def _run_delegate(case, ws, home, with_piece, model, platform):
@@ -191,8 +270,7 @@ def _run_delegate(case, ws, home, with_piece, model, platform):
         else:
             os.environ["ATHOS_HOME"] = old
     t = r["tokens"]
-    cost = round(t["input"] / 1e6 * MUSE_SPARK_PRICE[0] + t["output"] / 1e6 * MUSE_SPARK_PRICE[1], 4) \
-        if platform == "meta" and model.startswith("muse-spark") else (0.0 if platform == "local" else None)
+    cost = _spark_cost(model, t) if platform == "meta" else (0.0 if platform == "local" else None)
     return {"tokens": {"input": t["input"], "output": t["output"]}, "cost_usd": cost, "model": model,
             "note": r["summary"][:200] if r["summary"].startswith("(stopped") else ""}
 
@@ -205,7 +283,8 @@ def run_local(case, ws, home, with_piece, model=None):
     return _run_delegate(case, ws, home, with_piece, model, "local")
 
 
-RUNNERS = {"claude": run_claude, "codex": run_codex, "muse": run_muse, "meta": run_meta, "local": run_local}
+RUNNERS = {"claude": run_claude, "codex": run_codex, "muse": run_muse, "opencode": run_opencode, "meta": run_meta,
+           "local": run_local}
 
 
 def run_once(name: str, case: dict, agent: str, with_piece: bool = True, model: str | None = None,

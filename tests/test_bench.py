@@ -34,7 +34,8 @@ class Checks(Workspace):
     """Each case's check fails an untouched workspace, passes the reference solution and catches a broken one."""
 
     def test_every_case_is_complete(self):
-        self.assertEqual(set(CASES), {"release", "monthly-report", "device-setup", "tile-plan", "training-week"})
+        self.assertEqual(set(CASES), {"release", "monthly-report", "device-setup", "tile-plan", "training-week",
+                                          "contract-transfer"})
         for name, c in CASES.items():
             for f in ("case.json", "piece.md", "setup.py", "check.py", "solve.py"):
                 self.assertTrue((c["dir"] / f).exists(), f"{name}/{f}")

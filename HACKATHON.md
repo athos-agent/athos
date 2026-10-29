@@ -65,6 +65,7 @@ from what was built during the event.
 - [#48](https://github.com/athos-agent/athos/pull/48) The band above the prompt refreshes after each answer again, so it announces a save and asks for the mark (0.1.38)
 - [#49](https://github.com/athos-agent/athos/pull/49) The English lawyer GIF in the README and the lawyer guide; the Spanish one in the guía para abogados
 - [#50](https://github.com/athos-agent/athos/pull/50) `athos project sync`: the project's know-how in `.athos/` (wiki, METHOD.md, subagents, skills, tools), read by Claude Code, Codex, Muse Code and OpenCode without the plugin (0.1.39)
+- [#51](https://github.com/athos-agent/athos/pull/51) `athos bench transfer`: teach a task in Claude Code, replay it in Claude Code, Codex, Muse Code and OpenCode (Muse Spark through Meta Model API) with no Athos, `.athos/` only, or `.athos/` + plugin, judged point by point; an `opencode` bench agent; Muse Code bench runs isolated from the person's plugins; the law case `contract-transfer` (0.1.40)
 
 ## Meta models used
 
