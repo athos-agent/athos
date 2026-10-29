@@ -199,3 +199,9 @@ class ChecklistTest(TempHome):
         session.update("s5", task_loaded=["revisar-un-contrato-con-tu-checklist"])
         capture.count_tool({"session_id": "s5", "tool_name": "Read", "tool_input": {"file_path": "/e/mi-checklist.md"}})
         self.assertIsNotNone(capture.stop_decision({"session_id": "s5"}))
+
+    def test_a_checklist_file_named_in_the_request_is_the_persons_own(self):
+        # The lawyer demo: the agent may not open the file as its own call, but the request names it.
+        capture.note_request({"session_id": "s6", "prompt": "Revisá contrato.md con mi checklist (mi-checklist.md)."})
+        session.update("s6", task_loaded=["revisar-un-contrato-con-tu-checklist"])
+        self.assertIsNotNone(capture.stop_decision({"session_id": "s6"}))
