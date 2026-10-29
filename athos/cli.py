@@ -384,6 +384,8 @@ def cmd_bench(args) -> int:
         for name, c in all_cases.items():
             print(f"{name:<15} {c['domain']:<8} {c['title']}: \"{c['request']}\"")
         return 0
+    if args.target in ("transfer", "transfer-report"):
+        return _bench_transfer(args, all_cases)
     if args.target == "report":
         r = bench.report()
         print(json.dumps(r, indent=1, ensure_ascii=False) if args.json else bench.render(r))
@@ -399,6 +401,37 @@ def cmd_bench(args) -> int:
     bench.run(names, agents, args.runs, with_piece=not args.only_without, without_piece=args.without or
               args.only_without, models=models, max_usd=args.max_usd, keep=args.keep)
     print(f"\n{bench.render(bench.report([r for r in bench.load_results() if r['case'] in names]))}")
+    return 0
+
+
+def _bench_transfer(args, all_cases: dict) -> int:
+    from athos import bench
+    from athos.bench import transfer
+    if not args.case or "teach" not in all_cases.get(args.case, {}):
+        names = [n for n, c in all_cases.items() if "teach" in c]
+        print(f"name a transfer case: {', '.join(names)}", file=sys.stderr)
+        return 1
+    if args.target == "transfer":
+        agents, arms = args.agents.split(","), args.arms.split(",")
+        bad = [a for a in agents if a not in bench.AGENTS] + [a for a in arms if a not in transfer.ARMS]
+        if bad:
+            print(f"unknown: {', '.join(bad)}", file=sys.stderr)
+            return 1
+        try:
+            transfer.run(args.case, agents, arms, args.runs,
+                         teach_home=Path(args.teach_home).expanduser() if args.teach_home else None,
+                         max_usd=args.max_usd)
+        except (RuntimeError, ValueError) as e:
+            print(e, file=sys.stderr)
+            return 1
+    rep = transfer.report(args.case, args.teach)
+    text = transfer.render(rep)
+    if rep["lines"]:
+        f = transfer.teach_root() / f"{rep['teach']}" / "REPORT.md"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text)
+        text += f"\n(written to {f})"
+    print(json.dumps(rep, indent=1) if args.json else text)
     return 0
 
 
@@ -536,9 +569,14 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_report)
     s = sub.add_parser("bench", help="the same tasks on several agents and models, checked by what they leave behind")
-    s.add_argument("target", nargs="?", help="a case, several (a,b), all, or report")
+    s.add_argument("target", nargs="?", help="a case, several (a,b), all, report, or transfer / transfer-report")
+    s.add_argument("case", nargs="?", help="with transfer / transfer-report: the transfer case")
+    s.add_argument("--arms", default="A,B", help="with transfer: A no Athos, B .athos/ only, C .athos/ + plugin")
+    s.add_argument("--teach-home", help="with transfer: reuse a teaching run's home instead of teaching again")
+    s.add_argument("--teach", help="with transfer-report: which teaching run (default the latest)")
     s.add_argument("--list", action="store_true", help="the cases")
-    s.add_argument("--agents", default="claude,meta", help="claude, codex, muse, meta, local (comma-separated)")
+    s.add_argument("--agents", default="claude,meta",
+                   help="claude, codex, muse, opencode, meta, local (comma-separated)")
     s.add_argument("--runs", type=int, default=5)
     s.add_argument("--without", action="store_true", help="also run each agent without the know-how, to compare")
     s.add_argument("--only-without", action="store_true", help="only without the know-how")

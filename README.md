@@ -132,9 +132,20 @@ times on each agent and model, with and without the know-how, and checks what ea
 the files) instead of taking the agent's word:
 
 ```
-athos bench --list                                         five cases: code, data, devices, a planning method, sports coaching
+athos bench --list                                         the cases: code, data, devices, a planning method, sports, law
 athos bench all --agents claude,meta,local --runs 5 --without --max-usd 5
 athos bench report                                         success, time, tokens and cost per agent; the cheapest that keeps up
+```
+
+`athos bench transfer` asks whether what you taught one agent carries to the others, whole. Claude Code first works a
+task the way a person teaches it (their checklist, their corrections, "save it"); then a fresh folder with another
+document and no checklist gets a one-line request in Claude Code, Codex, Muse Code and OpenCode, with no Athos, with
+only the project's `.athos/` folder, and with the folder plus the plugin. Each point of the person's know-how is
+checked on its own, and the rules they added while teaching, which exist nowhere else, show what really travelled:
+
+```
+athos bench transfer contract-transfer --agents claude,codex,muse,opencode --arms A,B,C --runs 3 --max-usd 10
+athos bench transfer-report contract-transfer             per agent and arm: points applied, taught rules, time, cost
 ```
 
 Each run gets a throwaway folder and its own Athos home, so your store and your recorded tasks stay untouched. Your own cases

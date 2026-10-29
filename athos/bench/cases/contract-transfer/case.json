@@ -1,0 +1,13 @@
+{
+  "title": "Review a contract against the lawyer's checklist",
+  "domain": "law",
+  "when": "reviewing, comparing or commenting a contract before signing it or sending it back with comments",
+  "request": "Review services-agreement.md, I act for the provider; the data is fictitious. Write the review to review.md.",
+  "timeout_s": 600,
+  "max_usd_per_run": 2,
+  "teach": [
+    "Review lease.md against my checklist (my-checklist.md). I act for the tenant; the data is fictitious. Write the review to review.md.",
+    "Two things I always want, every time: (1) when a contract says nothing about governing law, that is a row of its own in the table, priority must; (2) end the review with a line that starts 'Push first:' naming the three clauses to negotiate first, and say the decision stays with my client. Update review.md.",
+    "Good. Save how I review contracts as one way of working with `athos save` (my checklist and these two rules), so next time I only say which contract and which side."
+  ]
+}
