@@ -19,6 +19,8 @@ THRESHOLD = 3          # tool calls in the turn before a Stop asks for one (a re
 CHECKLIST = re.compile(r"check[- ]?lists?\b|lista de (verificaci[oó]n|control|chequeo|comprobaci[oó]n)"
                        r"|\bprotocol[oe]?s?\b", re.IGNORECASE)
 LIST_ITEM = re.compile(r"^\s*(?:[-*•]|\d{1,2}[.)]|\[[ xX]\])\s+\S", re.MULTILINE)
+# A checklist file the request names ("con mi checklist (mi-checklist.md)") is the person's own, like a typed list.
+CHECKLIST_FILE = re.compile(r"[\w./-]*check[-_ ]?list[\w-]*\.(?:md|txt|docx?|pdf|csv|xlsx?)\b", re.IGNORECASE)
 
 FORMAT = """{cmd} save <<'EOF'
 ---
@@ -197,7 +199,7 @@ def note_request(event: dict) -> None:
     # Per request, like the rest of capture. A list the person typed is new know-how even when a piece was loaded:
     # their own checklist on top of a generic one is exactly what the piece should learn.
     session.update(event.get("session_id", "default"), checklist=mentions_checklist(prompt),
-                   checklist_typed=len(LIST_ITEM.findall(prompt)) >= 3)
+                   checklist_typed=len(LIST_ITEM.findall(prompt)) >= 3 or bool(CHECKLIST_FILE.search(prompt)))
 
 
 def count_tool(event: dict) -> None:
