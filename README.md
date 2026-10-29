@@ -13,12 +13,13 @@ explain it twice. On your own tasks, it shows what each agent and model does wit
 [your checklist is know-how](docs/guides/checklist-en.md) ([en español](docs/guides/checklist.md)) · why this should
 exist and what isn't solved: [WHY.md](WHY.md).
 
-![A lawyer reviews a lease in Claude Code from their own checklist and Athos keeps it; OpenCode on Meta's Muse Spark then reviews a services agreement from a one-line request and says which way of working it follows.](demo/lawyer-en.gif)
+![A lawyer reviews a lease in Claude Code from their own checklist; Athos's band shows which way of working was used and why, and the lawyer presses Save; OpenCode on Meta's Muse Spark then reviews a services agreement from a one-line request with that way of working.](demo/lawyer-en.gif)
 
-*A lawyer reviews a lease in Claude Code with their checklist file, and Athos keeps it as a way of working. OpenCode,
-on Meta's Muse Spark, then reviews a services agreement from a one-line request: it says which way of working it
-follows and asks about client data before opening the file. Each bar on the right is one agent (real run, fictional
-contracts, waits cut). En español: [demo/lawyer.gif](demo/lawyer.gif). The earlier release demo: [demo/athos-claude-to-codex.gif](demo/athos-claude-to-codex.gif).*
+*A lawyer reviews a lease in Claude Code with their checklist file. Above the prompt, Athos says which way of working
+the task used and why, and offers Save; the lawyer presses it and the way of working improves to v2. OpenCode, on Meta's
+Muse Spark, then reviews a services agreement from a one-line request with it, and sees there is nothing new to save.
+Each bar on the right is one agent (real run, fictional contracts, waits cut). En español:
+[demo/lawyer.gif](demo/lawyer.gif). The earlier release demo: [demo/athos-claude-to-codex.gif](demo/athos-claude-to-codex.gif).*
 
 ## Your know-how moves, and it works where it lands
 
