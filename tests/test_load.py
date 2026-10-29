@@ -57,3 +57,26 @@ class LoadRegressionTest(TempHome):
         p = store.create("A", "aaa", "b")
         load.mark_loaded("s1", [p.id])
         self.assertEqual(session.load("s1")["loaded"], ["a"])
+
+    def test_a_shared_prefix_alone_does_not_load(self):
+        # 2026-10-29: "revisá … con mi checklist" loaded a piece about CI checks, and "la carga de checklist" one whose
+        # "when" quoted «Cargando tus casos»: words that only start alike.
+        store.create("Check CI of the PRs, including stacked ones", "asked to review the CI checks of a PR",
+                     "gh pr checks.")
+        store.create("Audit the register of the texts", "a label sounds colloquial («Cargando tus casos»)", "x")
+        for prompt in ("Revisá el contrato con mi checklist", "arregla lo de la carga de checklist"):
+            self.assertEqual(load.relevant(prompt, store.all_pieces()), [], prompt)
+
+    def test_one_generic_word_does_not_load(self):
+        store.create("Plan the outreach in the Discord", "posting in the hackathon Discord", "x")
+        store.create("Ship the feature PR", "a feature is ready to merge", "y")
+        self.assertEqual(load.relevant("Plan the tiling for the room", store.all_pieces()), [])
+
+    def test_the_best_piece_loads_even_over_the_cap(self):
+        store.create("Rehearse the demo and time it", "rehearsing the demo", "z" * (load.INJECT_CAP + 2000))
+        self.assertEqual(len(load.relevant("rehearse the demo and time it", store.all_pieces())), 1)
+
+    def test_a_background_task_notice_loads_nothing(self):
+        store.create("Change a function output", "change what a SQL function returns", "x")
+        notice = "<task-notification>\n<task-id>b1</task-id>\n<summary>output changed</summary>"
+        self.assertEqual(load.relevant(notice, store.all_pieces()), [])

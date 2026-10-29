@@ -54,6 +54,7 @@ from what was built during the event.
 - [#37](https://github.com/athos-agent/athos/pull/37) OpenCode plugin: `athos opencode install`; matching know-how in the system prompt, tasks recorded with OpenCode's token counts, the ask-to-save after real work; tested end to end with Muse Spark through Meta Model API (0.1.28)
 - [#38](https://github.com/athos-agent/athos/pull/38) `athos opencode install` run inside a Claude Code session no longer writes a plugin-version path into the OpenCode plugin (0.1.29)
 - [#39](https://github.com/athos-agent/athos/pull/39) Muse Code runs the Athos plugin (`muse plugins install athos@athos`): hooks recorded as `muse-code`, tokens from Muse's session log, Muse's read-only tools known, no double import; tested end to end with Muse Spark through Meta Model API (0.1.30)
+- [#40](https://github.com/athos-agent/athos/pull/40) Loading needs the same words, not words that only start alike ("checklist" loaded a CI-checks piece); the best piece loads even when it is long; background-task notices load nothing (0.1.31)
 
 ## Meta models used
 
