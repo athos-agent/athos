@@ -55,6 +55,12 @@ class CliTest(TempHome):
         from athos import session as sess
         self.assertEqual(sess.load("i1")["offer"]["reason"], "work")
 
+    def test_the_save_button_request_gets_the_instruction_out_of_sight_and_starts_no_task(self):
+        from athos import capture, eval as ev
+        out = self.hook("prompt", {"session_id": "b1", "cwd": self.home, "prompt": capture.SAVE_PROMPT["en"]})
+        self.assertIn("athos save", out["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual([e for e in ev.events() if e["type"] == "task_start"], [])
+
     def test_codex_still_gets_a_stop_block(self):
         ev = {"session_id": "s1", "cwd": self.home, "transcript_path": None}
         for _ in range(5):

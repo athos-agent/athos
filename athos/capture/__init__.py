@@ -197,13 +197,13 @@ def _does_work(event: dict) -> bool:
     return True
 
 
-# What the band's [Save] button sends: the save itself, for the task that just ended, not a new task.
-SAVE_PROMPT = {
-    "en": "Athos · save: keep what this task taught as one way of working with `athos save`, as the session guide "
-          "says (improve the piece this task used, if it used one). Don't announce it.",
-    "es": "Athos · guardar: guardá lo que enseñó esta tarea como una forma de trabajar con `athos save`, como dice la "
-          "guía de la sesión (mejorá la pieza que usó la tarea, si usó una). No lo anuncies.",
-}
+# What the band's [Save] button sends, as the person's own short words: the save itself, for the task that just
+# ended, not a new task. The prompt hook adds the instruction out of sight (SAVE_CONTEXT).
+SAVE_PROMPT = {"en": "Athos · save: keep this task as a way of working",
+               "es": "Athos · guardar: guardá esta tarea como forma de trabajar"}
+SAVE_CONTEXT = ("The person pressed [Save]: keep what the task that just ended taught as exactly one way of working, "
+                "with `{cmd} save` as the session guide says (improve the piece that task used, if it used one, with "
+                "its id and a note). Reply in one short line, in the person's language; Athos shows what was saved.")
 
 
 def is_save_prompt(text: str) -> bool:
