@@ -1,6 +1,6 @@
-# The lawyer take: a lawyer reviews a lease in Claude Code from their own checklist file, and Athos keeps it as a way
-# of working; then OpenCode, on Meta's Muse Spark, reviews a services agreement from a one-line request and says which
-# of the lawyer's ways of working it follows. athos watch fills one bar per agent. Waits are hidden, not sped up.
+# The lawyer take: a lawyer reviews a lease in Claude Code from their own checklist file, and presses [Save] in
+# Athos's band (ctrl+x tab, Tab, Enter) to keep it as a way of working; then OpenCode, on Meta's Muse Spark,
+# reviews a services agreement from a one-line request and says which of the lawyer's ways of working it follows. athos watch fills one bar per agent. Waits are hidden, not sped up.
 #
 #   sh demo/lawyer-setup.sh es && vhs demo/lawyer.tape
 #
@@ -40,7 +40,19 @@ Sleep 1s
 Enter
 Sleep 3s
 Hide
-Wait+Screen@240s /(mejoré|guardé) «/
+Wait+Screen@240s /¿L[ao] guardo/
+Sleep 2s
+Show
+Sleep 4s
+Ctrl+X
+Tab
+Sleep 1s
+Tab
+Sleep 2s
+Enter
+Sleep 2s
+Hide
+Wait+Screen@120s /(mejoré|guardé) «/
 Sleep 3s
 Show
 Sleep 6s
