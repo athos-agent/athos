@@ -52,6 +52,7 @@ from what was built during the event.
 - README demo GIF: Claude Code then Codex in the same folder, both `1/1 good · 82% shorter prompt` (`demo/athos-claude-to-codex.gif`)
 - One-folder demo: Claude Code and Codex release the same package in turn, measured against the run that taught the piece (`demo/setup.sh`, `demo/prep.sh`, `demo/SCRIPT_GREG.md`)
 - [#37](https://github.com/athos-agent/athos/pull/37) OpenCode plugin: `athos opencode install`; matching know-how in the system prompt, tasks recorded with OpenCode's token counts, the ask-to-save after real work; tested end to end with Muse Spark through Meta Model API (0.1.28)
+- [#38](https://github.com/athos-agent/athos/pull/38) `athos opencode install` run inside a Claude Code session no longer writes a plugin-version path into the OpenCode plugin (0.1.29)
 
 ## Meta models used
 
