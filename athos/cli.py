@@ -254,7 +254,10 @@ def cmd_codex(args) -> int:
 def cmd_opencode(args) -> int:
     from athos.adapters import opencode
     if args.action == "install":
-        f = opencode.install(Path(shutil.which("athos") or ME))  # the installed command outlives a plugin version
+        found = shutil.which("athos")
+        # The command install.sh puts on PATH outlives plugin versions; a plugin's own bin (on PATH inside a Claude
+        # Code session) is tied to that version, so the running one is used instead.
+        f = opencode.install(Path(found) if found and "/plugins/cache/" not in os.path.realpath(found) else ME)
         print(f"Athos plugin written to {f}; restart OpenCode to load it.")
         return 0
     print("Athos plugin removed from OpenCode" if opencode.uninstall() else "no Athos plugin in OpenCode")
