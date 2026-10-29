@@ -64,6 +64,7 @@ from what was built during the event.
 - [#47](https://github.com/athos-agent/athos/pull/47) In Claude Code, the request to keep know-how reads as feedback, not as a "Stop hook error"; the save is announced above the prompt; no doubled "athos" in the status line; an English lawyer take (`sh demo/lawyer-setup.sh en && vhs demo/lawyer-en.tape`) (0.1.37)
 - [#48](https://github.com/athos-agent/athos/pull/48) The band above the prompt refreshes after each answer again, so it announces a save and asks for the mark (0.1.38)
 - [#49](https://github.com/athos-agent/athos/pull/49) The English lawyer GIF in the README and the lawyer guide; the Spanish one in the guía para abogados
+- [#50](https://github.com/athos-agent/athos/pull/50) `athos project sync`: the project's know-how in `.athos/` (wiki, METHOD.md, subagents, skills, tools), read by Claude Code, Codex, Muse Code and OpenCode without the plugin (0.1.39)
 
 ## Meta models used
 
