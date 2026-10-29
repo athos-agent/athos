@@ -5,8 +5,8 @@ Your AI know-how. Free to move, fast to run.
 You teach AI agents how you do things every day: your steps, your conventions, the mistakes to avoid. Not only in code:
 coding agents now do everyday work in any domain, writing code, running tools or controlling devices along the way.
 That know-how stays locked in one agent and one chat. Athos keeps it as plain markdown on your machine, brings it to
-the next agent (Claude Code, Codex, Muse Code) so you never explain it twice, and shows what each agent and model does
-with it on your own tasks.
+the next agent (Claude Code, Codex, Muse Code, OpenCode) so you never explain it twice, and shows what each agent and
+model does with it on your own tasks.
 
 Why this should exist, and what isn't solved yet: [WHY.md](WHY.md).
 
@@ -22,8 +22,8 @@ time (real run, 17 s, waits cut).*
   conventions, the mistakes to avoid), Athos saves it as a plain markdown file you can read and edit. Next time, only
   the pieces that match the request are loaded, and each reuse can improve them, with a version history.
 - **Yours, and free to move.** Your know-how is plain files in `~/.athos` that you can read, edit, version and copy.
-  It is not tied to one agent or one model provider: the same store works in Claude Code, Codex, Muse Code and
-  Claude Desktop. Nothing leaves your machine unless you move it.
+  It is not tied to one agent or one model provider: the same store works in Claude Code, Codex, Muse Code, OpenCode
+  and Claude Desktop. Nothing leaves your machine unless you move it.
 - **Your own benchmark.** Benchmarks measure someone else's tests; Athos measures yours. Mark each task with one key,
   and `/athos:report` shows what every piece of know-how and every model brings to your own work.
 - **Hands mastered tasks to cheaper models.** Once a piece has proven itself, `athos delegate` runs the task on a
@@ -132,6 +132,18 @@ the pieces it read, so `athos watch` and `/athos:report` show Muse Code beside C
 Contributor mode off (`muse` → `/settings`) unless you want Meta to train on your sessions; Athos warns when a task
 ran with it.
 
+### In OpenCode
+
+Athos is an OpenCode plugin. Install it once:
+
+```
+athos opencode install       writes ~/.config/opencode/plugins/athos.js; restart OpenCode
+```
+
+With any model OpenCode runs, the pieces that match each message go into its system prompt, every task is recorded
+with OpenCode's own token counts, and after a turn that changed something Athos asks once whether to save or improve a
+piece, as in Claude Code. `athos opencode uninstall` removes it.
+
 ### In Claude Desktop
 
 In the **Code** tab, Claude Desktop runs Claude Code with the same settings, so the plugin works as it is, including
@@ -148,7 +160,6 @@ starts), show and list pieces, and save what a conversation taught (`athos_save`
 
 ## Roadmap
 
-- OpenCode.
 - **Athos Cloud**: sync between your devices, a visual map of your know-how, daily control over what is shared, and an
   improvement agent as a service.
 

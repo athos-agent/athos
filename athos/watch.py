@@ -16,7 +16,7 @@ import time
 
 from athos import eval as ev, paths
 
-COLORS = {"claude-code": "38;5;173", "codex": "38;5;74", "muse-code": "38;5;141"}
+COLORS = {"claude-code": "38;5;173", "codex": "38;5;74", "muse-code": "38;5;141", "opencode": "38;5;108"}
 DIM, RESET, CLEAR = "\x1b[2m", "\x1b[0m", "\x1b[H\x1b[2J"
 KEYS = {"g": "g", "c": "c", "f": "f"}
 

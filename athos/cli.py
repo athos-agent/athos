@@ -34,6 +34,7 @@ import hashlib
 import json
 import os
 import shlex
+import shutil
 import sys
 from pathlib import Path
 
@@ -250,6 +251,16 @@ def cmd_codex(args) -> int:
     return 0
 
 
+def cmd_opencode(args) -> int:
+    from athos.adapters import opencode
+    if args.action == "install":
+        f = opencode.install(Path(shutil.which("athos") or ME))  # the installed command outlives a plugin version
+        print(f"Athos plugin written to {f}; restart OpenCode to load it.")
+        return 0
+    print("Athos plugin removed from OpenCode" if opencode.uninstall() else "no Athos plugin in OpenCode")
+    return 0
+
+
 def cmd_revert(args) -> int:
     try:
         p = store.revert(args.id)
@@ -457,6 +468,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("codex")
     s.add_argument("action", choices=["install", "uninstall"])
     s.set_defaults(fn=cmd_codex)
+    s = sub.add_parser("opencode")
+    s.add_argument("action", choices=["install", "uninstall"])
+    s.set_defaults(fn=cmd_opencode)
     s = sub.add_parser("revert")
     s.add_argument("id")
     s.set_defaults(fn=cmd_revert)

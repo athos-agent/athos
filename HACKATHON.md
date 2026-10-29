@@ -51,6 +51,7 @@ from what was built during the event.
 - Athos as a Codex plugin (`.codex-plugin/plugin.json`, marketplace in `.agents/plugins/marketplace.json`): `codex plugin marketplace add athos-agent/athos`; token counts read as 1.1M (0.1.9)
 - README demo GIF: Claude Code then Codex in the same folder, both `1/1 good · 82% shorter prompt` (`demo/athos-claude-to-codex.gif`)
 - One-folder demo: Claude Code and Codex release the same package in turn, measured against the run that taught the piece (`demo/setup.sh`, `demo/prep.sh`, `demo/SCRIPT_GREG.md`)
+- OpenCode plugin: `athos opencode install`; matching know-how in the system prompt, tasks recorded with OpenCode's token counts, the ask-to-save after real work; tested end to end with Muse Spark through Meta Model API (0.1.28)
 
 ## Meta models used
 
