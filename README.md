@@ -13,11 +13,12 @@ explain it twice. On your own tasks, it shows what each agent and model does wit
 [your checklist is know-how](docs/guides/checklist-en.md) ([en español](docs/guides/checklist.md)) · why this should
 exist and what isn't solved: [WHY.md](WHY.md).
 
-![Claude Code learns how a package is released; Codex does the next release in the same folder with no explanation. The bars show each agent's success and how much shorter the request was.](demo/athos-claude-to-codex.gif)
+![A lawyer reviews a lease in Claude Code from their own checklist and Athos keeps it; OpenCode on Meta's Muse Spark then reviews a services agreement from a one-line request and says which way of working it follows.](demo/lawyer.gif)
 
-*Claude Code learns once how this package is released. Codex then does the next release in the same folder with a
-one-line request. Each bar: success over the tasks you marked, and how much shorter the request was than the first
-time (real run, 17 s, waits cut).*
+*A lawyer reviews a lease in Claude Code with their checklist file, and Athos keeps it as a way of working. OpenCode,
+on Meta's Muse Spark, then reviews a services agreement from a one-line request: it says which way of working it
+follows and asks about client data before opening the file. Each bar on the right is one agent (real run, fictional
+contracts, waits cut). The earlier release demo: [demo/athos-claude-to-codex.gif](demo/athos-claude-to-codex.gif).*
 
 ## Your know-how moves, and it works where it lands
 

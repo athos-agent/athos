@@ -9,7 +9,7 @@
 # take. The Meta key is read at record time from ~/.athos/.env into the recording shell, never written anywhere.
 set -eu
 
-DEMO="${ATHOS_DEMO_LAW:-$HOME/athos-demo-law}"
+DEMO="${ATHOS_DEMO_LAW:-/Users/Shared/athos-demo-law}"   # outside your home: no user name on screen
 rm -rf "$DEMO"
 mkdir -p "$DEMO/home" "$DEMO/estudio"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$DEMO/home/import-since"
@@ -43,6 +43,19 @@ Entre CLIENTE EJEMPLO S.R.L. ("el Cliente") y ESTUDIO DE DISEÑO PRUEBA ("el Pro
 6. PROPIEDAD INTELECTUAL. Todo lo creado pertenece al Cliente desde su creación, se pague o no.
 7. RESPONSABILIDAD. El Proveedor responde por cualquier daño, directo o indirecto, sin límite.
 8. JURISDICCIÓN. Los tribunales del domicilio del Cliente.
+TXT
+
+cat > "$d/mi-checklist.md" << 'TXT'
+# Mi checklist para revisar contratos
+
+- Partes, objeto, plazo, precio y forma de pago, ley y jurisdicción: si falta alguno, decirlo.
+- Depósito o garantía: monto y condiciones de devolución.
+- Rescisión anticipada y preaviso, para las dos partes: marcar si es asimétrica.
+- Pago: plazo en días e intereses por mora.
+- Responsabilidad: siempre con tope; nunca ilimitada.
+- Renovación automática, cesión y jurisdicción.
+- Devolver una tabla: cláusula, problema, propuesta, prioridad (imprescindible / conveniente / menor).
+- La decisión de qué negociar es del cliente: proponer, no decidir.
 TXT
 
 cat > "$d/opencode.json" << 'TXT'
