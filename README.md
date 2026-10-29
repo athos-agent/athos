@@ -2,15 +2,16 @@
 
 Your AI know-how. Free to move, fast to run.
 
-You teach AI agents how you do things every day: your steps, your conventions, the mistakes to avoid. Not only in code:
-coding agents now do everyday work in any domain, writing code, running tools or controlling devices along the way.
-That know-how stays locked in one agent and one chat. Athos keeps it as plain markdown on your machine, brings it to
-the next agent (Claude Code, Codex, Muse Code, OpenCode) so you never explain it twice, and shows what each agent and
-model does with it on your own tasks.
+Every day you teach AI agents how you do things: your checklist, your steps, your format, the mistakes to avoid. Not
+only in code: coding agents now do everyday work in any field, and a lawyer reviewing a contract or a coach planning a
+week teaches them just as much. That know-how gets stuck in one chat of one tool. Athos keeps it as plain files on your
+machine and carries it to every agent you use, **Claude Code, Codex, Meta's Muse Code and OpenCode**, so you never
+explain it twice. On your own tasks, it shows what each agent and model does with it.
 
-Why this should exist, and what isn't solved yet: [WHY.md](WHY.md).
-
-Not a programmer? Lawyers, coaches and any professional can start without a terminal: [docs/PROFESSIONALS.md](docs/PROFESSIONALS.md) · en español: [docs/PROFESIONALES.md](docs/PROFESIONALES.md).
+**Guides:** [for lawyers](docs/guides/lawyer.md) ([en español](docs/guides/abogado.md)) ·
+[for coaches](docs/guides/coach.md) ([en español](docs/guides/entrenador.md)) ·
+[your checklist is know-how](docs/guides/checklist-en.md) ([en español](docs/guides/checklist.md)) · why this should
+exist and what isn't solved: [WHY.md](WHY.md).
 
 ![Claude Code learns how a package is released; Codex does the next release in the same folder with no explanation. The bars show each agent's success and how much shorter the request was.](demo/athos-claude-to-codex.gif)
 
@@ -18,22 +19,53 @@ Not a programmer? Lawyers, coaches and any professional can start without a term
 one-line request. Each bar: success over the tasks you marked, and how much shorter the request was than the first
 time (real run, 17 s, waits cut).*
 
-- **Captures and improves your know-how.** When a task in Claude Code teaches something reusable (your steps, your
-  conventions, the mistakes to avoid), Athos saves it as a plain markdown file you can read and edit. Next time, only
-  the pieces that match the request are loaded, and each reuse can improve them, with a version history.
-- **Yours, and free to move.** Your know-how is plain files in `~/.athos` that you can read, edit, version and copy.
-  It is not tied to one agent or one model provider: the same store works in Claude Code, Codex, Muse Code, OpenCode
-  and Claude Desktop. Nothing leaves your machine unless you move it.
+## Your know-how moves, and it works where it lands
+
+Teach a task once, in any of these tools, and the others follow it:
+
+| Agent | How Athos plugs in | What we checked |
+|---|---|---|
+| **Claude Code** (and Claude Desktop's Code tab) | plugin | 21 of 21 bench runs good with the know-how |
+| **Codex** | plugin | 20 of 20 bench runs good with the know-how |
+| **Muse Code** (Meta) | the same plugin as Claude Code | a lawyer's contract review followed step by step; tokens from Muse's own log |
+| **OpenCode** (any model) | plugin | the same review with Meta's Muse Spark; Athos asked, and Muse improved the piece |
+
+In all four, the pieces that match a request are loaded and the agent opens by saying which of your ways of working it
+follows and how it applies; every task is recorded with the model that answered; and after real work, or a task that
+followed a checklist, Athos asks once whether to save or improve a piece. A piece written in OpenCode loads in Claude
+Code the next day.
+
+**It starts to pay off on a cheaper model.** On five public bench tasks in five domains (code, data, devices, a
+planning method, sports coaching), Meta's Muse Spark did 22 of 23 runs right with the know-how and 2 of 23 without it,
+at 8 to 24 times less per run than Claude Code where we compared. Small cases written for the bench, 3 to 5 runs each;
+reproduce with `athos bench all --without`.
+
+## For professionals, not only programmers
+
+`athos start` asks your language (English or Spanish) and your profession, and adds example ways of working to start
+from: **law** (build the argument of a brief, review a contract against your checklist) and **sports coaching** (plan
+the training week, write the post-match report). They leave every professional decision to you and ask before
+touching client or athlete data. No terminal needed: Claude Desktop's Code tab runs the plugin. Start with the
+[overview for professionals](docs/PROFESSIONALS.md) ([en español](docs/PROFESIONALES.md)) or the guides above.
+
+**Checklists are know-how.** When a task follows a checklist (you name it, paste it as a list, or the agent opens a
+checklist file), Athos treats it as know-how worth keeping, even if the task only read and answered, and asks to save
+it, or to improve the piece it used with your own items. [How it works](docs/guides/checklist-en.md).
+
+## What else it does
+
+- **Captures and improves your know-how.** Each piece is a plain markdown page you can read and edit, with a version
+  history. Only the pieces that match a request are loaded, and each reuse can improve them.
+- **Yours, and free to move.** Plain files in `~/.athos` that you can read, edit, version and copy. Nothing leaves
+  your machine unless you move it.
 - **Your own benchmark.** Benchmarks measure someone else's tests; Athos measures yours. Mark each task with one key,
   and `/athos:report` shows what every piece of know-how and every model brings to your own work.
 - **Hands mastered tasks to cheaper models.** Once a piece has proven itself, `athos delegate` runs the task on a
-  smaller model, local or hosted, and `athos bench` shows whether it keeps up. On the four public bench cases, Meta's
-  Muse Spark did 19 of 20 runs right with the know-how and 2 of 20 without it, at 8 to 24 times less per run than
-  Claude Code (5 runs per case; small cases written for the bench; reproduce with `athos bench all --without`).
+  smaller model, local or hosted, and `athos bench` shows whether it keeps up.
 
 ## Install
 
-In **Claude Code**, where Athos captures your know-how:
+In **Claude Code** (or Claude Desktop's Code tab):
 
 ```
 /plugin install athos --marketplace athos-agent/athos
@@ -54,10 +86,11 @@ muse plugins install athos@athos
 muse plugins approve athos
 ```
 
-From a **terminal**, for **OpenCode** or anywhere without a plugin:
+In **OpenCode**, with the `athos` command from the installer:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/athos-agent/athos/main/install.sh | sh
+athos opencode install       then restart OpenCode
 ```
 
 Then `athos start` asks your language and profession and adds example ways of working (law and sports coaching today).
@@ -129,8 +162,8 @@ shows under its prompt, marked with g / c / f.
 ### In Muse Code
 
 Muse Code runs the same plugin as Claude Code: the pieces that match each request are loaded, every task is recorded
-with the model that answered and its tokens (from Muse's own session log), and after a turn that changed something
-Athos asks once whether to save or improve a piece. `athos watch` and `/athos:report` show Muse Code beside Claude
+with the model that answered and its tokens (from Muse's own session log), and after a turn that changed something or
+followed a checklist Athos asks once whether to save or improve a piece. `athos watch` and `/athos:report` show Muse Code beside Claude
 Code and Codex. Keep Muse Code's Contributor mode off (`muse` → `/settings`) unless you want Meta to train on your
 sessions; Athos warns when a task ran with it.
 
@@ -146,8 +179,8 @@ athos opencode install       writes ~/.config/opencode/plugins/athos.js; restart
 ```
 
 With any model OpenCode runs, the pieces that match each message go into its system prompt, every task is recorded
-with OpenCode's own token counts, and after a turn that changed something Athos asks once whether to save or improve a
-piece, as in Claude Code. `athos opencode uninstall` removes it.
+with OpenCode's own token counts, and after a turn that changed something or followed a checklist Athos asks once
+whether to save or improve a piece, as in Claude Code. `athos opencode uninstall` removes it.
 
 ### In Claude Desktop
 
