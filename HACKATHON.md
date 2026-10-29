@@ -63,6 +63,7 @@ from what was built during the event.
 - [#46](https://github.com/athos-agent/athos/pull/46) The lawyer demo GIF in the README: Claude Code keeps a checklist, OpenCode on Muse Spark applies it (`demo/lawyer.tape`, `demo/lawyer-setup.sh`)
 - [#47](https://github.com/athos-agent/athos/pull/47) In Claude Code, the request to keep know-how reads as feedback, not as a "Stop hook error"; the save is announced above the prompt; no doubled "athos" in the status line; an English lawyer take (`sh demo/lawyer-setup.sh en && vhs demo/lawyer-en.tape`) (0.1.37)
 - [#48](https://github.com/athos-agent/athos/pull/48) The band above the prompt refreshes after each answer again, so it announces a save and asks for the mark (0.1.38)
+- [#49](https://github.com/athos-agent/athos/pull/49) The English lawyer GIF in the README and the lawyer guide; the Spanish one in the guía para abogados
 
 ## Meta models used
 

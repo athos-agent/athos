@@ -6,6 +6,8 @@ Esta guía es para quien ejerce y usa (o quiere usar) una IA para revisar contra
 programar. En media hora tenés tu checklist guardado como **forma de trabajar**, y cualquier herramienta de IA que uses
 lo va a seguir sin que se lo vuelvas a explicar.
 
+![Un abogado revisa un contrato de locación en Claude Code con su checklist y Athos lo guarda; después OpenCode, con Muse Spark de Meta, revisa un contrato de servicios con un pedido de una línea y dice qué forma de trabajar sigue.](../../demo/lawyer.gif)
+
 ## Lo que vas a lograr
 
 1. La IA revisa contratos **con tu checklist**, no con uno genérico: tus cláusulas, tu orden, tu tabla.
