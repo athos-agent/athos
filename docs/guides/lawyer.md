@@ -5,6 +5,8 @@
 For practising lawyers who use (or want to use) AI to review contracts and draft briefs. No programming. In half an
 hour your checklist is saved as a **way of working**, and every AI tool you use follows it without being told again.
 
+![A lawyer reviews a lease in Claude Code against their checklist and Athos keeps it; then OpenCode, on Meta's Muse Spark, reviews a services agreement from a one-line request and says which way of working it follows.](../../demo/lawyer-en.gif)
+
 ## What you get
 
 1. The AI reviews contracts **with your checklist**, not a generic one: your clauses, your order, your table.
