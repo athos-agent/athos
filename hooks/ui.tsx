@@ -1,6 +1,6 @@
-// Athos in the terminal. The status line counts the know-how ("athos · N ways of working · K in use · M to mark"); the
-// band above the prompt appears when the last task ended without a verdict, with one-key marking, and says when that
-// task saved or improved a piece. Both read `athos status --json` and stay silent where there is nothing to say.
+// Athos in the terminal. The status line counts the know-how ("N ways of working · K in use · M to mark"; the engine
+// prefixes the plugin's name); the band above the prompt says when the last task saved or improved a piece and, while
+// it has no verdict, offers one-key marking. Both read `athos status --json` and stay silent with nothing to say.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
@@ -8,7 +8,6 @@ import type { Bar, Status } from '../types'
 
 const snap = atom({ plugin: 'athos', key: 'snap' } as const, null)
 const dismissed = atom({ plugin: 'athos', key: 'dismissed' } as const, null)
-const announced = atom({ plugin: 'athos', key: 'announced' } as const, null)
 
 // What the person reads, in the language they chose with `athos start` (English by default), in plain words.
 const WORDS = {
@@ -36,7 +35,7 @@ export function words(s: Status | null) {
 export function statusText(s: Status | null): string | undefined {
   if (!s) return undefined
   const w = words(s)
-  const parts = [`athos · ${w.ways(s.pieces)}`, w.inUse(s.loaded.length)]
+  const parts = [w.ways(s.pieces), w.inUse(s.loaded.length)]
   if (s.to_mark) parts.push(w.toMark(s.to_mark))
   return parts.join(' · ')
 }
@@ -59,13 +58,13 @@ export function stepsText(s: Status | null): string | undefined {
   return names.map(n => `#${n}`).join(' → ') + more
 }
 
-/** The one line shown under the answer after a save: what, which version, and where it is ready. */
+/** The line shown above the prompt after a save: what, which version, and where it is ready. */
 export function announceText(s: Status | null): string | undefined {
   const l = s?.last_saved
   if (!l) return undefined
   const w = words(s)
   const what = l.version > 1 ? `${w.improved} «${l.title}» → v${l.version}` : `${w.saved} «${l.title}»`
-  return `athos · ${what} · ${w.ready} ${l.platforms.join(' · ')}`
+  return `${what} · ${w.ready} ${l.platforms.join(' · ')}`
 }
 
 export function savedText(s: Status | null): string {
@@ -136,18 +135,6 @@ export const register: Register = on => {
     return done
   }).catch(($, e, next) => next(e))
 
-  // Under the answer, once per save: the line that replaces the model announcing it.
-  on('turn.complete', async ($, e, next) => {
-    const done = await next(e)
-    await refresh($)
-    const s = await read($, snap)
-    const key = s?.last_saved ? `${s.last_saved.id}@${s.last_saved.version}` : null
-    const line = announceText(s)
-    if (!line || key === (await read($, announced))) return done
-    await update($, announced, () => key)
-    return { ...done, text: line }
-  }).catch(($, e, next) => next(e))
-
   // Under the prompt: the engine's own line, then one bar per agent for the piece this project used last.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const s = await read($, snap)
@@ -193,19 +180,27 @@ export const register: Register = on => {
     const last = s?.last
     if (e.props.hasSurvey || !last || last.task_id === (await read($, dismissed))) return next(e)
     const unmarked = last.result === 'unevaluated'
-    if (!unmarked) return next(e)                 // a save is announced under the answer (turn.complete)
+    // The save is announced here and not under the answer: text a plugin adds there is drawn with an engine prefix.
+    const savedNow = s?.last_saved && [...last.saved, ...last.improved].includes(s.last_saved.id)
+    const saved = savedNow ? announceText(s) : undefined
+    if (!unmarked && !saved) return next(e)
 
     const { Box, Button, Text } = $.ui.resolve(e)
     const hide = () => update($, dismissed, () => last.task_id)
     const w = words(s)
     return (
-      <Box>
-        <Text color="cyan">athos </Text>
-        <Text dimColor>{w.ask}</Text>
-        <Button key="g" label={w.ok} onPress={() => mark($, 'g')} />
-        <Button key="c" label={w.corrected} onPress={() => mark($, 'c')} />
-        <Button key="f" label={w.failed} onPress={() => mark($, 'f')} />
-        <Button key="hide" label={w.skip} onPress={hide} />
+      <Box flexDirection="column">
+        {saved ? <Box><Text color="cyan">athos </Text><Text color="green">{saved}</Text></Box> : null}
+        {unmarked ? (
+          <Box>
+            <Text color="cyan">athos </Text>
+            <Text dimColor>{w.ask}</Text>
+            <Button key="g" label={w.ok} onPress={() => mark($, 'g')} />
+            <Button key="c" label={w.corrected} onPress={() => mark($, 'c')} />
+            <Button key="f" label={w.failed} onPress={() => mark($, 'f')} />
+            <Button key="hide" label={w.skip} onPress={hide} />
+          </Box>
+        ) : null}
       </Box>
     )
   })

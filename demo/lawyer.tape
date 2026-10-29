@@ -2,7 +2,7 @@
 # of working; then OpenCode, on Meta's Muse Spark, reviews a services agreement from a one-line request and says which
 # of the lawyer's ways of working it follows. athos watch fills one bar per agent. Waits are hidden, not sped up.
 #
-#   sh demo/lawyer-setup.sh && vhs demo/lawyer.tape
+#   sh demo/lawyer-setup.sh es && vhs demo/lawyer.tape
 #
 # Everything runs in /Users/Shared/athos-demo-law (no user name on screen) with its own Athos home. The Meta key is read
 # from ~/.athos/.env into the hidden shell and never printed. Every take is checked before it is kept: the store must

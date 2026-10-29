@@ -61,6 +61,7 @@ from what was built during the event.
 - [#44](https://github.com/athos-agent/athos/pull/44) The lines the person reads say plain `athos save` instead of a full path with their user name; file names and punctuation split into words when matching ("contrato-servicios.md" loaded nothing); the agent opens with a fixed `Athos · «piece»: how it applies` line, which Muse Spark now writes (0.1.35)
 - [#45](https://github.com/athos-agent/athos/pull/45) A checklist file named in the request counts as the person's own checklist (0.1.36)
 - [#46](https://github.com/athos-agent/athos/pull/46) The lawyer demo GIF in the README: Claude Code keeps a checklist, OpenCode on Muse Spark applies it (`demo/lawyer.tape`, `demo/lawyer-setup.sh`)
+- [#47](https://github.com/athos-agent/athos/pull/47) In Claude Code, the request to keep know-how reads as feedback, not as a "Stop hook error"; the save is announced above the prompt; no doubled "athos" in the status line; an English lawyer take (`sh demo/lawyer-setup.sh en && vhs demo/lawyer-en.tape`) (0.1.37)
 
 ## Meta models used
 
