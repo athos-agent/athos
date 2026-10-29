@@ -111,12 +111,31 @@ def read_session(path: Path) -> dict:
     return {"session_id": path.parent.name, "workspace": workspace, "tasks": tasks, "ended": ended}
 
 
+def tokens_between(session_id: str, start: str, end: str, root: Path | None = None) -> dict | None:
+    """Tokens of the requests typed between two times in one session, for a task the plugin's hooks recorded."""
+    root = root or sessions_dir()
+    files = list(root.glob(f"*/*/*/{session_id}/session.jsonl")) if session_id and root.is_dir() else []
+    if not files:
+        return None
+    t0 = _dt.datetime.fromisoformat(start.replace("Z", "+00:00")).timestamp() * 1e6 if start else 0
+    t1 = _dt.datetime.fromisoformat(end.replace("Z", "+00:00")).timestamp() * 1e6 if end else float("inf")
+    tot = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
+    for t in read_session(files[0])["tasks"]:
+        if t["start"] and t0 - 5e6 <= t["start"] <= t1:          # the hook fires a moment before Muse logs the request
+            for k in tot:
+                tot[k] += t["tokens"][k]
+    return tot
+
+
 def import_sessions(root: Path | None = None, include_tmp: bool = False) -> dict:
     """Record Muse Code's tasks in the evaluation log as platform muse-code. Idempotent: a task is imported once.
     Sessions in temporary folders (tests) are left out unless asked."""
     from athos import eval as ev
     root = root or sessions_dir()
     known = {e.get("task_id") for e in ev.events()}
+    # Sessions the plugin's hooks already recorded, live, are not imported again.
+    hooked = {e.get("session_id") for e in ev.events() if e.get("type") == "task_start"
+              and e.get("platform") == "muse-code" and e.get("source") != "muse-import"}
     pieces = {p.id for p in store.all_pieces()}
     since = paths.import_since()
     out = {"files": 0, "imported": 0, "skipped": 0}
@@ -128,8 +147,8 @@ def import_sessions(root: Path | None = None, include_tmp: bool = False) -> dict
         ws = s["workspace"] or ""
         for i, t in enumerate(s["tasks"]):
             tid = f"mu-{s['session_id']}-{i}"
-            if tid in known or not t["start"] or not t["finished"] or (since and _iso(t["start"]) < since) or \
-                    (not include_tmp and ws.startswith(TMP_PREFIXES)):
+            if tid in known or s["session_id"] in hooked or not t["start"] or not t["finished"] or \
+                    (since and _iso(t["start"]) < since) or (not include_tmp and ws.startswith(TMP_PREFIXES)):
                 out["skipped"] += 1
                 continue
             ev.append({"type": "task_start", "task_id": tid, "session_id": s["session_id"], "platform": "muse-code",

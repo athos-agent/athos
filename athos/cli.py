@@ -71,6 +71,8 @@ def _current_session(cwd: str) -> dict:
 def hook(event_name: str, platform: str = "claude-code") -> int:
     """Never breaks the user's session: any error is reported on stderr and the hook exits 0."""
     try:
+        if platform == "claude-code" and os.environ.get("MUSE_PLUGIN_ID"):
+            platform = "muse-code"                  # Muse Code runs the Claude Code plugin as it is, and says so
         event = json.loads(sys.stdin.read() or "{}")
         _remember_session(event)
         if event.get("session_id"):

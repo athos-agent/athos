@@ -46,11 +46,18 @@ codex plugin marketplace add athos-agent/athos
 codex plugin add athos@athos
 ```
 
-From a **terminal**, for **Muse Code** or anywhere without Claude Code:
+In **Muse Code**:
+
+```
+muse plugins marketplace add athos https://github.com/athos-agent/athos
+muse plugins install athos@athos
+muse plugins approve athos
+```
+
+From a **terminal**, for **OpenCode** or anywhere without a plugin:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/athos-agent/athos/main/install.sh | sh
-athos export --muse          your pieces as skills Muse Code and Codex read
 ```
 
 Then `athos start` asks your language and profession and adds example ways of working (law and sports coaching today).
@@ -121,16 +128,14 @@ shows under its prompt, marked with g / c / f.
 
 ### In Muse Code
 
-Meta's coding agent reads the same skills as Codex, from `~/.agents/skills`:
+Muse Code runs the same plugin as Claude Code: the pieces that match each request are loaded, every task is recorded
+with the model that answered and its tokens (from Muse's own session log), and after a turn that changed something
+Athos asks once whether to save or improve a piece. `athos watch` and `/athos:report` show Muse Code beside Claude
+Code and Codex. Keep Muse Code's Contributor mode off (`muse` → `/settings`) unless you want Meta to train on your
+sessions; Athos warns when a task ran with it.
 
-```
-athos export --muse
-```
-
-Athos records each Muse Code task from Muse's own session logs (no hooks to trust), with the model that answered and
-the pieces it read, so `athos watch` and `/athos:report` show Muse Code beside Claude Code and Codex. Keep Muse Code's
-Contributor mode off (`muse` → `/settings`) unless you want Meta to train on your sessions; Athos warns when a task
-ran with it.
+Without the plugin, `athos export --muse` writes your pieces as skills in `~/.agents/skills` and `athos import muse`
+records past tasks from Muse's session logs.
 
 ### In OpenCode
 

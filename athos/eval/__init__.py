@@ -102,10 +102,13 @@ def tokens_between(transcript_path: str | None, start: str, end: str) -> dict | 
     return tot
 
 
-def _tokens(platform: str, transcript: str | None, start: str, end: str) -> dict | None:
+def _tokens(platform: str, transcript: str | None, start: str, end: str, session_id: str = "") -> dict | None:
     if platform == "codex":
         from athos.adapters import codex
         return codex.tokens_between(transcript, start, end)
+    if platform == "muse-code":                  # Muse sends no transcript path: its session log has the usage
+        from athos.adapters import muse
+        return muse.tokens_between(session_id, start, end)
     return tokens_between(transcript, start, end)
 
 
@@ -152,7 +155,7 @@ def task_end(event: dict) -> dict | None:
            # A platform that counts its own tokens (OpenCode) sends them; the others are read from the transcript.
            "tokens": event["tokens"] if isinstance(event.get("tokens"), dict) else
            _tokens(state.get("platform", "claude-code"), event.get("transcript_path"),
-                   state.get("task_started", ""), _iso(ended)),
+                   state.get("task_started", ""), _iso(ended), sid),
            "model": state.get("model", "unknown"),
            "pieces": state.get("task_loaded", []), "saved": state.get("task_saved", [])}
     append(rec)
