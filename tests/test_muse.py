@@ -104,3 +104,35 @@ class MuseTest(TempHome):
         text = watch.frame("greet", color=False)
         self.assertIn("Muse Code   ", text)
         self.assertIn("contributor mode", text)
+
+    # ---------------------------------------------------------------------------------------- the plugin's hooks
+    def test_the_claude_code_plugin_run_by_muse_records_muse_code(self):
+        import io
+        from unittest import mock
+        from athos import cli, session
+        event = {"session_id": "m1", "prompt": "release greet 0.3.0", "cwd": self.ws, "model": "muse-spark-1.3"}
+        with mock.patch.dict(os.environ, {"MUSE_PLUGIN_ID": "athos"}), \
+                mock.patch("sys.stdin", io.StringIO(json.dumps(event))), mock.patch("sys.stdout", io.StringIO()):
+            cli.hook("prompt")
+        self.assertEqual(session.load("m1")["platform"], "muse-code")
+        (start,) = [e for e in ev.events() if e.get("type") == "task_start"]
+        self.assertEqual((start["platform"], start["model"]), ("muse-code", "muse-spark-1.3"))
+
+    def test_muse_tools_that_only_read_are_not_work(self):
+        from athos import capture
+        self.assertFalse(capture._does_work({"tool_name": "read_file", "tool_input": {"path": "a"}}))
+        self.assertFalse(capture._does_work({"tool_name": "bash", "tool_input": {"command": "ls -la"}}))
+        self.assertTrue(capture._does_work({"tool_name": "write_file", "tool_input": {"path": "b"}}))
+
+    def test_a_hooked_task_takes_its_tokens_from_the_session_log(self):
+        self.session(sid="s9")
+        start = muse._iso(T0)
+        end = muse._iso(T0 + 9_000_000)
+        self.assertEqual(muse.tokens_between("s9", start, end),
+                         {"input": 700, "output": 70, "cache_read": 800, "cache_write": 0})
+        self.assertIsNone(muse.tokens_between("nope", start, end))
+
+    def test_sessions_the_hooks_recorded_are_not_imported_again(self):
+        self.session(sid="s7")
+        ev.task_start({"session_id": "s7", "prompt": "Release 0.3.0", "cwd": self.ws}, "muse-code")
+        self.assertEqual(muse.import_sessions()["imported"], 0)

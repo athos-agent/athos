@@ -132,7 +132,10 @@ def _counts(event: dict) -> bool:
 
 # Tools that only look: a turn made of them (reading files, searching, checking a PR) taught nothing to keep.
 READ_TOOLS = {"Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch", "ToolSearch", "TodoWrite", "ListMcpResourcesTool",
-              "ReadMcpResourceTool", "AskUserQuestion"}
+              "ReadMcpResourceTool", "AskUserQuestion",
+              # Muse Code's
+              "read_file", "read_skill", "search", "list_dir", "glob", "grep", "web_fetch", "web_search",
+              "submit_reminder_decision"}
 READ_COMMANDS = {"ls", "cat", "head", "tail", "less", "grep", "rg", "egrep", "find", "which", "type", "wc", "echo", "pwd",
                  "file", "stat", "du", "df", "jq", "sort", "uniq", "cut", "tr", "diff", "cmp", "date", "env", "printenv",
                  "whoami", "uname", "test", "[", "true", "cd", "sleep", "column", "basename", "dirname", "realpath"}
@@ -172,7 +175,7 @@ def _does_work(event: dict) -> bool:
     tool = event.get("tool_name") or ""
     if tool in READ_TOOLS:
         return False
-    if tool == "Bash":
+    if tool in ("Bash", "bash"):
         return not _read_only_shell(str((event.get("tool_input") or {}).get("command", "")))
     return True
 
