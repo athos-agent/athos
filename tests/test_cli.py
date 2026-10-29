@@ -27,8 +27,8 @@ class CliTest(TempHome):
         self.assertIsNone(self.hook("session-start", {**ev, "model": "claude-opus-5-5"}))     # empty store: silent
         for _ in range(5):
             self.hook("tool", ev)
-        stop = self.hook("stop", ev)
-        self.assertEqual(stop["decision"], "block")
+        stop = self.hook("stop", ev)                                  # Claude Code: feedback, not a "hook error"
+        self.assertIn("athos save", stop["hookSpecificOutput"]["additionalContext"])
         piece = "---\ntitle: Bump a version\nwhen: releasing a new version of a package\n---\nEdit pyproject."
         r = self.run_athos("save", stdin=piece)                       # what Claude runs, from the session's cwd
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -39,6 +39,13 @@ class CliTest(TempHome):
         self.assertIn("bump-a-version", start["hookSpecificOutput"]["additionalContext"])
         ctx = self.hook("prompt", {"session_id": "s2", "cwd": self.home, "prompt": "release a new version please"})
         self.assertIn("Edit pyproject.", ctx["hookSpecificOutput"]["additionalContext"])
+
+    def test_codex_still_gets_a_stop_block(self):
+        ev = {"session_id": "s1", "cwd": self.home, "transcript_path": None}
+        for _ in range(5):
+            self.hook("tool", ev)
+        r = self.run_athos("hook", "stop", "--platform", "codex", stdin=json.dumps(ev))
+        self.assertEqual(json.loads(r.stdout)["decision"], "block")
 
     def test_a_broken_event_never_breaks_the_session(self):
         r = self.run_athos("hook", "prompt", stdin="not json")

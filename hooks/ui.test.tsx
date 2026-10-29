@@ -22,8 +22,8 @@ const CODEX = { platform: 'codex', label: 'Codex', uses: 0, evaluated: 0, ok: 0,
   mean_request_chars: null, prompt_saved: null }
 
 test('the status line counts pieces, loaded and unmarked tasks', () => {
-  expect(statusText(STATUS as never)).toBe('athos · 3 ways of working · 1 in use · 1 to mark')
-  expect(statusText({ ...STATUS, to_mark: 0 } as never)).toBe('athos · 3 ways of working · 1 in use')
+  expect(statusText(STATUS as never)).toBe('3 ways of working · 1 in use · 1 to mark')
+  expect(statusText({ ...STATUS, to_mark: 0 } as never)).toBe('3 ways of working · 1 in use')
   expect(statusText(null)).toBe(undefined)
   expect(savedText(STATUS as never)).toBe('improved cut-a-release')
 })
@@ -31,9 +31,9 @@ test('the status line counts pieces, loaded and unmarked tasks', () => {
 test('a save is one line: what, which version, where it is ready', () => {
   const saved = { id: 'cut-a-release', title: 'Cut a release', version: 1, platforms: ['Claude Code', 'Codex', 'Muse Code'] }
   expect(announceText({ ...STATUS, last_saved: saved } as never))
-    .toBe('athos · saved «Cut a release» · ready in Claude Code · Codex · Muse Code')
+    .toBe('saved «Cut a release» · ready in Claude Code · Codex · Muse Code')
   expect(announceText({ ...STATUS, last_saved: { ...saved, version: 3, platforms: ['Claude Code'] } } as never))
-    .toBe('athos · improved «Cut a release» → v3 · ready in Claude Code')
+    .toBe('improved «Cut a release» → v3 · ready in Claude Code')
   expect(announceText(STATUS as never)).toBe(undefined)
 })
 
@@ -96,12 +96,12 @@ test('the line under the prompt keeps its hint and adds one bar per agent', asyn
 
 test('in Spanish, the person reads plain Spanish', () => {
   const es = { ...STATUS, lang: 'es' }
-  expect(statusText(es as never)).toBe('athos · 3 formas de trabajar · 1 en uso · 1 por marcar')
+  expect(statusText(es as never)).toBe('3 formas de trabajar · 1 en uso · 1 por marcar')
   const f = { id: 'x', title: 'Revisar un contrato', version: 2, steps: 4, wiki: true, platforms: ['Claude Code'] }
   expect(followingText({ ...es, following: [f] } as never))
     .toBe('athos · siguiendo «Revisar un contrato» v2 · 4 pasos · lista en Claude Code')
   expect(announceText({ ...es, last_saved: { id: 'x', title: 'Revisar un contrato', version: 1, platforms: ['Claude Code'] } } as never))
-    .toBe('athos · guardé «Revisar un contrato» · lista en Claude Code')
+    .toBe('guardé «Revisar un contrato» · lista en Claude Code')
   expect(barText(CLAUDE as never, es as never).words).toBe('4/5 bien · pedido 85% más corto')
 })
 

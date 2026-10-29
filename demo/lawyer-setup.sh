@@ -1,19 +1,66 @@
 #!/bin/sh
-# Prepares the lawyer take: a law office folder with two fictitious contracts, a demo store with the Spanish law
-# starters, and OpenCode set to Meta's Muse Spark through Meta Model API. Your real store is untouched.
+# Prepares the lawyer take: a law office folder with two fictitious contracts and the lawyer's checklist, a demo store
+# with the law starters, and OpenCode set to Meta's Muse Spark through Meta Model API. Your real store is untouched.
 #
-#   sh demo/lawyer-setup.sh && vhs demo/lawyer.tape
+#   sh demo/lawyer-setup.sh en && vhs demo/lawyer-en.tape      (English, the README GIF)
+#   sh demo/lawyer-setup.sh es && vhs demo/lawyer.tape         (Spanish, the guide for lawyers)
 #
-# The take: the lawyer reviews a lease in Claude Code pasting their own checklist, Athos keeps it; then OpenCode on
+# The take: the lawyer reviews a lease in Claude Code with their own checklist file, Athos keeps it; then OpenCode on
 # Muse Spark reviews a services agreement from a one-line request, following that checklist. Run it again before each
 # take. The Meta key is read at record time from ~/.athos/.env into the recording shell, never written anywhere.
 set -eu
+LANG_DEMO="${1:-es}"
 
 DEMO="${ATHOS_DEMO_LAW:-/Users/Shared/athos-demo-law}"   # outside your home: no user name on screen
 rm -rf "$DEMO"
-mkdir -p "$DEMO/home" "$DEMO/estudio"
+if [ "$LANG_DEMO" = en ]; then d="$DEMO/office"; else d="$DEMO/estudio"; fi
+mkdir -p "$DEMO/home" "$d"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$DEMO/home/import-since"
-d="$DEMO/estudio"
+
+if [ "$LANG_DEMO" = en ]; then
+cat > "$d/lease.md" << 'TXT'
+# RESIDENTIAL LEASE (FICTITIOUS)
+
+Between EXAMPLE PROPERTIES LLC ("the Landlord") and ANN SAMPLE ("the Tenant").
+
+1. PREMISES. The Landlord leases 123 Fictional Street, apt. 4, as a residence.
+2. TERM. Two years from December 1, 2026, renewing automatically unless the Tenant gives 180 days' notice.
+3. RENT. 3,000 units per month, adjusted every three months by an index the Landlord chooses.
+4. DEPOSIT. Six months' rent, which the Landlord may keep at the end without giving a reason.
+5. TERMINATION. The Landlord may terminate on 15 days' notice. The Tenant may not terminate before the end of the term.
+6. REPAIRS. All repairs, structural ones included, are the Tenant's.
+7. ASSIGNMENT. The Landlord may assign this lease without the Tenant's consent.
+8. JURISDICTION. The courts the Landlord chooses.
+TXT
+
+cat > "$d/services-agreement.md" << 'TXT'
+# SERVICES AGREEMENT (FICTITIOUS)
+
+Between EXAMPLE CLIENT INC. ("the Client") and SAMPLE DESIGN STUDIO ("the Provider").
+
+1. SCOPE. The Provider will design the Client's visual identity as set out in schedule A.
+2. TERM. Twelve months, renewing automatically for equal periods unless the Provider gives 90 days' notice.
+3. FEES. 5,000 units per month; the Client pays 120 days after receiving each invoice.
+4. SECURITY. The Provider deposits 10,000 units, which the Client may keep if it finds the work unsatisfactory.
+5. TERMINATION. The Client may terminate on 7 days' notice. If the Provider terminates, it pays three months' fees.
+6. INTELLECTUAL PROPERTY. Everything created belongs to the Client from creation, paid for or not.
+7. LIABILITY. The Provider is liable for any damage, direct or indirect, without limit.
+8. JURISDICTION. The courts of the Client's domicile.
+TXT
+
+cat > "$d/my-checklist.md" << 'TXT'
+# My checklist for reviewing contracts
+
+- Parties, scope, term, price and payment, governing law and jurisdiction: say if any is missing.
+- Deposit or security: amount and conditions for its return.
+- Early termination and notice, for both sides: flag it if it is one-sided.
+- Payment: days to pay and late interest.
+- Liability: always capped; never unlimited.
+- Automatic renewal, assignment and jurisdiction.
+- Return a table: clause, issue, proposed wording, priority (must / should / minor).
+- What to negotiate is the client's decision: propose, don't decide.
+TXT
+else
 
 cat > "$d/contrato-locacion.md" << 'TXT'
 # CONTRATO DE LOCACIÓN (FICTICIO)
@@ -58,6 +105,8 @@ cat > "$d/mi-checklist.md" << 'TXT'
 - La decisión de qué negociar es del cliente: proponer, no decidir.
 TXT
 
+fi
+
 cat > "$d/opencode.json" << 'TXT'
 { "$schema": "https://opencode.ai/config.json",
   "provider": { "meta": { "npm": "@ai-sdk/openai-compatible", "name": "Meta Model API",
@@ -68,5 +117,5 @@ TXT
 
 # The athos command: this checkout (the recording puts its bin first on PATH).
 ATHOS="$(cd "$(dirname "$0")/.." && pwd)/bin/athos"
-ATHOS_HOME="$DEMO/home" python3 "$ATHOS" start --lang es --profile law >/dev/null
+ATHOS_HOME="$DEMO/home" python3 "$ATHOS" start --lang "$LANG_DEMO" --profile law >/dev/null
 echo "Lawyer demo ready in $DEMO ($(ls "$DEMO/home/know-how" | grep -vc Index) ways of working)."

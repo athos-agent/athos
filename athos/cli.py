@@ -96,6 +96,9 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
         elif event_name == "stop":
             ev.task_end(event)
             out = capture.stop_decision(event, _cmd())
+            if out and platform == "claude-code":
+                # Claude Code labels a Stop block "Stop hook error"; the same request as context reads as feedback.
+                out = {"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": out["reason"]}}
             if out:
                 print(json.dumps(out))
     except Exception as e:  # noqa: BLE001

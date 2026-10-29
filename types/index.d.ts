@@ -40,6 +40,6 @@ export type Bar = {
 
 declare module 'claude-code' {
   interface PluginState {
-    athos: { snap: Status | null; dismissed: string | null; announced: string | null }
+    athos: { snap: Status | null; dismissed: string | null }
   }
 }
