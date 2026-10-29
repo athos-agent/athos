@@ -58,6 +58,7 @@ from what was built during the event.
 - [#41](https://github.com/athos-agent/athos/pull/41) The installer's next steps name the OpenCode and Muse Code plugins instead of `athos export --muse`, which would duplicate pieces next to the Muse plugin (0.1.32)
 - [#42](https://github.com/athos-agent/athos/pull/42) A task that follows a checklist asks to be saved even when it changes no file; the agent says which of your ways of working it follows and how it applies; the steps show under the prompt; the bars include OpenCode and Muse Code once installed (0.1.33)
 - [#43](https://github.com/athos-agent/athos/pull/43) README for the people using Athos: the know-how moving across Claude Code, Codex, Muse Code and OpenCode and what was checked in each; three guides (lawyers, coaches, your checklist is know-how), in English and Spanish (0.1.34)
+- [#44](https://github.com/athos-agent/athos/pull/44) The lines the person reads say plain `athos save` when the agent's shell finds the command, instead of a full path that showed their user name (0.1.35)
 
 ## Meta models used
 
