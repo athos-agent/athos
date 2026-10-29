@@ -86,3 +86,21 @@ class LoadRegressionTest(TempHome):
         store.create("Revisar un contrato con tu checklist", "revisar un contrato de servicios o de locación", "x")
         self.assertEqual(len(load.relevant("Revisá contrato-servicios.md, represento al Proveedor.",
                                            store.all_pieces())), 1)
+
+
+class Misfires(TempHome):
+    def test_a_dismissed_load_does_not_come_back_on_the_same_words(self):
+        p = store.create("Read Muse Code session logs", "reading Muse Code's session logs after a run", "Do it.",
+                         piece_id="muse-logs")
+        q = "how is athos doing in this session? muse session logs look odd"
+        self.assertEqual([x.id for x in load.relevant(q, [p])], ["muse-logs"])
+        self.assertEqual(load.why(q, p), ["logs", "muse", "session"])
+        load.dismiss("muse-logs", load.why(q, p))
+        self.assertEqual(load.relevant(q, [p]), [])                        # the same words: not again
+        self.assertEqual(load.relevant("read the muse code session logs and the run output", [p])[0].id, "muse-logs")
+
+    def test_the_prompt_hook_remembers_why_each_piece_loaded(self):
+        store.create("Read Muse Code session logs", "reading Muse Code's session logs after a run", "Do it.",
+                     piece_id="muse-logs")
+        load.on_prompt({"session_id": "s1", "prompt": "read the muse session logs"})
+        self.assertEqual(session.load("s1")["task_why"], {"muse-logs": ["logs", "muse", "read", "session"]})

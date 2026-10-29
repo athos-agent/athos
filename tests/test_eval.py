@@ -151,3 +151,42 @@ class MarkTargetTest(TempHome):
         self.assertEqual(ev.mark("g", session_id=None, project="greet-codex")[0], later)
         # From the Claude Code folder, inside its session: that session's task.
         self.assertNotEqual(ev.mark("g", session_id="claude", project="greet-claude")[0], later)
+
+
+class PlainWords(TempHome):
+    def test_the_next_words_mark_the_previous_task_when_they_plainly_judge_it(self):
+        from athos import eval as ev, session
+        tid = ev.task_start({"session_id": "s1", "prompt": "release it", "cwd": self.home})
+        self.assertIsNone(ev.infer_mark("s1", "mergea 50"))                  # no judgement: no mark
+        self.assertEqual(ev.infer_mark("s1", "ok excelente, ahora el changelog"), "ok")
+        self.assertIsNone(ev.infer_mark("s1", "excelente"))                  # already marked: once
+        ev.task_start({"session_id": "s1", "prompt": "now the docs", "cwd": self.home})
+        self.assertEqual(ev.infer_mark("s1", "el título está mal, cambialo"), "corrected")
+        marks = [e for e in ev.events() if e["type"] == "mark"]
+        self.assertEqual([(m["task_id"] == tid, m["by"]) for m in marks][:1], [(True, "inferred")])
+        self.assertTrue(session.load("s1")["task_id"])
+
+    def test_a_pieces_record_counts_uses_marks_and_agents(self):
+        from athos import eval as ev
+        tasks = [{"pieces": ["p"], "result": "ok", "platform": "claude-code"},
+                 {"pieces": ["p"], "result": "unevaluated", "platform": "opencode"},
+                 {"pieces": ["q"], "result": "ok", "platform": "codex"}]
+        self.assertEqual(ev.record("p", tasks), {"uses": 2, "ok": 1, "marked": 1, "agents": ["Claude Code", "OpenCode"]})
+
+    def test_only_recent_tasks_wait_for_a_mark(self):
+        from athos import eval as ev
+        self.assertTrue(ev.recent({"started": ev._iso(ev.now())}))
+        self.assertFalse(ev.recent({"started": "2026-01-01T00:00:00+00:00"}))
+
+
+class Language(TempHome):
+    def test_the_language_the_person_writes_in_when_none_was_chosen(self):
+        from athos import start
+        self.assertEqual(start.lang(), "en")
+        start.note_language("mergea 50")                                     # too little to tell
+        self.assertEqual(start.lang(), "en")
+        start.note_language("dime como viene la corrida y que falta para el PR")
+        self.assertEqual(start.lang(), "es")
+        start.save_choice("en", "other")                                     # a choice always wins
+        start.note_language("dime como viene la corrida y que falta para el PR")
+        self.assertEqual(start.lang(), "en")

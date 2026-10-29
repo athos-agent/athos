@@ -85,6 +85,16 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
             if text:
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}))
         elif event_name == "prompt":
+            if capture.is_save_prompt(event.get("prompt", "")):
+                # The person pressed [Save]: the save belongs to the task that just ended, so no new task starts
+                # and nothing loads; the offer is spent.
+                if event.get("session_id"):
+                    session.update(event["session_id"], offer=None)
+                return 0
+            from athos import start
+            start.note_language(event.get("prompt", ""))
+            if event.get("session_id"):
+                ev.infer_mark(event["session_id"], event.get("prompt", ""))     # before the new task replaces it
             ev.task_start(event, platform)
             capture.note_request(event)
             text = load.on_prompt(event)
@@ -95,7 +105,10 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
             capture.count_tool(event)
         elif event_name == "stop":
             ev.task_end(event)
-            out = capture.stop_decision(event, _cmd())
+            # A person at an interactive Claude Code session gets a [Save] button above the prompt instead of a
+            # line asking the model; a `claude -p` run (CLAUDE_CODE_ENTRYPOINT=sdk-…) has no band, so it is asked.
+            interactive = platform == "claude-code" and not os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith("sdk")
+            out = capture.stop_decision(event, _cmd(), offer=interactive and os.environ.get("ATHOS_ASK") != "model")
             if out and platform == "claude-code":
                 # Claude Code labels a Stop block "Stop hook error"; the same request as context reads as feedback.
                 out = {"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": out["reason"]}}
@@ -291,6 +304,22 @@ def cmd_project(args) -> int:
     return 0
 
 
+def cmd_dismiss(args) -> int:
+    """[Didn't apply]: the piece loaded for the current task did not fit; its words won't load it again."""
+    state = session.load(_current_session(os.getcwd()).get("session_id") or "default")
+    shared = (state.get("task_why") or {}).get(args.id)
+    if shared is None:
+        print(f"{args.id} was not loaded for the last task here", file=sys.stderr)
+        return 1
+    load.dismiss(args.id, shared)
+    ev.append({"type": "misfire", "task_id": state.get("task_id"), "piece": args.id, "words": shared,
+               "at": ev._iso(ev.now())})
+    from athos import start
+    print(f"«{args.id}» no se cargará más por: {', '.join(shared)}" if start.lang() == "es" else
+          f"{args.id} won't load again on: {', '.join(shared)}")
+    return 0
+
+
 def cmd_revert(args) -> int:
     try:
         p = store.revert(args.id)
@@ -472,8 +501,14 @@ def status() -> dict:
             "bars": ev.bars(paths.project_of(os.getcwd())),
             "loading": control.describe(), "loaded": state.get("loaded", []),
             "last_saved": state.get("last_saved"),
+            "offer": state.get("offer") if (state.get("offer") or {}).get("task_id") == state.get("task_id") else None,
+            "save_prompt": capture.SAVE_PROMPT["es" if start.lang() == "es" else "en"],
+            "loads": [{"id": pid, "title": (store.get(pid).title if store.get(pid) else pid), "why": words,
+                       "record": ev.record(pid, tasks)}
+                      for pid, words in (state.get("task_why") or {}).items()],
             "following": following(state),
-            "to_mark": sum(1 for t in tasks if t["result"] == "unevaluated"),
+            # Only recent tasks wait for a mark: an old backlog reads as debt, not help.
+            "to_mark": sum(1 for t in tasks if t["result"] == "unevaluated" and ev.recent(t)),
             "last": {"task_id": last["task_id"], "result": last["result"], "pieces": last.get("pieces", []),
                      "saved": [x for x in saved if x not in improved], "improved": improved} if last else None}
 
@@ -547,6 +582,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--all", action="store_true", help="every piece, not only the ones this project used")
     s.add_argument("--commit", action="store_true", help="don't add .athos/ to .gitignore (share it with the team)")
     s.set_defaults(fn=cmd_project)
+    s = sub.add_parser("dismiss", help="the piece loaded for the last task didn't apply: don't load it on those words")
+    s.add_argument("id")
+    s.set_defaults(fn=cmd_dismiss)
     s = sub.add_parser("revert")
     s.add_argument("id")
     s.set_defaults(fn=cmd_revert)
