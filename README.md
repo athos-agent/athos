@@ -197,6 +197,25 @@ of the `athos` command (`command -v athos`, after `install.sh`):
 Restart Claude Desktop. The chat can then find the know-how for a request (`athos_find`, with the trajectory each piece
 starts), show and list pieces, and save what a conversation taught (`athos_save`), into the same `~/.athos`.
 
+### Inside a project, for any agent
+
+`athos project sync` writes this project's know-how into `.athos/`, as plain markdown any agent reads without Athos
+installed:
+
+```
+.athos/
+  wiki/      Index.md (where a task starts), the pages, METHOD.md (how the pages and their trajectories were made)
+  agents/    one subagent per trajectory, and AGENTS.md listing them
+  skills/    one skill per page, and SKILLS.md listing them
+  tools/     code the pages call when a step is a calculation, not a judgement
+```
+
+Each agent finds it where it already looks: `.claude/skills` and `CLAUDE.md` (Claude Code), `.agents/skills` and
+`AGENTS.md` (Codex, Muse Code, OpenCode), `.claude/agents` and `.opencode/agents` (subagents). By default it picks the
+pieces this project used or is tagged with (`--piece ID` or `--all` to choose), and adds itself to `.gitignore`: your
+know-how stays yours even in someone else's repository, unless you share it with `--commit`. `athos project remove`
+takes it all out again.
+
 ## Roadmap
 
 - **Athos Cloud**: sync between your devices, a visual map of your know-how, daily control over what is shared, and an

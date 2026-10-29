@@ -273,6 +273,24 @@ def cmd_opencode(args) -> int:
     return 0
 
 
+def cmd_project(args) -> int:
+    from athos import project
+    root = Path.cwd()
+    if args.action == "remove":
+        gone = project.remove(root)
+        print("removed " + ", ".join(gone) if gone else "no Athos know-how in this project")
+        return 0
+    try:
+        r = project.sync(root, ids=args.piece, everything=args.all, commit=args.commit)
+    except LookupError as e:
+        print(e, file=sys.stderr)
+        return 1
+    print(f"{len(r['pieces'])} page(s), {len(r['agents'])} subagent(s) and {len(r['skills'])} skill(s) in "
+          f"{r['root']}; Claude Code, Codex, Muse Code and OpenCode read them from this project"
+          + (" (kept out of git: --commit to share it)" if r["ignored"] else "") + ".")
+    return 0
+
+
 def cmd_revert(args) -> int:
     try:
         p = store.revert(args.id)
@@ -486,6 +504,12 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("opencode")
     s.add_argument("action", choices=["install", "uninstall"])
     s.set_defaults(fn=cmd_opencode)
+    s = sub.add_parser("project", help="this project's own copy of your know-how in .athos/, read by every agent")
+    s.add_argument("action", choices=["sync", "remove"])
+    s.add_argument("--piece", action="append", help="only this piece (repeatable)")
+    s.add_argument("--all", action="store_true", help="every piece, not only the ones this project used")
+    s.add_argument("--commit", action="store_true", help="don't add .athos/ to .gitignore (share it with the team)")
+    s.set_defaults(fn=cmd_project)
     s = sub.add_parser("revert")
     s.add_argument("id")
     s.set_defaults(fn=cmd_revert)
