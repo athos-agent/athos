@@ -132,7 +132,7 @@ times on each agent and model, with and without the know-how, and checks what ea
 the files) instead of taking the agent's word:
 
 ```
-athos bench --list                                         the cases: code, data, devices, a planning method, sports, law
+athos bench --list                                         the cases: code, data, devices, a planning method, sports, law, literature
 athos bench all --agents claude,meta,local --runs 5 --without --max-usd 5
 athos bench report                                         success, time, tokens and cost per agent; the cheapest that keeps up
 ```
@@ -145,6 +145,7 @@ checked on its own, and the rules they added while teaching, which exist nowhere
 
 ```
 athos bench transfer contract-transfer --agents claude,codex,muse,opencode --arms A,B,C --runs 3 --max-usd 10
+athos bench transfer chapter-transfer  --agents claude,codex,muse,opencode   an author's editing rules, the same way
 athos bench transfer-report contract-transfer             per agent and arm: points applied, taught rules, time, cost
 ```
 

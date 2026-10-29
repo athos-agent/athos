@@ -152,38 +152,69 @@ def run_codex(case, ws, home, with_piece, model=None):
             tokens["input"] += int(u.get("input_tokens") or 0)
             tokens["output"] += int(u.get("output_tokens") or 0)
     return {"tokens": tokens, "cost_usd": None, "model": model or "default",
-            "note": "" if r.returncode == 0 else r.stderr.strip()[-200:]}
+            "note": "" if r.returncode == 0 else r.stderr.strip()[-200:], "trace": r.stdout}
 
 
-def run_muse(case, ws, home, with_piece, model=None):
-    model = model or "muse-spark-1.3"
-    if with_piece:
-        d = ws / ".agents" / "skills" / f"bench-{case['dir'].name}"
-        d.mkdir(parents=True, exist_ok=True)
-        (d / "SKILL.md").write_text(_skill(case))
-    cmd = ["muse", "exec", "--json", "--model", model, "--trust-workspace", "--disable-approval",
-           "--no-foreign-personal-context", "--api-key-stdin", "--workspace", str(ws)]
-    if case.get("network"):
-        cmd += ["--sandbox-network", "enabled"]
-    cmd.append(case["request"])
-    r = subprocess.run(cmd, cwd=ws, env={**_env(home), **_isolated(home)}, capture_output=True, text=True,
-                       timeout=_timeout(case), input=_meta_key())
-    tokens, note = {"input": 0, "output": 0}, ""
-    for line in r.stdout.splitlines():
+def _snapshot(ws: Path) -> dict:
+    """The workspace's own files and when each changed (agents' private folders left out)."""
+    skip = {".git", ".muse", ".agents", ".claude", ".codex", ".opencode", ".athos"}
+    return {str(f.relative_to(ws)): f.stat().st_mtime_ns for f in ws.rglob("*")
+            if f.is_file() and not skip & set(f.relative_to(ws).parts)}
+
+
+def _muse_events(stdout: str, tokens: dict) -> tuple[str, str]:
+    """Adds a run's tokens; returns its last words and why it ended, when not completed."""
+    last, note = "", ""
+    for line in stdout.splitlines():
         try:
             d = json.loads(line)
         except ValueError:
             continue
         p = d.get("payload") or {}
-        if d.get("payload_type") == "run.usage":
+        kind = d.get("payload_type", "")
+        if kind == "run.usage":
             for m in p.get("models") or []:
                 tokens["input"] += int(m.get("input_tokens") or 0)
                 tokens["output"] += int(m.get("output_tokens") or 0) + int(m.get("reasoning_tokens") or 0)
-        elif d.get("payload_type", "").startswith("run.terminal.") and p.get("terminal") != "completed":
-            note = f"{p.get('terminal')}: {p.get('reason') or ''}"[:200]
+        elif kind.startswith("run.terminal."):
+            last = p.get("text") or last
+            if p.get("terminal") != "completed":
+                note = f"{p.get('terminal')}: {p.get('reason') or ''}"[:200]
+    return last, note
+
+
+def run_muse(case, ws, home, with_piece, model=None):
+    """Muse Code with its own config and session store. Without know-how, Muse Spark sometimes ends by asking how
+    the person works instead of doing the task; a person would say "go ahead", so a run that changed no file gets
+    that one nudge in the same session (`--session-id`), in every arm alike."""
+    model = model or "muse-spark-1.3"
+    if with_piece:
+        d = ws / ".agents" / "skills" / f"bench-{case['dir'].name}"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "SKILL.md").write_text(_skill(case))
+    session = str(uuid.uuid4())
+    base = ["muse", "exec", "--json", "--model", model, "--trust-workspace", "--disable-approval",
+            "--no-foreign-personal-context", "--api-key-stdin", "--session-id", session, "--workspace", str(ws)]
+    if case.get("network"):
+        base += ["--sandbox-network", "enabled"]
+    env = {**_env(home), **_isolated(home)}
+    tokens, before = {"input": 0, "output": 0}, _snapshot(ws)
+    r = subprocess.run(base + [case["request"]], cwd=ws, env=env, capture_output=True, text=True,
+                       timeout=_timeout(case), input=_meta_key())
+    trace = r.stdout
+    last, note = _muse_events(r.stdout, tokens)
+    nudged = False
+    if not note and r.returncode == 0 and _snapshot(ws) == before:
+        nudged = True
+        r = subprocess.run(base + ["Go ahead."], cwd=ws, env=env, capture_output=True, text=True,
+                           timeout=_timeout(case), input=_meta_key())
+        trace += r.stdout
+        last, note = _muse_events(r.stdout, tokens)
     if r.returncode and not note:
         note = r.stderr.strip()[-200:]
-    return {"tokens": tokens, "cost_usd": _spark_cost(model, tokens), "model": model, "note": note}
+    note = ("nudged once; " if nudged else "") + note
+    return {"tokens": tokens, "cost_usd": _spark_cost(model, tokens), "model": model, "note": note.strip("; "),
+            "last_text": last[-600:], "trace": trace}
 
 
 OPENCODE_CONFIG = {"$schema": "https://opencode.ai/config.json",
@@ -235,17 +266,19 @@ def run_opencode(case, ws, home, with_piece, model=None, pure=True):
     tokens, nudged = {"input": 0, "output": 0}, False
     r = subprocess.run(base + [case["request"]], cwd=ws, env=env, capture_output=True, text=True,
                        timeout=_timeout(case), stdin=subprocess.DEVNULL)
+    trace = r.stdout
     acted, last, note = _opencode_events(r.stdout, tokens)
     if not acted and r.returncode == 0:
         nudged = True
         r = subprocess.run(base + ["--continue", "Go ahead."], cwd=ws, env=env, capture_output=True, text=True,
                            timeout=_timeout(case), stdin=subprocess.DEVNULL)
+        trace += r.stdout
         acted, last, note = _opencode_events(r.stdout, tokens)
     if r.returncode and not note:
         note = r.stderr.strip()[-200:]
     note = ("nudged once; " if nudged else "") + note
     return {"tokens": tokens, "cost_usd": _spark_cost(model, tokens), "model": model, "note": note.strip("; "),
-            "last_text": last[-600:]}
+            "last_text": last[-600:], "trace": trace}
 
 
 def _run_delegate(case, ws, home, with_piece, model, platform):

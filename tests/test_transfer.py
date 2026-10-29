@@ -77,3 +77,37 @@ class Rescore(TempHome):
         self.assertEqual(transfer.rescore("contract-transfer", "contract-transfer-x"), 1)
         new = [json.loads(x) for x in bench.results_file().read_text().splitlines()][0]
         self.assertEqual((new["verdict"], new["score"]), ("g", 1.0))
+
+
+class MuseEvents(TempHome):
+    def test_last_words_tokens_and_a_failed_end(self):
+        talk = "\n".join(json.dumps(e) for e in [
+            {"payload_type": "run.usage", "payload": {"models": [{"input_tokens": 7, "output_tokens": 2,
+                                                                  "reasoning_tokens": 1}]}},
+            {"payload_type": "run.terminal.completed", "payload": {"terminal": "completed",
+                                                                   "text": "How do you edit your chapters?"}}])
+        tokens = {"input": 0, "output": 0}
+        self.assertEqual(bench._muse_events(talk, tokens), ("How do you edit your chapters?", ""))
+        self.assertEqual(tokens, {"input": 7, "output": 3})
+        failed = json.dumps({"payload_type": "run.terminal.failed", "payload": {"terminal": "failed",
+                                                                                "reason": "network"}})
+        self.assertEqual(bench._muse_events(failed, tokens)[1], "failed: network")
+
+    def test_the_snapshot_sees_a_written_file_but_not_an_agents_own_folder(self):
+        ws = Path(tempfile.mkdtemp())
+        (ws / "chapter-2.md").write_text("x")
+        before = bench._snapshot(ws)
+        (ws / ".muse").mkdir()
+        (ws / ".muse" / "state").write_text("y")
+        self.assertEqual(bench._snapshot(ws), before)
+        (ws / "edits.md").write_text("z")
+        self.assertNotEqual(bench._snapshot(ws), before)
+
+
+class Leaks(TempHome):
+    def test_a_run_that_read_outside_is_left_out_and_counted_apart(self):
+        rows = [row("codex", "A", []), {**row("codex", "A", KEYS), "looked_outside": True}]
+        rep = transfer.report("contract-transfer", rows=rows)
+        line = rep["lines"][0]
+        self.assertEqual((line["runs"], line["completeness"], line["looked_outside"]), (1, 0.0, 1))
+        self.assertIn("Left out of the table", transfer.render(rep))

@@ -35,6 +35,42 @@ ARM_NAMES = {"A": "no Athos", "B": ".athos/ folder only", "C": ".athos/ + plugin
 BIN = Path(__file__).resolve().parents[2] / "bin"
 
 
+KEPT = "<!-- athos-kept: {} -->"
+# What a replay must not read: a teaching run's folder or home. A run whose agent touched one is flagged, not scored
+# as transfer (agents' sandboxes can read the whole disk).
+OUTSIDE = ("athos-teach-", "bench/teach/", "/.athos/know-how")
+
+
+def outputs(case: dict) -> list[str]:
+    """The files a replay leaves for the check (case.json `outputs`, default review.md)."""
+    return case.get("outputs") or ["review.md"]
+
+
+def keep_text(case: dict, ws: Path, out: dict) -> str:
+    """What a run left, as one file to keep: the single output as it is, several under a marker line each; with
+    nothing written, the agent's last words."""
+    names = outputs(case)
+    found = {n: (ws / n).read_text() for n in names if (ws / n).is_file()}
+    if not found:
+        return f"(no {', '.join(names)})\n\n{out.get('note', '')}\n{out.get('last_text', '')}"
+    if len(names) == 1:
+        return found[names[0]]
+    return "\n".join(f"{KEPT.format(n)}\n{found[n]}" for n in names if n in found)
+
+
+def restore(case: dict, text: str, ws: Path) -> None:
+    """Put a kept run's files back into a workspace, to check them again."""
+    names = outputs(case)
+    if text.startswith("(no "):
+        return
+    if len(names) == 1 or "<!-- athos-kept: " not in text:
+        (ws / names[0]).write_text(text)
+        return
+    for part in text.split("<!-- athos-kept: ")[1:]:
+        name, _, body = part.partition(" -->\n")
+        (ws / name).write_text(body.rstrip("\n") + "\n")
+
+
 def teach_root() -> Path:
     return paths.home() / "bench" / "teach"
 
@@ -80,11 +116,16 @@ def teach(name: str, case: dict, out=print) -> dict:
             os.environ.pop("ATHOS_HOME", None)
         else:
             os.environ["ATHOS_HOME"] = old
+    # The teaching folder moves inside the teaching home: left in the temp dir, beside every replay folder, an agent
+    # asked to work "the way I do" found the edited first chapter there and copied its rules (Codex, 2026-10-29).
+    kept_ws = home / "workspace"
+    shutil.copytree(ws, kept_ws)
+    shutil.rmtree(ws.parent, ignore_errors=True)
     info = {"home": str(home), "pieces": pieces, "cost_usd": round(cost, 4),
-            "duration_s": round(time.monotonic() - t0, 1), "session": session, "workspace": str(ws)}
+            "duration_s": round(time.monotonic() - t0, 1), "session": session, "workspace": str(kept_ws)}
     (home / "teach.json").write_text(json.dumps(info, indent=1))
     if not pieces:
-        raise RuntimeError(f"the teaching run saved no know-how (see {ws}); nothing to transfer")
+        raise RuntimeError(f"the teaching run saved no know-how (see {kept_ws}); nothing to transfer")
     return info
 
 
@@ -178,18 +219,18 @@ def replay_once(name: str, case: dict, agent: str, arm: str, taught: Path, teach
         out = {"tokens": {}, "cost_usd": None, "model": model, "note": f"{type(e).__name__}: {e}"[:200]}
     duration = round(time.monotonic() - t0, 1)
     res = bench.check(case, ws)
-    review = ws / "review.md"
     kept = teach_root() / teach_id / "reviews"
     kept.mkdir(parents=True, exist_ok=True)
     rid = uuid.uuid4().hex[:12]
-    (kept / f"{agent}-{arm}-{rid}.md").write_text(review.read_text() if review.is_file() else
-                                                  f"(no review.md)\n\n{out.get('note', '')}\n{out.get('last_text', '')}")
+    left = keep_text(case, ws, out)
+    (kept / f"{agent}-{arm}-{rid}.md").write_text(left)
     row = {"id": rid, "at": time.strftime("%Y-%m-%dT%H:%M:%S"), "case": name, "agent": agent,
            "model": out.get("model"), "know_how": arm != "A", "arm": arm, "teach": teach_id,
            "verdict": res.get("verdict", "f"), "score": res.get("score"), "missed": res.get("missed", []),
            "items": res.get("items", {}), "sources": res.get("sources", {}), "duration_s": duration,
            "tokens": out.get("tokens") or {}, "cost_usd": out.get("cost_usd"), "note": out.get("note", ""),
-           "named_page": bool(review.is_file() and "athos" in review.read_text().lower())}
+           "named_page": "athos" in left.lower() and not left.startswith("(no "),
+           "looked_outside": any(m in (out.get("trace") or "") for m in OUTSIDE)}
     shutil.rmtree(tmp, ignore_errors=True)
     return row
 
@@ -235,8 +276,8 @@ def rescore(name: str, teach_id: str) -> int:
         f = kept / f"{row['agent']}-{row['arm']}-{row['id']}.md" if row and row.get("teach") == teach_id else None
         if f is not None and f.is_file():
             ws = Path(tempfile.mkdtemp(prefix="athos-rescore-"))
-            if not f.read_text().startswith("(no review.md)"):
-                (ws / "review.md").write_text(f.read_text())
+            bench.setup(case, ws)                  # the originals a check may compare against
+            restore(case, f.read_text(), ws)
             res = bench.check(case, ws)
             shutil.rmtree(ws, ignore_errors=True)
             new = {**row, "verdict": res.get("verdict", "f"), "score": res.get("score"),
@@ -256,8 +297,14 @@ def report(name: str, teach_id: str | None = None, rows: list[dict] | None = Non
     elif rows:
         teach_id = rows[-1].get("teach")
         rows = [r for r in rows if r.get("teach") == teach_id]
+    # A run whose agent read a teaching folder or a know-how store outside its workspace measured a leak, not a
+    # transfer: it is counted apart and left out of every rate.
+    leaked: dict[tuple, int] = {}
     groups: dict[tuple, list] = {}
     for r in rows:
+        if r.get("looked_outside"):
+            leaked[(r["agent"], r["arm"])] = leaked.get((r["agent"], r["arm"]), 0) + 1
+            continue
         groups.setdefault((r["agent"], r["arm"]), []).append(r)
     lines = []
     for (agent, arm), rs in sorted(groups.items(), key=lambda kv: (bench.AGENTS.index(kv[0][0]), kv[0][1])):
@@ -272,11 +319,13 @@ def report(name: str, teach_id: str | None = None, rows: list[dict] | None = Non
                       "median_s": bench._median([r["duration_s"] for r in rs]),
                       "median_tokens": bench._median([sum((r.get("tokens") or {}).values()) or None for r in rs]),
                       "median_cost_usd": bench._median([r.get("cost_usd") for r in rs]),
-                      "named_page": sum(r.get("named_page", False) for r in rs)})
+                      "named_page": sum(r.get("named_page", False) for r in rs),
+                      "looked_outside": leaked.get((agent, arm), 0)})
     teach_info = {}
     for d in teach_root().glob(f"{teach_id}/teach.json") if teach_id else []:
         teach_info = json.loads(d.read_text())
-    return {"case": name, "teach": teach_id, "teach_info": teach_info, "lines": lines}
+    taught = sorted({k for r in rows for k, s in (r.get("sources") or {}).items() if s == "taught"})
+    return {"case": name, "teach": teach_id, "teach_info": teach_info, "lines": lines, "taught": taught}
 
 
 def render(rep: dict) -> str:
@@ -288,7 +337,7 @@ def render(rep: dict) -> str:
            f"Taught once in Claude Code ({rep['teach']}"
            + (f", US${t['cost_usd']:.2f}, {t['duration_s']:.0f} s" if t.get("cost_usd") is not None else "")
            + (f"; saved {', '.join('`' + p + '`' for p in t.get('pieces', []))}" if t.get("pieces") else "") + ").",
-           "Replayed in a fresh folder with another contract and no checklist, from a one-line request.", "",
+           "Replayed in a fresh folder with another document and no checklist or guide, from a one-line request.", "",
            "| Agent | Model | Arm | Runs | Points applied | Taught rules applied | All points | Time | Tokens | Cost |",
            "|---|---|---|---|---|---|---|---|---|---|"]
     for x in rep["lines"]:
@@ -303,6 +352,13 @@ def render(rep: dict) -> str:
     for x in rep["lines"]:
         out.append(f"| {label.get(x['agent'], x['agent'])} | {x['arm']} | "
                    + " | ".join(f"{x['items'].get(k, 0) * 100:.0f}%" for k in keys) + " |")
-    out += ["", "Points come from the person's checklist file, except `governing_law_row` and `push_first_line`, the",
-            "two rules they added while teaching: those exist nowhere but in their know-how.", ""]
+    leaks = [x for x in rep["lines"] if x.get("looked_outside")]
+    if leaks:
+        out += ["", "Left out of the table: runs whose agent read a teaching folder or a know-how store outside its "
+                "workspace (a leak, not a transfer): "
+                + ", ".join(f"{label.get(x['agent'], x['agent'])} {x['arm']} {x['looked_outside']}" for x in leaks) + "."]
+    taught = rep.get("taught") or []
+    if taught:
+        out += ["", "Points come from the person's own checklist or guide, except " + " and ".join(f"`{k}`" for k in taught)
+                + ", which they added while teaching: those exist nowhere but in their know-how.", ""]
     return "\n".join(out)
