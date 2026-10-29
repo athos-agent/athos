@@ -58,10 +58,9 @@ smaller models became good enough for tasks you have already mastered, if they g
 
 ## What isn't solved
 
-- **Capture is only in Claude Code.** Codex and Muse Code read the know-how and their tasks are recorded, but new
-  pieces are written from Claude Code sessions.
-- **Loading is too eager.** The matching that decides which pieces load with a request sometimes brings one that
-  doesn't belong.
+- **Loading is word matching.** A piece loads when the request uses the same words as its title and "when" (not just
+  words that start alike), so it rarely brings one that doesn't belong, but it can miss a piece the request describes
+  in other words.
 - **The numbers are early.** One task, a handful of runs. I'd rather show that than round it up.
 - **Marks are yours to give.** Nothing invents a verdict: a task you don't mark stays unevaluated.
 

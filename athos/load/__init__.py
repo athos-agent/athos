@@ -17,6 +17,7 @@ TOP_K = 2
 RUNNER_UP = 0.5      # a second piece loads only with at least half the best piece's score (one shared word is noise)
 MIN_SCORE = 1.2
 STEM = 5               # words match on their first letters, so "release" finds "releasing" and "releases"
+ONE_WORD_DF = 1        # one shared word is enough only if no other piece's title has it
 
 STOP = set("""a an the and or but if then else for to of in on at by with from into over this that these those it its
 is are was were be been being do does did done have has had can could should would will shall may might must not no
@@ -27,8 +28,20 @@ eso es son fue ser hay que qué cual cuál cuando cuándo donde dónde como cóm
 sus mi mis tu tus al me te nos""".split())
 
 
+def words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-záéíóúñü0-9_.-]{3,}", text.lower()) if w not in STOP}
+
+
 def tokens(text: str) -> list[str]:
     return [w[:STEM] for w in re.findall(r"[a-záéíóúñü0-9_.-]{3,}", text.lower()) if w not in STOP]
+
+
+def _plain(w: str) -> str:
+    return w[:-1] if len(w) > 4 and w.endswith("s") else w
+
+
+# Messages the agent itself receives (a background task finishing), not requests the person typed.
+NOT_A_REQUEST = re.compile(r"^\s*<(task-notification|system-reminder)>")
 
 
 def enabled(cwd: str | None = None) -> list[store.Piece]:
@@ -56,19 +69,30 @@ def rank(prompt: str, pieces: list[store.Piece]) -> list[tuple[float, store.Piec
     """Score each piece by the request's words found in its title and "when" (weighted by how rare the word is
     among the pieces), plus a little for words found in its body."""
     q = set(tokens(prompt))
-    if not q or not pieces:
+    if not q or not pieces or NOT_A_REQUEST.match(prompt):
         return []
+    qwords = {_plain(w) for w in words(prompt)}
     heads = [set(tokens(p.title + " " + p.when)) for p in pieces]
+    head_words = [{_plain(w) for w in words(p.title + " " + p.when)} for p in pieces]
+    title_words = [{_plain(w) for w in words(p.title)} for p in pieces]
     bodies = [set(tokens(p.body)) for p in pieces]
     n = len(pieces)
 
     def idf(w):
         df = sum(1 for h, b in zip(heads, bodies) if w in h or w in b)
         return math.log(1 + n / (1 + df)) + 1
+
+    def enough(hw, tw):
+        # Shared prefixes only add to the score ("checklist" starts like "check", "contrato" like "controls"): a
+        # piece needs the very same words: two of them, or one of five letters or more that only its title has.
+        same = qwords & hw
+        return len(same) >= 2 or any(len(w) >= 5 and sum(1 for o in title_words if w in o) <= ONE_WORD_DF
+                                     for w in same & tw)
     scored = []
-    for p, h, b in zip(pieces, heads, bodies):
-        s = sum(idf(w) for w in q & h) + 0.25 * sum(idf(w) for w in (q & b) - h)
-        if len(q & h) >= 1 and s >= MIN_SCORE:
+    for p, h, hw, tw, b in zip(pieces, heads, head_words, title_words, bodies):
+        shared = q & h
+        s = sum(idf(w) for w in shared) + 0.25 * sum(idf(w) for w in (q & b) - h)
+        if shared and s >= MIN_SCORE and enough(hw, tw):
             scored.append((s, p))
     return sorted(scored, key=lambda t: (-t[0], t[1].id))
 
@@ -80,7 +104,7 @@ def relevant(prompt: str, pieces: list[store.Piece]) -> list[store.Piece]:
         if out and score < RUNNER_UP * ranked[0][0]:  # a second piece only when it matches nearly as well
             break
         text = store.render(p)
-        if size + len(text) > INJECT_CAP:
+        if out and size + len(text) > INJECT_CAP:  # the best piece always loads whole; the cap limits a second one
             break
         out.append(p)
         size += len(text)
