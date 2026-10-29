@@ -193,8 +193,11 @@ def mentions_checklist(text: str) -> bool:
 
 def note_request(event: dict) -> None:
     """UserPromptSubmit, after the task has started: remember whether this request works from a checklist."""
-    if mentions_checklist(event.get("prompt", "")):
-        session.update(event.get("session_id", "default"), checklist=True)
+    prompt = event.get("prompt", "")
+    # Per request, like the rest of capture. A list the person typed is new know-how even when a piece was loaded:
+    # their own checklist on top of a generic one is exactly what the piece should learn.
+    session.update(event.get("session_id", "default"), checklist=mentions_checklist(prompt),
+                   checklist_typed=len(LIST_ITEM.findall(prompt)) >= 3)
 
 
 def count_tool(event: dict) -> None:
@@ -225,12 +228,13 @@ def stop_decision(event: dict, cmd: str = "athos") -> dict | None:
     state = session.load(sid)
     # Ask only after real work: enough tool calls, and at least one that changed something. A turn of reads and
     # checks (answering a question, looking at a PR) ends quietly.
-    # A checklist the task followed is worth asking about even without file changes, unless a piece already led it.
-    checklist = bool(state.get("checklist")) and not state.get("task_loaded")
+    # A checklist the task followed is worth asking about even without file changes, unless a piece already led it
+    # and the person added nothing to it.
+    checklist = bool(state.get("checklist")) and (not state.get("task_loaded") or bool(state.get("checklist_typed")))
     if not checklist and (state.get("tools_since_capture", 0) < THRESHOLD or not state.get("work_since_capture", 0)):
         return None
     state["tools_since_capture"] = state["work_since_capture"] = 0
-    state["checklist"] = False
+    state["checklist"] = state["checklist_typed"] = False
     state["asked"] = state.get("asked", 0) + 1
     session.save(sid, state)
     if state.get("guide"):

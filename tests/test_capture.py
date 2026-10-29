@@ -186,3 +186,10 @@ class ChecklistTest(TempHome):
         capture.note_request({"session_id": "s3", "prompt": "review the lease against my checklist"})
         session.update("s3", task_loaded=["review-a-contract"])
         self.assertIsNone(capture.stop_decision({"session_id": "s3"}))
+
+    def test_the_persons_own_list_on_top_of_a_loaded_piece_asks(self):
+        # A lawyer's first review: the generic starter loads, and they paste their own checklist.
+        capture.note_request({"session_id": "s4", "prompt": "Revisá el contrato con mi checklist:\n- depósito\n"
+                                                                "- preaviso\n- reparaciones"})
+        session.update("s4", task_loaded=["revisar-un-contrato-con-tu-checklist"])
+        self.assertIsNotNone(capture.stop_decision({"session_id": "s4"}))
