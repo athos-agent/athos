@@ -135,6 +135,13 @@ export const register: Register = on => {
     return done
   }).catch(($, e, next) => next(e))
 
+  // After each answer: the task ended and may have saved a piece, which the band above the prompt announces.
+  on('turn.complete', async ($, e, next) => {
+    const done = await next(e)
+    await refresh($)
+    return done
+  }).catch(($, e, next) => next(e))
+
   // Under the prompt: the engine's own line, then one bar per agent for the piece this project used last.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const s = await read($, snap)

@@ -62,6 +62,7 @@ from what was built during the event.
 - [#45](https://github.com/athos-agent/athos/pull/45) A checklist file named in the request counts as the person's own checklist (0.1.36)
 - [#46](https://github.com/athos-agent/athos/pull/46) The lawyer demo GIF in the README: Claude Code keeps a checklist, OpenCode on Muse Spark applies it (`demo/lawyer.tape`, `demo/lawyer-setup.sh`)
 - [#47](https://github.com/athos-agent/athos/pull/47) In Claude Code, the request to keep know-how reads as feedback, not as a "Stop hook error"; the save is announced above the prompt; no doubled "athos" in the status line; an English lawyer take (`sh demo/lawyer-setup.sh en && vhs demo/lawyer-en.tape`) (0.1.37)
+- [#48](https://github.com/athos-agent/athos/pull/48) The band above the prompt refreshes after each answer again, so it announces a save and asks for the mark (0.1.38)
 
 ## Meta models used
 
