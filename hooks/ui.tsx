@@ -51,6 +51,14 @@ export function followingText(s: Status | null): string | undefined {
   return `athos · ${w.following} «${f.title}» v${f.version} · ${size}${more} · ${w.ready} ${f.platforms.join(' · ')}`
 }
 
+/** The steps of the piece being followed, in order: what the person taught, as a reminder while the task runs. */
+export function stepsText(s: Status | null): string | undefined {
+  const names = s?.following?.[0]?.step_names
+  if (!names?.length) return undefined
+  const more = (s!.following[0].steps ?? names.length) > names.length ? ' → …' : ''
+  return names.map(n => `#${n}`).join(' → ') + more
+}
+
 /** The one line shown under the answer after a save: what, which version, and where it is ready. */
 export function announceText(s: Status | null): string | undefined {
   const l = s?.last_saved
@@ -145,6 +153,7 @@ export const register: Register = on => {
     const s = await read($, snap)
     const bars = s?.bars
     const card = e.props.isWorking ? followingText(s) : undefined
+    const steps = e.props.isWorking ? stepsText(s) : undefined
     if (e.surface !== 'terminal' && e.surface !== 'desktop') return next(e)
     if (!card && !bars?.agents.length) return next(e)
     const { Box, Text } = $.ui.resolve(e)
@@ -154,6 +163,7 @@ export const register: Register = on => {
         <Box flexDirection="column">
           <Text dimColor>{e.props.hint}</Text>
           <Text color="cyan">{`  ${card}`}</Text>
+          {steps ? <Text dimColor>{`    ${steps}`}</Text> : null}
         </Box>
       )
     }

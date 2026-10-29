@@ -56,6 +56,7 @@ from what was built during the event.
 - [#39](https://github.com/athos-agent/athos/pull/39) Muse Code runs the Athos plugin (`muse plugins install athos@athos`): hooks recorded as `muse-code`, tokens from Muse's session log, Muse's read-only tools known, no double import; tested end to end with Muse Spark through Meta Model API (0.1.30)
 - [#40](https://github.com/athos-agent/athos/pull/40) Loading needs the same words, not words that only start alike ("checklist" loaded a CI-checks piece); the best piece loads even when it is long; background-task notices load nothing (0.1.31)
 - [#41](https://github.com/athos-agent/athos/pull/41) The installer's next steps name the OpenCode and Muse Code plugins instead of `athos export --muse`, which would duplicate pieces next to the Muse plugin (0.1.32)
+- [#42](https://github.com/athos-agent/athos/pull/42) A task that follows a checklist asks to be saved even when it changes no file; the agent says which of your ways of working it follows and how it applies; the steps show under the prompt; the bars include OpenCode and Muse Code once installed (0.1.33)
 
 ## Meta models used
 

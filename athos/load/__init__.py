@@ -115,7 +115,10 @@ def inject_text(pieces: list[store.Piece]) -> str:
     if not pieces:
         return ""
     parts = ["# Athos — know-how that matches this request\n\nThe user's own know-how for this kind of task. "
-             "Follow it unless the request says otherwise.\n"]
+             "Follow it unless the request says otherwise. Before you start, tell the person in one short line, in "
+             "their language, which of their ways of working you are following and how it applies to this request "
+             "(e.g. «Following your “Review a contract against your checklist”: client data first, then the summary "
+             "and the clause table.»); if it does not fit, say so and don't follow it.\n"]
     for p in pieces:
         parts.append(f"## {p.title} (`{p.id}`, v{p.version})\nWhen: {p.when}\n\n{p.body}\n")
     return "\n".join(parts)

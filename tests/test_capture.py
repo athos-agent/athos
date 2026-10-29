@@ -162,3 +162,27 @@ class SpanishTest(TempHome):
         reason = capture.stop_decision({"session_id": "s5"})["reason"]
         self.assertIn("¿algo de esta tarea vale la pena guardar?", reason)
         self.assertIn("athos save", reason)
+
+
+class ChecklistTest(TempHome):
+    """A task that follows a checklist is worth keeping even when it only reads and answers (a lawyer's review)."""
+
+    def test_a_checklist_in_the_request_asks_without_file_changes(self):
+        capture.note_request({"session_id": "s1", "prompt": "Revisá este contrato con mi checklist"})
+        capture.count_tool({"session_id": "s1", "tool_name": "Read", "tool_input": {"file_path": "/c.md"}})
+        out = capture.stop_decision({"session_id": "s1"})
+        self.assertIn("checklist", out["reason"])
+        self.assertIsNone(capture.stop_decision({"session_id": "s1"}))           # once
+
+    def test_a_pasted_list_or_an_opened_checklist_file_counts(self):
+        self.assertTrue(capture.mentions_checklist("Check:\n- deposit\n- notice period\n- jurisdiction"))
+        self.assertTrue(capture.mentions_checklist("seguí el protocolo de la clínica"))
+        self.assertFalse(capture.mentions_checklist("check the CI of #951"))
+        capture.count_tool({"session_id": "s2", "tool_name": "Read",
+                            "tool_input": {"file_path": "/x/checklist-lease.md"}})
+        self.assertIsNotNone(capture.stop_decision({"session_id": "s2"}))
+
+    def test_a_checklist_a_loaded_piece_already_led_does_not_ask(self):
+        capture.note_request({"session_id": "s3", "prompt": "review the lease against my checklist"})
+        session.update("s3", task_loaded=["review-a-contract"])
+        self.assertIsNone(capture.stop_decision({"session_id": "s3"}))

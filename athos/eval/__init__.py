@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import os
 import uuid
+from pathlib import Path
 
 from athos import paths, session, store
 
@@ -313,7 +315,18 @@ def report(today: _dt.date | None = None) -> dict:
 # ------------------------------------------------------------------------------------------------ bars
 AGENTS = (("claude-code", "Claude Code"), ("codex", "Codex"), ("muse-code", "Muse Code"),
           ("opencode", "OpenCode"))
-OPTIONAL_AGENTS = {"muse-code", "opencode"}           # shown only once it has used the piece
+OPTIONAL_AGENTS = {"muse-code", "opencode"}           # shown once Athos is installed in it, or it has run a task
+
+
+def installed(platform: str) -> bool:
+    """Whether Athos's plugin is installed in an optional agent on this machine."""
+    data = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    if platform == "muse-code":
+        return any((data / "muse" / "plugins" / "cache").glob("*/athos"))
+    if platform == "opencode":
+        from athos.adapters import opencode
+        return (opencode.plugins_dir() / "athos.js").exists()
+    return True
 
 
 def bars(project: str | None = None) -> dict | None:
@@ -336,7 +349,8 @@ def bars(project: str | None = None) -> dict | None:
         # whose Codex log survived, say) is not a use of this piece.
         uses = [t for t in here if pid in t["pieces"] and t.get("platform") == platform
                 and (base is None or (t.get("started") or "") >= (base.get("started") or ""))]
-        if platform in OPTIONAL_AGENTS and not uses:
+        if platform in OPTIONAL_AGENTS and not uses and not installed(platform) and \
+                not any(t.get("platform") == platform for t in ts):
             continue
         rate, n_ev = _rate(uses)
         mean_chars = _mean([t.get("request_chars") for t in uses])

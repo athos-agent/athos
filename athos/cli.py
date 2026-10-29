@@ -83,6 +83,7 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}))
         elif event_name == "prompt":
             ev.task_start(event, platform)
+            capture.note_request(event)
             text = load.on_prompt(event)
             if text:
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
@@ -386,10 +387,13 @@ def following(state: dict) -> list[dict]:
         p = store.get(pid)
         if p is None:
             continue
-        ready = ["Claude Code"] + (["Codex", "Muse Code"]
-                                   if (codex.skills_dir() / f"{codex.SKILL_PREFIX}{pid}").is_dir() else [])
-        out.append({"id": pid, "title": p.title, "version": p.version, "steps": len(wiki.statements(p)),
-                    "wiki": wiki.is_wiki(p), "platforms": ready})
+        exported = (codex.skills_dir() / f"{codex.SKILL_PREFIX}{pid}").is_dir()
+        ready = ["Claude Code"] + (["Codex"] if exported or codex.installed() else []) + \
+            [label for plat, label in ev.AGENTS if plat in ev.OPTIONAL_AGENTS and (ev.installed(plat) or
+                                                                                 (exported and plat == "muse-code"))]
+        st = wiki.statements(p)
+        out.append({"id": pid, "title": p.title, "version": p.version, "steps": len(st), "wiki": wiki.is_wiki(p),
+                    "step_names": [s.id for s in st][:6] if wiki.is_wiki(p) else [], "platforms": ready})
     return out
 
 
