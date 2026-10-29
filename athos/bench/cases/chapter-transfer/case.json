@@ -1,0 +1,14 @@
+{
+  "title": "Edit a chapter the way the author edits",
+  "domain": "literature",
+  "when": "editing a chapter of the author's novel before it goes to their reader: tense, dialogue, numbers, names, spelling, and a list of changes",
+  "request": "Edit chapter-2.md the way I edit my chapters. Write it to chapter-2-edited.md and list the changes in edits.md.",
+  "outputs": ["chapter-2-edited.md", "edits.md"],
+  "timeout_s": 600,
+  "max_usd_per_run": 2,
+  "teach": [
+    "Edit chapter-1.md with my style guide (style-guide.md). Write the edited chapter to chapter-1-edited.md and list every change with its reason in edits.md.",
+    "Two rules I always apply, every chapter: (1) the sea is always 'the water' in my books, never 'the sea' or 'the ocean'; (2) British spelling throughout (colour, grey, harbour). Update chapter-1-edited.md and edits.md.",
+    "Good. Save how I edit my chapters as one way of working with `athos save` (my style guide and these two rules), so next time I only name the chapter."
+  ]
+}
