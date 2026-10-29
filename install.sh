@@ -50,9 +50,12 @@ case ":$PATH:" in
 esac
 cat << EOF
 
-Next:
-  athos export --muse        your know-how as skills Muse Code and Codex read (~/.agents/skills)
+Next, in the agents you use:
+  athos start                pick your language and profession, with example ways of working
+  athos opencode install     the plugin in OpenCode (restart it)
   athos codex install        Athos's hooks in Codex (or: codex plugin marketplace add athos-agent/athos)
+  Muse Code:                 muse plugins marketplace add athos https://github.com/athos-agent/athos
+                             muse plugins install athos@athos && muse plugins approve athos
+  Claude Code:               /plugin install athos --marketplace athos-agent/athos
   athos watch                one bar per agent for this project's know-how
-In Claude Code, install the plugin instead: /plugin install athos --marketplace athos-agent/athos
 EOF
