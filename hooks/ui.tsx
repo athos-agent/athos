@@ -224,7 +224,8 @@ export const register: Register = on => {
     const later = () => update($, offered, () => last.task_id)
     const keep = async () => {
       await update($, offered, () => last.task_id)
-      await $.prompt.submit({ text: s!.save_prompt || 'Athos · save: keep what this task taught with `athos save`.' })
+      // As the person's own words: one short line in the transcript, no "a plugin sent a message" frame.
+      await $.prompt.submit({ text: s!.save_prompt || 'Athos · save: keep this task as a way of working', asUser: true })
     }
     const notIt = async () => {
       await update($, misfired, () => `${last.task_id}:${why!.id}`)

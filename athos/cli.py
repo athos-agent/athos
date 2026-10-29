@@ -90,6 +90,8 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
                 # and nothing loads; the offer is spent.
                 if event.get("session_id"):
                     session.update(event["session_id"], offer=None)
+                print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                                         "additionalContext": capture.SAVE_CONTEXT.format(cmd=_cmd())}}))
                 return 0
             from athos import start
             start.note_language(event.get("prompt", ""))
