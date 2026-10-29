@@ -143,12 +143,16 @@ def task_end(event: dict) -> dict | None:
     ended = now()
     started = _parse(state.get("task_started", "")) or ended
     if not state.get("model") or state.get("model") == "unknown":
-        state["model"] = session.model_from_transcript(event.get("transcript_path"))
+        given = event.get("model")
+        state["model"] = given if isinstance(given, str) and given else \
+            session.model_from_transcript(event.get("transcript_path"))
         session.save(sid, state)
     rec = {"type": "task_end", "task_id": tid, "session_id": sid, "at": _iso(ended),
            "duration_s": round((ended - started).total_seconds(), 1),
-           "tokens": _tokens(state.get("platform", "claude-code"), event.get("transcript_path"),
-                             state.get("task_started", ""), _iso(ended)),
+           # A platform that counts its own tokens (OpenCode) sends them; the others are read from the transcript.
+           "tokens": event["tokens"] if isinstance(event.get("tokens"), dict) else
+           _tokens(state.get("platform", "claude-code"), event.get("transcript_path"),
+                   state.get("task_started", ""), _iso(ended)),
            "model": state.get("model", "unknown"),
            "pieces": state.get("task_loaded", []), "saved": state.get("task_saved", [])}
     append(rec)
@@ -304,8 +308,9 @@ def report(today: _dt.date | None = None) -> dict:
 
 
 # ------------------------------------------------------------------------------------------------ bars
-AGENTS = (("claude-code", "Claude Code"), ("codex", "Codex"), ("muse-code", "Muse Code"))
-OPTIONAL_AGENTS = {"muse-code"}                       # shown only once it has used the piece
+AGENTS = (("claude-code", "Claude Code"), ("codex", "Codex"), ("muse-code", "Muse Code"),
+          ("opencode", "OpenCode"))
+OPTIONAL_AGENTS = {"muse-code", "opencode"}           # shown only once it has used the piece
 
 
 def bars(project: str | None = None) -> dict | None:
