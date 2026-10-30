@@ -35,6 +35,35 @@ export const AthosPlugin = async ({ directory, client }) => {
   }
   const context = (out) => out?.hookSpecificOutput?.additionalContext || ""
 
+  // The trail in OpenCode's own screen: a toast each time the task moves to another step of the person's know-how
+  // (the full panel is `athos watch --web` beside it). Silent where there is no TUI (`opencode run`).
+  let lastStep = ""
+  function status() {
+    try {
+      return JSON.parse(execFileSync(ATHOS, ["status", "--json"],
+        { cwd: directory, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15000 }).trim().split("\n").pop())
+    } catch {
+      return null
+    }
+  }
+  async function toastStep() {
+    const st = status()
+    const p = st?.trail?.pieces?.[0]
+    if (!p) return
+    const es = st.lang === "es"
+    const i = p.steps.findIndex((x) => x.state === "now")
+    const done = p.steps.filter((x) => x.state === "done").length
+    const message = i >= 0
+      ? (es ? `Athos · Paso ${i + 1} de ${p.steps.length}: ` : `Athos · Step ${i + 1} of ${p.steps.length}: `) + p.steps[i].label
+      : done === p.steps.length ? (es ? `Athos · Apliqué los ${done} pasos de «${p.title}»` : `Athos · All ${done} steps of «${p.title}» done`)
+      : ""
+    if (!message || message === lastStep) return
+    lastStep = message
+    try {
+      await client.tui.showToast({ body: { message, variant: "info" } })
+    } catch {}
+  }
+
   return {
     "chat.message": async (input, output) => {
       const s = state(input.sessionID)
@@ -64,6 +93,7 @@ export const AthosPlugin = async ({ directory, client }) => {
     "tool.execute.after": async (input) => {
       hook("tool", { session_id: input.sessionID, cwd: directory,
         tool_name: TOOLS[input.tool] || input.tool, tool_input: input.args || {} })
+      if (/\bstep\b/.test(String(input.args?.command || ""))) await toastStep()
     },
 
     event: async ({ event }) => {
@@ -79,6 +109,7 @@ export const AthosPlugin = async ({ directory, client }) => {
       if (event.type !== "session.idle") return
       const id = event.properties?.sessionID
       if (id && sessions.has(id)) await stop(id, true)
+      await toastStep()
     },
 
     // `opencode run` closes right after the session goes idle: record what is still open, without asking.
