@@ -175,3 +175,33 @@ Each agent finds it where it already looks: `.claude/skills` and `CLAUDE.md` (Cl
 pieces this project used or is tagged with (`--piece ID` or `--all` to choose), and adds itself to `.gitignore`: your
 know-how stays yours even in someone else's repository, unless you share it with `--commit`. `athos project remove`
 takes it all out again.
+
+### Guilds: one way of working for the team
+
+When several people in a firm or a team improve their own copy of the same piece ("Review a lease"), Athos can merge
+the best of each into one team version. Each colleague exports theirs:
+
+```
+athos export --guild <folder> --as Ana [--piece review-a-lease]
+```
+
+This writes each piece file and a `<id>.stats.json` beside it: per statement, how many of that person's tasks walked
+it (the steps the agent reported) and how those tasks were marked (ok, corrected, failed). Only counts: no request, no
+client, nothing about the work itself. Then, with their folders (or files) on your machine:
+
+```
+athos merge review-a-lease ./team                 a dry run: what it would keep, take from whom, drop, and why
+athos merge review-a-lease ./team --apply         save it as a new version of your piece (the old one stays in history)
+athos merge review-a-lease ana/lease-review.md --as-id lease-review     their copy has another id
+athos merge review-a-lease ./team --model qwen3.5:9b                    let a local model merge differing texts
+```
+
+Statements are lined up by id, or by a **When** for the same moment when the ids differ (your id is kept, so links
+still resolve). A statement only one copy has is kept if its tasks went well or nobody marked them, and dropped (and
+listed) when most of its marked tasks were corrected or failed. Where the copies say different things, the text with
+the best record wins; nobody's marks at all keeps yours. With `--model` (Ollama on this machine) or `--backend meta`
+(sends those statements to Meta Model API), a model merges the differing texts into one, keeping your conventions, and
+any answer that is not one clean statement falls back to the best record. The dry run writes the proposal to
+`~/.athos/guild/<id>.merged.md` (`--out` to choose); `--apply` saves it with a history note naming the sources, and
+`athos revert <id>` undoes it. In Claude Desktop's chat the same merge is the `athos_merge` tool ("merge my lease
+review with Ana's version in this folder"): it proposes first and applies only when asked.

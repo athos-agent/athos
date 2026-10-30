@@ -20,6 +20,8 @@
     athos mcp                          your know-how as an MCP server (stdio), for Claude Desktop's chat
     athos wiki [--json]                rebuild Index.md and check the links between pieces (pages of a wiki)
     athos export --dataset FILE        your statements and marked tasks as JSON lines (evals, training data)
+    athos export --guild <folder> [--as NAME] [--piece ID]   pieces + per-statement counts, for colleagues to merge
+    athos merge <id> <file-or-folder>... [--apply] [--backend ollama|meta --model M]   one team version of a piece
     athos wiki agents [--install]      the trajectory subagents (a walk across pages); --install puts them in
                                        ~/.claude/agents and keeps them in step with every save
     athos bench <case|all> --agents claude,meta [--runs 5] [--without] [--max-usd 5]   the same task on each agent,
@@ -282,6 +284,17 @@ def cmd_load(args) -> int:
 
 
 def cmd_export(args) -> int:
+    if args.guild:
+        from athos import guild
+        dest = Path(args.guild).expanduser()
+        try:
+            ids = guild.export(dest, args.piece, args.owner)
+        except LookupError as e:
+            print(e, file=sys.stderr)
+            return 1
+        print(f"{len(ids)} piece(s) with their stats to {dest}, for your colleagues' `athos merge`. The stats are "
+              "counts only (how many of your tasks walked each step, and how you marked them): no request, no client.")
+        return 0
     if args.dataset:
         from athos import wiki
         rows = wiki.dataset()
@@ -304,6 +317,44 @@ def cmd_export(args) -> int:
         return 1
     n = store.export(Path(args.dir).expanduser())
     print(f"exported {n} piece(s) to {Path(args.dir).expanduser()}")
+    return 0
+
+
+def cmd_merge(args) -> int:
+    from athos import guild
+    import urllib.error
+    chat_fn, model = None, None
+    if args.model or args.backend:                # a model only when asked for; meta sends the texts to Meta Model API
+        from athos import delegate
+        if args.backend == "meta":
+            from athos.adapters import meta
+            chat_fn, model = meta.chat, args.model or meta.DEFAULT_MODEL
+        else:
+            chat_fn, model = delegate.chat, args.model or delegate.DEFAULT_MODEL
+    try:
+        variants = guild.find_variants(args.sources, args.as_id or args.id)
+        if not variants:
+            print(f"no {args.as_id or args.id}.md in {', '.join(args.sources)} (a colleague's copy with another id: "
+                  "--as-id <their id>)", file=sys.stderr)
+            return 1
+        r = guild.merge(args.id, variants, model=model, chat_fn=chat_fn)
+    except (LookupError, FileNotFoundError, PermissionError) as e:
+        print(e, file=sys.stderr)
+        return 1
+    except urllib.error.URLError as e:
+        print(f"cannot reach the model ({getattr(e, 'reason', e)}); without --model the merge needs none.",
+              file=sys.stderr)
+        return 1
+    print(guild.summary(r))
+    if not r["changed"]:
+        return 0
+    if args.apply:
+        piece, _ = guild.apply(r)
+        print(f"\nsaved as {piece.id} v{piece.version}; v{r['version']} stays in its history (`athos revert "
+              f"{piece.id}` puts it back).")
+    else:
+        dest = guild.write_proposal(r, Path(args.out).expanduser() if args.out else None)
+        print(f"\nproposal in {dest} (nothing changed yet). Apply it with the same command and --apply.")
     return 0
 
 
@@ -679,7 +730,22 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--muse", action="store_true", help="the same skills for Muse Code, which reads ~/.agents/skills too")
     s.add_argument("--dataset", metavar="FILE", help="your statements and marked tasks as JSON lines, to evaluate or "
                    "specialise a model on")
+    s.add_argument("--guild", metavar="FOLDER", help="each piece and its stats (counts only) for a colleague's "
+                   "`athos merge`")
+    s.add_argument("--piece", action="append", help="with --guild: only this piece (repeatable)")
+    s.add_argument("--as", dest="owner", metavar="NAME", help="with --guild: your name, as colleagues will see it")
     s.set_defaults(fn=cmd_export)
+    s = sub.add_parser("merge", help="merge colleagues' versions of one of your pieces into one (a dry run unless "
+                       "--apply)")
+    s.add_argument("id", help="your piece")
+    s.add_argument("sources", nargs="+", help="their exported files, or folders holding them")
+    s.add_argument("--as-id", help="the id their copies have, when it differs from yours")
+    s.add_argument("--apply", action="store_true", help="save the merge as a new version of your piece")
+    s.add_argument("--out", metavar="FILE", help="where to write the proposal (default ~/.athos/guild/<id>.merged.md)")
+    s.add_argument("--backend", choices=["ollama", "meta"],
+                   help="merge differing texts with a model: ollama on this machine, or meta (Meta Model API)")
+    s.add_argument("--model", help="the model for --backend (Ollama by default)")
+    s.set_defaults(fn=cmd_merge)
     s = sub.add_parser("codex")
     s.add_argument("action", choices=["install", "uninstall"])
     s.set_defaults(fn=cmd_codex)

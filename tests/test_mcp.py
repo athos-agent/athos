@@ -23,7 +23,7 @@ class McpTest(TempHome):
         self.assertEqual([x["id"] for x in r], [1, 2, 3])                       # the notification gets no answer
         self.assertEqual(r[0]["result"]["serverInfo"]["name"], "athos")
         self.assertEqual({t["name"] for t in r[1]["result"]["tools"]},
-                         {"athos_find", "athos_step", "athos_show", "athos_list", "athos_save"})
+                         {"athos_find", "athos_step", "athos_show", "athos_list", "athos_save", "athos_merge"})
         self.assertIn("git tag -a v0.3.0", r[2]["result"]["content"][0]["text"])
 
     def test_save_and_errors(self):
