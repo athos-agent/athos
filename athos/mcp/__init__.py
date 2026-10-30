@@ -97,6 +97,8 @@ def _new_task(session_id: str, request: str) -> None:
 
 def call(name: str, args: dict, session_id: str = SESSION) -> str:
     if name == "athos_find":
+        from athos import start
+        start.note_language(args.get("request", ""))         # the panel speaks the language the person writes in
         _new_task(session_id, args.get("request", ""))
         found = load.relevant(args.get("request", ""), load.enabled(None))
         if not found:

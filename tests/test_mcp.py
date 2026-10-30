@@ -97,3 +97,8 @@ class DesktopTest(TempHome):
         self.assertFalse(any("__pycache__" in n for n in names))
         self.assertEqual(m["server"]["mcp_config"]["args"], ["${__dirname}/bin/athos", "mcp"])
         self.assertNotIn("athos_trail", {t["name"] for t in m["tools"]})
+
+    def test_the_panel_speaks_the_language_the_person_writes_in(self):
+        from athos import mcp as m
+        m.call("athos_find", {"request": "quiero que revises este contrato de locación, por favor"})
+        self.assertEqual(m.panel()["lang"], "es")

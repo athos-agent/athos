@@ -214,6 +214,9 @@ reports it (`athos_step`), the steps your know-how lacks, and two buttons: **Adj
 changes; the piece is improved) and **Save new steps**. **Keep beside** pins the panel where the host allows it. In a
 chat without MCP Apps, the same tools answer as text.
 
+Step by step, for people who don't program: [docs/guides/claude-desktop-en.md](docs/guides/claude-desktop-en.md)
+(en español: [docs/guides/claude-desktop.md](docs/guides/claude-desktop.md)).
+
 Without the extension, the server can also be added by hand in Settings → Developer → Edit Config
 (`claude_desktop_config.json`), with the absolute path of the `athos` command:
 
