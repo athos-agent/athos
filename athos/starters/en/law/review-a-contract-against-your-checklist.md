@@ -6,7 +6,7 @@ when: reviewing, comparing or commenting a contract (lease, services, sale, NDA,
 
 ## #data_out
 **When:** before pasting or opening the contract.
-**Do:** confirm with the person whether it holds client data that must not leave their machine; if so, propose anonymising names and amounts, or a local model (`athos delegate` with Ollama).
+**Do:** confirm with the person whether it holds client data that must not leave their machine; if so, propose anonymising names and amounts, running the task through [[connector:pii-guard]] (it masks personal data before the model), or a local model (`athos delegate` with Ollama).
 **Because:** a cloud model sees everything shown to it; professional secrecy is the person's duty.
 **Links:** [[review-a-contract-against-your-checklist#parties_and_object]]
 

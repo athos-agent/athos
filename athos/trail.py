@@ -167,6 +167,8 @@ def view(state: dict) -> dict:
     beside = [{k: v for k, v in x.items() if k != "t"} for x in trail if x["kind"] in ("agent", "skill")]
     new = [x["text"] for x in trail if x["kind"] == "new"]
     return {"task_id": state.get("task_id"), "request": state.get("task_request", ""), "pieces": pieces,
+            "connectors": [{k: c.get(k) for k in ("name", "what", "active", "set_up", "start")}
+                           for c in state.get("task_connectors") or []],
             "beside": beside, "new": new, "busy": bool(trail) or bool(pieces)}
 
 

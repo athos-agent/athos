@@ -55,6 +55,8 @@ export type Trail = {
   }[]
   /** Subagents and skills the task used, in order. */
   beside: ({ kind: 'agent'; name: string; why: string } | { kind: 'skill'; name: string })[]
+  /** Connectors the loaded pieces ask for ([[connector:<name>]]), checked when the request came in. */
+  connectors?: { name: string; what: string; active: boolean; set_up: boolean; start: string }[]
   /** Steps the task needed that the know-how doesn't have yet. */
   new: string[]
   busy: boolean

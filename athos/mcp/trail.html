@@ -103,6 +103,7 @@ const WORDS = {
     notYet: 'Its steps are below; each one shows what to do and why.',
     agent: (n, w) => w ? `I asked ${n} to ${w}.` : `I used the ${n} agent.`, skill: n => `I used the ${n} skill.`,
     newOne: n => `I took a step your know-how doesn't have yet: ${n}.`,
+    guarded: (n, w) => `🔒 Personal data goes through ${n}: ${w}.`, unguarded: n => `⚠ ${n} is not running: don't paste client data until it is.`,
     nothing: "I found no way of working for this yet. If the task takes several steps, I'll note them so you can keep it.",
     steps: 'Steps', now: 'now', why: 'Why', when: 'When', adjust: 'Change this step', send: 'Send',
     how: 'How should this step change?', newSteps: 'New steps', saveNew: 'Save as a way of working',
@@ -122,6 +123,7 @@ const WORDS = {
     notYet: 'Sus pasos están abajo; cada uno dice qué hacer y por qué.',
     agent: (n, w) => w ? `Le pedí a ${n}: ${w}.` : `Usé el agente ${n}.`, skill: n => `Usé la skill ${n}.`,
     newOne: n => `Di un paso que tu know-how todavía no tiene: ${n}.`,
+    guarded: (n, w) => `🔒 Los datos personales pasan por ${n}: ${w}.`, unguarded: n => `⚠ ${n} no está activo: no pegues datos de clientes hasta que lo esté.`,
     nothing: 'No encontré una forma de trabajar para esto. Si la tarea tiene varios pasos, los anoto para que la puedas guardar.',
     steps: 'Pasos', now: 'ahora', why: 'Por qué', when: 'Cuándo', adjust: 'Cambiar este paso', send: 'Enviar',
     how: '¿Cómo tiene que cambiar este paso?', newSteps: 'Pasos nuevos', saveNew: 'Guardar como forma de trabajar',
@@ -201,6 +203,7 @@ function thinking(t, W) {
     // person (and named a private piece in a demo, 2026-10-30).
     for (const q of t.pieces.slice(1).filter(q => q.how === 'read')) out.push(W.opened(q.title));
   } else if (!t.new.length) out.push(W.nothing);
+  for (const c of t.connectors || []) out.push(c.active ? W.guarded(c.name, c.what) : W.unguarded(c.name));
   for (const b of t.beside) out.push(b.kind === 'agent' ? W.agent(b.name, b.why) : W.skill(b.name));
   for (const n of t.new) out.push(W.newOne(n));
   return out;

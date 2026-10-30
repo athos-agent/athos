@@ -127,9 +127,12 @@ def call(name: str, args: dict, session_id: str = SESSION) -> str:
             walk = wiki.walk(p.id, pages)
             out.append(_piece_text(p) + (f"\n\nTrajectory: {' → '.join(walk)}" if len(walk) > 1 else ""))
         load.mark_loaded(session_id, [p.id for p in found])
+        conn = load.note_connectors(session_id, found)
         # Said here, in the result the model reads, and not only in the server's instructions: Claude Desktop's chat
         # did not pass those on, and no step was reported (2026-10-30).
         ids = ", ".join(f"{p.id}#{st.id}" for p in found[:2] for st in wiki.statements(p))
+        if conn:
+            out.append(conn)
         out.append(ANSWER + "\n\nAs you apply each statement, call athos_step with `step` set to it (once per "
                    f"statement, in the order you apply them, skipping those that don't apply): {ids}. A step the "
                    "task needs that none of them has: athos_step with `new`.")

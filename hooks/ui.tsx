@@ -35,6 +35,7 @@ const WORDS = {
     newStep: 'new', agents: 'Subagents', skills: 'Skills', adjust: 'Adjust step', saveNew: 'Save new steps',
     adjustPrefix: 'Athos · adjust', drafting: 'No know-how for this task yet: its steps draft a new one.',
     waiting: 'The trail of the next task shows here.',
+    guarded: (n: string) => `personal data goes through ${n}`, unguarded: (n: string) => `${n} is not running: no client data`,
   },
   es: {
     ways: (n: number) => `${n} forma${n === 1 ? '' : 's'} de trabajar`, inUse: (n: number) => `${n} en uso`,
@@ -55,6 +56,7 @@ const WORDS = {
     skills: 'Skills', adjust: 'Ajustar paso', saveNew: 'Guardar pasos nuevos', adjustPrefix: 'Athos · ajustar',
     drafting: 'Todavía no hay know-how para esta tarea: sus pasos arman uno nuevo.',
     waiting: 'Acá se ve la trayectoria de la próxima tarea.',
+    guarded: (n: string) => `los datos personales pasan por ${n}`, unguarded: (n: string) => `${n} no está activo: sin datos de clientes`,
   },
 }
 export function words(s: Status | null) {
@@ -136,6 +138,8 @@ export function trailRows(t: Trail | undefined, w: ReturnType<typeof words>): Tr
                   text: x.state === 'now' && x.do && x.do !== x.label ? `${x.label ?? x.id} — ${x.do}` : x.label ?? x.id,
                   tone: x.state })
   }
+  for (const c of t?.connectors ?? [])
+    rows.push({ mark: c.active ? '🔒' : '⚠', text: c.active ? w.guarded(c.name) : w.unguarded(c.name), tone: c.active ? 'note' : 'new' })
   if (t?.new.length && !t.pieces.length) rows.push({ mark: '', text: w.drafting, tone: 'note' })
   for (const n of t?.new ?? []) rows.push({ mark: '+', text: `${w.newStep}: ${n}`, tone: 'new' })
   const agents = (t?.beside ?? []).flatMap(b => (b.kind === 'agent' ? [b.why ? `${b.name} (${b.why})` : b.name] : []))
