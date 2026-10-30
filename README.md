@@ -116,7 +116,8 @@ it, or to improve the piece it used with your own items. [How it works](docs/gui
 ## Get started
 
 **Claude Desktop (the chat).** Download [athos.mcpb](https://github.com/athos-agent/athos/releases/latest/download/athos.mcpb),
-double-click it and press **Install**, then open a new chat. Two minutes, no terminal:
+double-click it and press **Install**; then upload [athos-skill.zip](https://github.com/athos-agent/athos/releases/latest/download/athos-skill.zip) in Customize → Skills and
+open a new chat. Two minutes, no terminal:
 [step by step](docs/guides/claude-desktop-en.md) ([en español](docs/guides/claude-desktop.md)).
 
 **Claude Code, or Claude Desktop's Code tab.** Paste this one line and press Enter:
