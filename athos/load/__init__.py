@@ -150,7 +150,7 @@ def relevant(prompt: str, pieces: list[store.Piece]) -> list[store.Piece]:
     return out
 
 
-def inject_text(pieces: list[store.Piece]) -> str:
+def inject_text(pieces: list[store.Piece], cmd: str = "athos") -> str:
     if not pieces:
         return ""
     first = pieces[0].title
@@ -159,9 +159,10 @@ def inject_text(pieces: list[store.Piece]) -> str:
     for p in pieces:
         parts.append(f"## {p.title} (`{p.id}`, v{p.version})\nWhen: {p.when}\n\n{p.body}\n")
     # The person watches the trail in Athos's pane (Claude Code) or `athos watch`: one call per step, not per action.
-    parts.append(f"**As you go**, when you start one of these statements run `athos step <piece-id>#<statement_id>` "
-                 f"(once per statement, not per action); if the task needs a step none of them has, run "
-                 f"`athos step --new \"<the step, in a few words, in the person's language>\"`. Say nothing about it "
+    parts.append(f"**As you go**, when you start one of these statements run `{cmd} step <piece-id>#<statement_id>` "
+                 f"(once per statement, as its own command right before that statement's work, never chained with "
+                 f"other steps: the person watches them tick one by one); if the task needs a step none of them has, run "
+                 f"`{cmd} step --new \"<the step, in a few words, in the person's language>\"`. Say nothing about it "
                  f"in your answer.\n")
     # The person may be a lawyer or a coach, not the author of the piece's notes (2026-10-30, Claude Desktop: answers
     # narrated tools, cited "piece v7" and pasted the piece's commands until told otherwise).
@@ -190,7 +191,7 @@ def mark_loaded(session_id: str, ids: list[str]) -> None:
         store.touch(pid)
 
 
-def on_prompt(event: dict) -> str:
+def on_prompt(event: dict, cmd: str = "athos") -> str:
     """UserPromptSubmit: the pieces that match the request, recorded as loaded in this session, with the words that
     loaded each one (the band shows them, and [Didn't apply] remembers them)."""
     prompt = event.get("prompt", "")
@@ -198,7 +199,7 @@ def on_prompt(event: dict) -> str:
     if found:
         session.update(event.get("session_id", "default"), task_why={p.id: why(prompt, p) for p in found})
     mark_loaded(event.get("session_id", "default"), [p.id for p in found])
-    return inject_text(found)
+    return inject_text(found, cmd)
 
 
 def on_session_start(event: dict, cmd: str = "athos") -> str:

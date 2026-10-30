@@ -98,3 +98,14 @@ class TrailTest(TempHome):
         self.assertEqual(trail.label("deciding where to keep the key.", "", "key"), "Deciding where to keep the key")
         self.assertTrue(trail.label("", "a " * 80, "x").endswith("…"))
         self.assertEqual(trail.label("", "", "native_harness"), "Native harness")
+
+    def test_steps_find_the_task_when_each_hook_has_its_own_session(self):
+        # Muse Code gives every hook call its own session id; the folder keeps the request's.
+        self.run_athos("save", stdin=PIECE)
+        self.hook("prompt", {"session_id": "req", "cwd": self.home, "prompt": "cut a release of the package"})
+        self.hook("tool", {"session_id": "other", "cwd": self.home, "tool_name": "Skill", "tool_input": {"skill": "pdf"}})
+        self.run_athos("step", "cut-a-release#bump")
+        self.hook("stop", {"session_id": "another", "cwd": self.home})
+        t = self.status()["trail"]
+        self.assertEqual(t["pieces"][0]["steps"][0]["state"], "done")
+        self.assertEqual(t["beside"], [{"kind": "skill", "name": "pdf"}])

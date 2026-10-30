@@ -73,6 +73,9 @@ def on_tool(event: dict) -> None:
     if event.get("agent_id"):
         return
     sid = event.get("session_id", "default")
+    if not session.load(sid).get("task_id") and event.get("cwd"):
+        from athos import cli                          # a hook with its own session (Muse Code): this folder's task
+        sid = cli._current_session(event["cwd"]).get("session_id") or sid
     name = event.get("tool_name") or ""
     tin = event.get("tool_input") or {}
     if name in STEP_TOOLS_AGENT:
