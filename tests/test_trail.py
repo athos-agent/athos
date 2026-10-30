@@ -120,3 +120,19 @@ class TrailTest(TempHome):
         t = self.status()["trail"]
         self.assertEqual(t["pieces"][0]["steps"][0]["state"], "now")
         self.assertEqual(t["new"], ["announce it"])
+
+    def test_no_ask_after_a_task_that_only_walked_an_existing_piece(self):
+        self.run_athos("save", stdin=PIECE)
+        ev = {"session_id": "fw", "cwd": self.home}
+        req = "cut a release of the package:\\n1. bump\\n2. tag\\n3. push"          # a numbered list in the request
+        self.hook("prompt", {**ev, "prompt": req})
+        for _ in range(6):
+            self.hook("tool", {**ev, "tool_name": "Edit", "tool_input": {"file_path": "x"}})
+        self.run_athos("step", "cut-a-release#bump")
+        self.assertIsNone(self.hook("stop", ev))
+        self.hook("prompt", {**ev, "prompt": req})                                   # a new step: worth asking
+        for _ in range(6):
+            self.hook("tool", {**ev, "tool_name": "Edit", "tool_input": {"file_path": "x"}})
+        self.run_athos("step", "cut-a-release#bump")
+        self.run_athos("step", "--new", "announce it")
+        self.assertIsNotNone(self.hook("stop", ev))
