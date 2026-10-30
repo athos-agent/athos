@@ -43,6 +43,7 @@ from pathlib import Path
 from athos import capture, control, eval as ev, load, paths, session, store, trail
 
 ME = Path(__file__).resolve().parents[1] / "bin" / "athos"
+STEP_SINCE = (0, 1, 46)                 # the first version with `athos step`, which the agents are asked to run
 
 
 def _cmd() -> str:
@@ -66,11 +67,12 @@ def _runs_me(path: str) -> bool:
         return False
     if str(ME) in head or os.path.realpath(ME) in head:
         return True
-    # Another installation at least as new as this one has every command this one asks for: plain `athos` keeps the
-    # person's user name out of every command line on screen.
+    # Another installation that has every command the agent is asked to run (`athos step` since 0.1.46) will do:
+    # plain `athos` keeps the person's user name out of every command line on screen, and a plugin update no longer
+    # brings the full path back while the terminal's athos is one version behind (2026-10-30).
     target = re.search(r'"([^"]+/bin/athos)"', head)
     root = Path(target.group(1)).parents[1] if target else Path(os.path.realpath(path)).parents[1]
-    return _version(root) >= _version(ME.parents[1]) > (0,)
+    return _version(root) >= STEP_SINCE
 
 
 def _version(root: Path) -> tuple:
