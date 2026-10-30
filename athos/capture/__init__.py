@@ -283,6 +283,11 @@ def stop_decision(event: dict, cmd: str = "athos", offer: bool = False) -> dict 
     # and the person added nothing to it.
     if state.get("saved_in_request"):
         return None
+    # The task walked a way of working the person already has, step by step, and needed no step it lacks: nothing new
+    # to keep. A pasted contract's numbered clauses had read as the person's own checklist and asked (Codex, 2026-10-30).
+    trail = state.get("trail") or []
+    if any(x.get("kind") == "step" for x in trail) and not any(x.get("kind") == "new" for x in trail):
+        return None
     checklist = bool(state.get("checklist")) and (not state.get("task_loaded") or bool(state.get("checklist_typed")))
     tools, work, edits = (state.get(k, 0) for k in ("tools_since_capture", "work_since_capture", "edits_since_capture"))
     if not checklist and not ((edits and tools >= THRESHOLD) or work >= WORK_MIN):
