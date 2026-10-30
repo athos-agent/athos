@@ -28,6 +28,13 @@ The answer is just the plan, with the coach's rules, and the decisions left to t
 *Codex (fictional lease). No word about Athos in the request: Codex opens with the way of working it follows, reports
 each step, and answers with the checklist's own table. Waits are hidden, not sped up.*
 
+And in Meta's Muse Code on Muse Spark, a coach's rules for planning an athlete's week:
+
+![Muse Code plans a runner's next week from her last four weeks; beside it, Athos's trail says it follows the coach's own rules and ticks its five steps: the loads computed with code, the target from the coach's ratio rule, the sessions adding up to it, and the open decisions left to the coach.](demo/muse-coach-en.gif)
+
+*Muse Code on Muse Spark (fictional athlete). In OpenCode the same trail sits in its sidebar, and **Athos: change this
+step** and **Athos: save as a way of working** are in its command palette (ctrl+p).*
+
 **Connectors: when a way of working needs a service.** A step can ask for one with `[[connector:<name>]]`, and Athos
 checks it on every request and shows it in the panel. The first one is [pii-guard](https://github.com/watt-mind/pii-guard),
 which masks a client's personal data before the model and restores it in the answer: a lawyer's contract review in
