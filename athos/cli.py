@@ -11,6 +11,7 @@
     athos import codex [--include-tmp] record Codex's past tasks from its session files (report does it too)
     athos revert <id>                  put back a piece's previous version
     athos watch                       a live panel: one bar per agent for this project's know-how (for Codex)
+    athos watch --web                 the trail panel as a local page, beside Muse Code, Codex or OpenCode
     athos export --muse [<folder>]    the same skills for Muse Code; `athos import muse` records its tasks
     athos delegate <id> "<request>"    run a task you have mastered on a small local model (Ollama), recorded as `local`
     athos delegate <id> "<request>" --backend meta   the same on Meta Model API (muse-spark-1.3), recorded as `meta`
@@ -47,7 +48,22 @@ def _cmd() -> str:
     """How the agent should call Athos in the lines it and the person read: plain `athos` when the agent's shell finds
     it (the plugin puts its own bin on PATH; the installer adds ~/.local/bin), else the full path. A full path also
     showed the person's user name in every line."""
-    return "athos" if shutil.which("athos") or not ME.exists() else shlex.quote(str(ME))
+    found = shutil.which("athos")
+    return "athos" if not ME.exists() or (found and _runs_me(found)) else shlex.quote(str(ME))
+
+
+def _runs_me(path: str) -> bool:
+    """Whether the `athos` on PATH is this installation: the plugin's own bin, or a launcher pointing at it. An older
+    install on PATH (~/.local/bin → ~/.athos/app) lacked `athos step`, so Muse Code's model called a command that
+    didn't exist (2026-10-30)."""
+    if os.path.realpath(path) == os.path.realpath(ME):
+        return True
+    try:
+        with open(path, errors="ignore") as fh:
+            head = fh.read(2000)
+    except OSError:
+        return False
+    return str(ME) in head or os.path.realpath(ME) in head
 
 
 # ------------------------------------------------------------------------------------- which session a shell is in
@@ -77,7 +93,10 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
         if platform == "claude-code" and os.environ.get("MUSE_PLUGIN_ID"):
             platform = "muse-code"                  # Muse Code runs the Claude Code plugin as it is, and says so
         event = json.loads(sys.stdin.read() or "{}")
-        _remember_session(event)
+        # The folder remembers the session of the request: Muse Code gives each hook call its own session id, so a
+        # tool hook would point the folder at a session with no task, and `athos step` lost its task (2026-10-30).
+        if event_name in ("session-start", "prompt"):
+            _remember_session(event)
         if event.get("session_id"):
             session.update(event["session_id"], platform=platform)
         if event_name == "session-start":
@@ -104,7 +123,7 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
                 ev.infer_mark(event["session_id"], event.get("prompt", ""))     # before the new task replaces it
             ev.task_start(event, platform)
             capture.note_request(event)
-            text = load.on_prompt(event)
+            text = load.on_prompt(event, _cmd())
             if text:
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                                          "additionalContext": text}}))
@@ -113,8 +132,11 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
             trail.on_tool(event)
         elif event_name == "stop":
             ev.task_end(event)
-            if event.get("session_id"):
-                trail.finish(event["session_id"])
+            sid = event.get("session_id")
+            if sid and not session.load(sid).get("trail") and event.get("cwd"):
+                sid = _current_session(event["cwd"]).get("session_id") or sid
+            if sid:
+                trail.finish(sid)
             # A person at an interactive Claude Code session gets a [Save] button above the prompt instead of a
             # line asking the model; a `claude -p` run (CLAUDE_CODE_ENTRYPOINT=sdk-…) has no band, so it is asked.
             interactive = platform == "claude-code" and not os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith("sdk")
@@ -679,7 +701,11 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=lambda a: __import__("athos.mcp", fromlist=["serve"]).serve())
     s = sub.add_parser("watch", help="a live panel of how each agent applies this project's know-how")
     s.add_argument("--once", action="store_true", help="print the panel once and exit")
-    s.set_defaults(fn=lambda a: __import__("athos.watch", fromlist=["run"]).run(once=a.once))
+    s.add_argument("--web", action="store_true", help="the trail panel as a local page, beside an agent without one")
+    s.add_argument("--port", type=int, default=8711)
+    s.add_argument("--no-open", action="store_true", help="don't open the browser")
+    s.set_defaults(fn=lambda a: __import__("athos.watch_web", fromlist=["serve"]).serve(port=a.port, open_browser=not a.no_open)
+                   if a.web else __import__("athos.watch", fromlist=["run"]).run(once=a.once))
     s = sub.add_parser("desktop", help="build Athos as a Claude Desktop extension (.mcpb): the chat gets your "
                                        "know-how and the trail panel")
     s.add_argument("--out", help="where to write it (default dist/athos.mcpb in the Athos folder)")

@@ -21,6 +21,9 @@ import time
 from athos import paths, session, store
 
 SHOW = re.compile(r"(?:^|[\s/;&|])athos\s+show\s+([A-Za-z0-9_-]+)")
+# `athos step …` as the agent typed it, seen by the tool hook: in a sandbox (Codex, Muse Code) the command itself may
+# not reach ~/.athos, but the hook runs outside it.
+STEP = re.compile(r"(?:^|[\s/;&|'\"])athos['\"]?\s+step\s+(?:--new\s+(?:\"([^\"]*)\"|'([^']*)'|(\S+))|([^\s;&|'\"]+))")
 STEP_TOOLS_AGENT = {"Task", "Agent"}
 
 
@@ -73,6 +76,9 @@ def on_tool(event: dict) -> None:
     if event.get("agent_id"):
         return
     sid = event.get("session_id", "default")
+    if not session.load(sid).get("task_id") and event.get("cwd"):
+        from athos import cli                          # a hook with its own session (Muse Code): this folder's task
+        sid = cli._current_session(event["cwd"]).get("session_id") or sid
     name = event.get("tool_name") or ""
     tin = event.get("tool_input") or {}
     if name in STEP_TOOLS_AGENT:
@@ -80,6 +86,13 @@ def on_tool(event: dict) -> None:
                    "why": str(tin.get("description") or "")[:120]})
     elif name == "Skill":
         note(sid, {"kind": "skill", "name": str(tin.get("skill") or tin.get("name") or "")})
+    elif STEP.search(str(tin.get("command", ""))):
+        for m in STEP.finditer(str(tin.get("command", ""))):
+            new = m.group(1) or m.group(2) or m.group(3)
+            try:
+                step(sid, None if new else m.group(4), new)
+            except SystemExit:
+                pass
     else:
         pid = None
         m = SHOW.search(str(tin.get("command", "")))

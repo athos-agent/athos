@@ -164,11 +164,19 @@ class StartTest(TempHome):
         self.assertEqual(got, ["planificar-la-semana-de-entrenamiento"])
 
 
-class CommandNameTest(unittest.TestCase):
+class CommandNameTest(TempHome):
     def test_lines_say_plain_athos_when_the_shell_finds_it(self):
         from unittest import mock
         from athos import cli
-        with mock.patch("shutil.which", return_value="/somewhere/bin/athos"):
+        with mock.patch("shutil.which", return_value=str(cli.ME)):
             self.assertEqual(cli._cmd(), "athos")
         with mock.patch("shutil.which", return_value=None):
+            self.assertEqual(cli._cmd(), shlex.quote(str(cli.ME)))
+        # A launcher pointing at this installation counts; another (older) installation on PATH doesn't.
+        mine, other = Path(self.home) / "mine", Path(self.home) / "other"
+        mine.write_text(f'#!/bin/sh\nexec python3 "{cli.ME}" "$@"\n')
+        other.write_text('#!/bin/sh\nexec python3 "/elsewhere/.athos/app/bin/athos" "$@"\n')
+        with mock.patch("shutil.which", return_value=str(mine)):
+            self.assertEqual(cli._cmd(), "athos")
+        with mock.patch("shutil.which", return_value=str(other)):
             self.assertEqual(cli._cmd(), shlex.quote(str(cli.ME)))
