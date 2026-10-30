@@ -158,6 +158,11 @@ def inject_text(pieces: list[store.Piece]) -> str:
              "Follow it unless the request says otherwise.\n"]
     for p in pieces:
         parts.append(f"## {p.title} (`{p.id}`, v{p.version})\nWhen: {p.when}\n\n{p.body}\n")
+    # The person watches the trail in Athos's pane (Claude Code) or `athos watch`: one call per step, not per action.
+    parts.append(f"**As you go**, when you start one of these statements run `athos step <piece-id>#<statement_id>` "
+                 f"(once per statement, not per action); if the task needs a step none of them has, run "
+                 f"`athos step --new \"<the step, in a few words, in the person's language>\"`. Say nothing about it "
+                 f"in your answer.\n")
     # Last, so it is the freshest instruction: the person sees which of their know-how is applied, in every agent.
     parts.append(f"**The first line of your reply** names the way of working you follow and how it applies to this "
                  f"request, in the person's language, in this form: `Athos · «{first}»: <how it applies here, in a few "

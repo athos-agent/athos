@@ -38,7 +38,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from athos import capture, control, eval as ev, load, paths, session, store
+from athos import capture, control, eval as ev, load, paths, session, store, trail
 
 ME = Path(__file__).resolve().parents[1] / "bin" / "athos"
 
@@ -93,6 +93,11 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                                          "additionalContext": capture.SAVE_CONTEXT.format(cmd=_cmd())}}))
                 return 0
+            if capture.is_adjust_prompt(event.get("prompt", "")):
+                # The person pressed [Adjust] on a step of the pane and wrote the change: it improves that piece.
+                print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                                         "additionalContext": capture.ADJUST_CONTEXT.format(cmd=_cmd())}}))
+                return 0
             from athos import start
             start.note_language(event.get("prompt", ""))
             if event.get("session_id"):
@@ -105,8 +110,11 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
                                                          "additionalContext": text}}))
         elif event_name == "tool":
             capture.count_tool(event)
+            trail.on_tool(event)
         elif event_name == "stop":
             ev.task_end(event)
+            if event.get("session_id"):
+                trail.finish(event["session_id"])
             # A person at an interactive Claude Code session gets a [Save] button above the prompt instead of a
             # line asking the model; a `claude -p` run (CLAUDE_CODE_ENTRYPOINT=sdk-…) has no band, so it is asked.
             interactive = platform == "claude-code" and not os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith("sdk")
@@ -509,6 +517,7 @@ def status() -> dict:
                        "record": ev.record(pid, tasks)}
                       for pid, words in (state.get("task_why") or {}).items()],
             "following": following(state),
+            "trail": trail.view(state), "greeting": trail.greeting(start.lang()),
             # Only recent tasks wait for a mark: an old backlog reads as debt, not help.
             "to_mark": sum(1 for t in tasks if t["result"] == "unevaluated" and ev.recent(t)),
             "last": {"task_id": last["task_id"], "result": last["result"], "pieces": last.get("pieces", []),
@@ -524,6 +533,17 @@ def cmd_status(args) -> int:
             print(f"athos · {s['pieces']} formas de trabajar · {len(s['loaded'])} en uso · {s['to_mark']} por marcar")
         else:
             print(f"athos · {s['pieces']} ways of working · {len(s['loaded'])} in use · {s['to_mark']} to mark")
+    return 0
+
+
+def cmd_step(args) -> int:
+    """Run by the agent, not the person: the step of the person's know-how it is on now, or a step it did that the
+    know-how lacks. The pane and `athos watch` show it."""
+    sid = _current_session(os.getcwd()).get("session_id") or os.environ.get("ATHOS_SESSION_ID")
+    if not sid:
+        print("athos step: no session in this folder", file=sys.stderr)
+        return 0
+    print(trail.step(sid, args.ref, args.new))
     return 0
 
 
@@ -643,6 +663,10 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("watch", help="a live panel of how each agent applies this project's know-how")
     s.add_argument("--once", action="store_true", help="print the panel once and exit")
     s.set_defaults(fn=lambda a: __import__("athos.watch", fromlist=["run"]).run(once=a.once))
+    s = sub.add_parser("step", help="(for the agent) the step of your know-how it is on, shown in Athos's pane")
+    s.add_argument("ref", nargs="?", help="<piece>#<statement>")
+    s.add_argument("--new", help="a step the task needed that your know-how doesn't have yet")
+    s.set_defaults(fn=cmd_step)
     s = sub.add_parser("status")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_status)

@@ -72,6 +72,7 @@ from what was built during the event.
 - [#55](https://github.com/athos-agent/athos/pull/55) The band's "used" row keeps to one line; the lawyer takes press [Save] and give OpenCode the fictitious-data note (0.1.44)
 - [#56](https://github.com/athos-agent/athos/pull/56) The README GIF re-recorded with the band: which know-how was used and why, [Save], then OpenCode on Muse Spark
 - [#57](https://github.com/athos-agent/athos/pull/57) The band looks again 2 s after a turn ends, so the [Save] offer the Stop hook writes late is not missed (0.1.45)
+- [#58](https://github.com/athos-agent/athos/pull/58) The trail pane: a task's walk through the person's know-how, shown like a model's thinking (each step done, now and ahead, new steps drafted as the task goes, subagents and skills with why), docked beside the transcript in Claude Code (terminal and Desktop), with [Adjust step] and [Save new steps]; `athos step` for the agent and `trail` events for every agent; a greeting when the session starts, in English or Spanish (0.1.46)
 
 ## Meta models used
 
