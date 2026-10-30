@@ -87,6 +87,7 @@ from what was built during the event.
 - [#70](https://github.com/athos-agent/athos/pull/70) README without commands: "Get started" (download and double-click in Claude Desktop, one line in Claude Code) and "How to use it" in four plain steps; every command moves to docs/REFERENCE.md (0.1.64)
 - [#71](https://github.com/athos-agent/athos/pull/71) Claude Desktop with no terminal: the README and the Desktop guides link both downloads of the latest release, `athos.mcpb` and a generic `athos-skill.zip` (built from the law and coaching starters) (0.1.65)
 - [#72](https://github.com/athos-agent/athos/pull/72) A new banner: the musketeer's notebook lifts into a checklist ticking ✓ ▶ ○, the same at every open tower (the trail, in every agent; made with ChatGPT) (0.1.66)
+- [#76](https://github.com/athos-agent/athos/pull/76) Guilds: `athos export --guild` shares a way of working with per-step counts of how its tasks went (no request text), and `athos merge` (or `athos_merge` in Claude Desktop) merges colleagues' versions into one team version: the best-rated text of each step, steps that led to corrections dropped, a dry run first (0.1.70)
 
 ## Meta models used
 
