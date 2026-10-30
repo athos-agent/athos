@@ -43,6 +43,11 @@ which masks a client's personal data before the model and restores it in the ans
 OpenCode on Muse Spark went through it with every name, email and account masked, and the sidebar said *🔒 data through
 pii-guard*. [How to use it](docs/guides/connectors.md) ([en español](docs/guides/conectores.md)).
 
+![OpenCode on Muse Spark reviews a fictional lease through pii-guard; its sidebar says it follows the lawyer's checklist, that the data goes through pii-guard, and ticks the four steps. Then, from the command palette, "Athos: change this step" opens a box, the lawyer asks for a column with the legal basis, the way of working is improved, and the table comes back with that column.](demo/opencode-pii-en.gif)
+
+*OpenCode on Muse Spark through pii-guard (fictional lease). The trail in OpenCode's sidebar; then **ctrl+p → Athos:
+change this step**, and the lawyer's way of working gains a "legal basis" column, kept for next time.*
+
 **In Claude Desktop:** `athos desktop` builds two files: double-click `athos.mcpb`, and upload `athos-skill.zip` in
 Customize → Skills. [Step by step](docs/guides/claude-desktop-en.md) ([en español](docs/guides/claude-desktop.md)).
 

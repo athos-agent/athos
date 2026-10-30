@@ -212,9 +212,14 @@ SAVE_CONTEXT = ("The person pressed [Save]: keep what the task that just ended t
 
 # [Adjust] on a step of the pane fills the prompt with this prefix and the step; the person writes the change.
 ADJUST_PREFIX = {"en": "Athos · adjust", "es": "Athos · ajustar"}
-ADJUST_CONTEXT = ("The person pressed [Adjust] on a step of their know-how and wrote how it should change. Improve that "
-                  "piece now with `{cmd} save` (its `id:` and a `note:` with the change), rewriting only that statement "
-                  "unless the change needs more; then go on with the task as changed. Reply in one short line, in the "
+# Muse Spark in OpenCode went looking for the piece in a skill folder synced from Claude Desktop (2026-10-30): the
+# store is the only copy that counts, and `athos show` prints it. Its first save sent only the changed statement and
+# dropped the rest.
+ADJUST_CONTEXT = ("The person pressed [Adjust] on a step of their know-how and wrote how it should change. Read that "
+                  "piece with `{cmd} show <id>` (the store is the only copy that counts; skill folders hold exports), "
+                  "then improve it now with `{cmd} save` (its `id:` and a `note:` with the change): send every "
+                  "statement of the piece, with only that one rewritten unless the change needs more (a save keeps "
+                  "only what it is sent). Then go on with the task as changed. Reply in one short line, in the "
                   "person's language.")
 
 

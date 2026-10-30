@@ -62,7 +62,13 @@ export const tui = async api => {
     const es = s.lang === "es";
     const piece = s.trail?.pieces?.[0];
     const step = piece && current(piece);
-    if (!piece || !step) return;
+    if (!piece || !step) {
+      api.ui.toast({
+        variant: "info",
+        message: es ? "Athos: todavía no sigo una forma de trabajar en esta tarea" : "Athos: no way of working is being followed in this task yet"
+      });
+      return;
+    }
     api.ui.dialog.replace(() => _$createComponent(api.ui.DialogPrompt, {
       title: es ? "¿Cómo tiene que cambiar este paso?" : "How should this step change?",
       description: () => (() => {
@@ -84,15 +90,13 @@ export const tui = async api => {
   };
   // Legacy in OpenCode 1.19, still how a v1 plugin adds palette entries.
   if (api.command?.register) {
+    // OpenCode reads the list once, so both entries are always there.
     const off = api.command.register(() => {
-      const s = status();
-      const es = s.lang === "es";
-      const piece = s.trail?.pieces?.[0];
+      const es = status().lang === "es";
       return [{
         title: es ? "Athos: cambiar este paso" : "Athos: change this step",
         value: "athos.change",
         category: "Athos",
-        enabled: !!piece,
         onSelect: change
       }, {
         title: es ? "Athos: guardar como forma de trabajar" : "Athos: save as a way of working",

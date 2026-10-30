@@ -83,6 +83,7 @@ from what was built during the event.
 - [#66](https://github.com/athos-agent/athos/pull/66) Connectors guide (en, es) and README: pii-guard as the first connector, checked live in OpenCode on Muse Spark (every personal value masked, answer restored, sidebar "🔒 data through pii-guard")
 - [#67](https://github.com/athos-agent/athos/pull/67) README: a Muse Code demo GIF (a coach's rules for an athlete's week, `athos watch --trail` ticking its five steps); OpenCode's palette gets "Athos: change this step" and "Athos: save as a way of working"; agents report a step even when its work is only part of the answer (0.1.61)
 - [#68](https://github.com/athos-agent/athos/pull/68) README: a banner (Athos as a musketeer walking out of a platform's open gate with his own know-how; made with ChatGPT) and the talk "Own Your Intelligence", which tells the idea behind Athos (0.1.62)
+- [#69](https://github.com/athos-agent/athos/pull/69) README: an OpenCode demo GIF (Muse Spark through pii-guard, the trail in the sidebar, then ctrl+p → "Athos: change this step" adds a legal-basis column to the lawyer's way of working); the palette always lists "change this step"; [Adjust] reads the piece with `athos show` and saves it whole; the Desktop skill tells terminal agents to use `athos`, not its copies (0.1.63)
 
 ## Meta models used
 
