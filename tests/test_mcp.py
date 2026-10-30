@@ -126,3 +126,17 @@ class DesktopTest(TempHome):
         self.assertIn("athos_find", text)
         many = [store.Piece(id=f"p{i}", title="x" * 60, when="w", body="b") for i in range(40)]
         self.assertLessEqual(len(desktop.skill_description(many)), 1024)
+
+    def test_the_skill_carries_only_the_chosen_ways_of_working(self):
+        import zipfile
+        from pathlib import Path
+        from athos import desktop
+        store.create("Revisar un contrato con tu checklist", "revisar un contrato", BODY, piece_id="contrato")
+        store.create("Private thing", "something private", "secret notes", piece_id="private")
+        z = zipfile.ZipFile(desktop.pack_skill(Path(self.home) / "s.zip", ["contrato"]))
+        self.assertEqual(sorted(z.namelist()), ["athos-know-how/SKILL.md", "athos-know-how/pieces/contrato.md"])
+        text = z.read("athos-know-how/SKILL.md").decode()
+        self.assertIn("pieces/contrato.md", text)
+        self.assertNotIn("Private thing", text)                      # the description names only what it carries
+        self.assertIn("required, not optional", text)
+        self.assertNotIn("secret", "".join(z.read(n).decode() for n in z.namelist()))

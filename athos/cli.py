@@ -550,7 +550,8 @@ def cmd_step(args) -> int:
 def cmd_desktop(args) -> int:
     from athos import desktop
     out = desktop.pack(Path(args.out) if args.out else desktop.ROOT / "dist" / "athos.mcpb")
-    skill = desktop.pack_skill(out.with_name("athos-skill.zip"))
+    carry = [i for c in (args.carry or []) for i in c.split(",") if i]
+    skill = desktop.pack_skill(out.with_name("athos-skill.zip"), carry)
     from athos import start
     if start.lang() == "es":
         print(f"{out}\n{skill}\n1. Abrí {out.name} con doble clic (o arrastralo a Claude Desktop → Configuración → "
@@ -682,6 +683,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("desktop", help="build Athos as a Claude Desktop extension (.mcpb): the chat gets your "
                                        "know-how and the trail panel")
     s.add_argument("--out", help="where to write it (default dist/athos.mcpb in the Athos folder)")
+    s.add_argument("--carry", action="append", metavar="ID[,ID…]",
+                   help="ways of working to put inside the skill, so Claude follows them even without the connector "
+                        "(they are then kept in your Claude account too)")
     s.set_defaults(fn=cmd_desktop)
     s = sub.add_parser("step", help="(for the agent) the step of your know-how it is on, shown in Athos's pane")
     s.add_argument("ref", nargs="?", help="<piece>#<statement>")

@@ -83,8 +83,21 @@ def skill_description(pieces) -> str:
     return head + "; ".join(names) + tail
 
 
-def skill_text(pieces) -> str:
-    desc = skill_description(pieces).replace('"', "'")
+def skill_text(pieces, carried=()) -> str:
+    """SKILL.md: the person's tasks in the description; in the body, Athos first, and the ways of working the person
+    chose to carry inside the skill, so Claude follows them even when it doesn't call the connector."""
+    desc = skill_description(list(carried) or pieces).replace('"', "'")
+    index = "".join(f"| {p.title} | {p.when} | `pieces/{p.id}.md` |\n" for p in carried)
+    inside = (f"""
+## Ways of working carried in this skill
+
+When the request matches one of these, open its file and follow it step by step, in order (each step says when it
+applies, what to do and why). Use its criteria and its output format exactly (its summary, its table, its columns):
+that is how the person works.
+
+| Task | When | File |
+|---|---|---|
+{index}""" if carried else "")
     return f'''---
 name: {SKILL_NAME}
 description: "{desc}"
@@ -95,19 +108,34 @@ description: "{desc}"
 The person keeps how they like each kind of task done (their steps, criteria and checklists) in Athos, on their own
 computer. Athos is connected to this chat as the **Athos** connector.
 
-1. Before answering, call the Athos tool `athos_find` with the person's request, in their words. If the tool is not
-   loaded yet, search the tools for "athos". It returns the person's way of working for this request and opens a
-   panel where they watch the task, step by step.
-2. Follow what it returns, and do exactly what its result asks: report each step with `athos_step` as you apply it,
-   and answer the way it says.
-3. If Athos finds nothing, or is not connected, answer as you would, and say nothing about Athos.
-'''
+**This is required, not optional.** Before answering, call the Athos tool `athos_find` with the person's request, in
+their words. If you don't see it, search the tools for "athos" and call it. It returns the person's way of working
+for this request and opens a panel where they watch the task step by step. Then do exactly what its result asks:
+report each step with `athos_step` as you apply it, and answer the way it says.
+
+If the Athos tool can't be reached, follow the matching way of working below anyway. Never mention Athos, this
+skill or files to the person: answer plainly, in their language, as a colleague who knows how they work.
+{inside}'''
 
 
-def pack_skill(dest: Path) -> Path:
-    """The skill as a .zip to upload once in Claude Desktop (Customize → Skills); built again when the know-how grows."""
+def piece_file(p) -> str:
+    """A carried way of working: its title, when it applies and its steps; no history, origin or dates."""
+    return f"# {p.title}\n\nWhen: {p.when}\n\n{p.body.strip()}\n"
+
+
+def pack_skill(dest: Path, carry: list[str] | None = None) -> Path:
+    """The skill as a .zip to upload once in Claude Desktop (Customize → Skills); built again when the know-how grows.
+    `carry`: the ids of the ways of working to put inside it. They are then kept in the person's Claude account, not
+    only on this computer, so only the ones the person chooses go."""
     from athos import store
+    pieces = store.all_pieces()
+    carried = [p for p in (store.get(i) for i in (carry or [])) if p]
+    missing = [i for i in (carry or []) if not store.get(i)]
+    if missing:
+        raise SystemExit(f"athos desktop: no way of working {', '.join(missing)}")
     dest.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr(f"{SKILL_NAME}/SKILL.md", skill_text(store.all_pieces()))
+        z.writestr(f"{SKILL_NAME}/SKILL.md", skill_text(pieces, carried))
+        for p in carried:
+            z.writestr(f"{SKILL_NAME}/pieces/{p.id}.md", piece_file(p))
     return dest

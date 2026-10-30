@@ -32,6 +32,9 @@ servidor de Athos.
    **Personalizar → Skills**. Sin la skill, Claude usa Athos solo si se lo nombrás: en el chat, las herramientas de
    las extensiones quedan guardadas hasta que el modelo las busca, y un pedido como *«revisá este contrato»* no le hace
    buscar nada. La skill le dice cuáles son tus tareas. Cuando guardes formas de trabajar nuevas, volvé a subirla.
+   Con `athos desktop --carry <id>,<id>` la skill lleva adentro las formas de trabajar que elijas, y Claude las sigue
+   aunque no llame a Athos. Esas quedan guardadas también en tu cuenta de Claude: elegí solo las que no tengan datos
+   privados.
 
 Para desinstalarla, desactivala o quitala desde **Configuración → Extensiones**. Tu know-how queda en `~/.athos`.
 
