@@ -82,6 +82,7 @@ from what was built during the event.
 - [#65](https://github.com/athos-agent/athos/pull/65) OpenCode: Athos's trail in OpenCode's own sidebar (a TUI plugin, compiled from opencode/athos-sidebar.tsx, installed by `athos opencode install` and listed in tui.json); agents type plain `athos` whenever the terminal's has `step`; checked that Codex 0.166's MCP client doesn't announce MCP Apps yet, so its panel stays beside it (0.1.60)
 - [#66](https://github.com/athos-agent/athos/pull/66) Connectors guide (en, es) and README: pii-guard as the first connector, checked live in OpenCode on Muse Spark (every personal value masked, answer restored, sidebar "🔒 data through pii-guard")
 - [#67](https://github.com/athos-agent/athos/pull/67) README: a Muse Code demo GIF (a coach's rules for an athlete's week, `athos watch --trail` ticking its five steps); OpenCode's palette gets "Athos: change this step" and "Athos: save as a way of working"; agents report a step even when its work is only part of the answer (0.1.61)
+- [#68](https://github.com/athos-agent/athos/pull/68) README: a banner (Athos as a musketeer walking out of a platform's open gate with his own know-how; made with ChatGPT) and the talk "Own Your Intelligence", which tells the idea behind Athos (0.1.62)
 
 ## Meta models used
 
