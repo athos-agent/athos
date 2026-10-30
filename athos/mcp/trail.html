@@ -5,85 +5,133 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Athos · trail</title>
 <style>
-  /* The host's own colours and font when it gives them (MCP Apps style variables), plain ones otherwise. */
+  /* The host's own colours and fonts when it gives them (MCP Apps style variables), plain ones otherwise. */
   :root {
     --bg: var(--color-background-primary, #ffffff);
     --fg: var(--color-text-primary, #1f1f1f);
     --dim: var(--color-text-secondary, #6b6b6b);
-    --line: var(--color-border-primary, #e3e3e3);
-    --accent: #2a8c8c; --done: #3a8a3a; --new: #b07a12;
+    --line: var(--color-border-primary, #e6e3dc);
+    --soft: var(--color-background-secondary, #f7f6f3);
+    --accent: #c15f3c; --done: #3f7d4a; --new: #a46d0f;
+    --serif: var(--font-serif, "Iowan Old Style", Georgia, serif);
     color-scheme: light dark;
   }
   :root[data-theme="dark"] {
-    --bg: var(--color-background-primary, #1f1f1f);
-    --fg: var(--color-text-primary, #f2f2f2);
-    --dim: var(--color-text-secondary, #a0a0a0);
-    --line: var(--color-border-primary, #3a3a3a);
-    --accent: #5cc6c6; --done: #7ccf7c; --new: #e3b45a;
+    --bg: var(--color-background-primary, #262624);
+    --fg: var(--color-text-primary, #f0eee6);
+    --dim: var(--color-text-secondary, #a6a39a);
+    --line: var(--color-border-primary, #3d3c38);
+    --soft: var(--color-background-secondary, #30302d);
+    --accent: #e08a65; --done: #86c491; --new: #e0b45e;
   }
   html, body { margin: 0; background: var(--bg); color: var(--fg);
-    font: 14px/1.45 var(--font-sans, -apple-system, system-ui, sans-serif); }
-  main { padding: 12px 14px; }
-  .hello { font-size: 15px; margin-bottom: 2px; }
-  .ready { color: var(--dim); font-size: 12px; margin-bottom: 10px; }
-  .bar { display: flex; gap: 6px; float: right; }
-  .bar button { font-size: 11px; padding: 2px 8px; }
-  h2 { font-size: 14px; margin: 10px 0 4px; }
-  .why { color: var(--dim); font-size: 12px; font-weight: normal; }
-  ol { list-style: none; padding: 0; margin: 0; }
-  li { display: flex; gap: 8px; padding: 3px 0; }
-  li .mark { width: 1em; flex: none; text-align: center; }
-  li.done .mark { color: var(--done); }
-  li.now { color: var(--accent); font-weight: 600; }
-  li.now .do { font-weight: normal; color: var(--fg); display: block; }
-  li.ahead { color: var(--dim); }
-  li.new { color: var(--new); }
-  .note { color: var(--dim); font-size: 12px; margin-top: 8px; }
-  .empty { color: var(--dim); }
-  .actions { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    font: 14px/1.55 var(--font-sans, -apple-system, system-ui, sans-serif); }
+  main { padding: 14px 16px 12px; }
+  .top { display: flex; align-items: baseline; gap: 8px; }
+  .brand { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  .hello { color: var(--dim); font-size: 13px; flex: 1; }
+  .modes button { font-size: 11px; padding: 2px 8px; }
+  details > summary { cursor: pointer; list-style: none; }
+  details > summary::-webkit-details-marker { display: none; }
+  .think { margin: 10px 0 14px; border-left: 2px solid var(--line); padding: 2px 0 2px 12px; }
+  .think > summary { color: var(--dim); font-size: 13px; }
+  .think > summary::before { content: "▸ "; } .think[open] > summary::before { content: "▾ "; }
+  .think p { margin: 6px 0 0; color: var(--dim); font-size: 13px; }
+  article h1 { font: 600 19px/1.3 var(--serif); margin: 0 0 2px; }
+  .meta { color: var(--dim); font-size: 12px; margin-bottom: 4px; }
+  .lede { margin: 0 0 10px; }
+  h2 { font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); margin: 14px 0 4px;
+    font-weight: 600; }
+  ol.tasks { list-style: none; margin: 0; padding: 0; }
+  ol.tasks > li { border-top: 1px solid var(--line); }
+  ol.tasks > li:last-child { border-bottom: 1px solid var(--line); }
+  ol.tasks summary { display: flex; gap: 10px; padding: 7px 2px; align-items: flex-start; }
+  .box { flex: none; width: 16px; height: 16px; margin-top: 2px; border: 1.5px solid var(--dim); border-radius: 4px;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; }
+  li.done .box { background: var(--done); border-color: var(--done); color: var(--bg); }
+  li.done .label { color: var(--dim); }
+  li.now .box { border-color: var(--accent); background: var(--accent); color: var(--bg); }
+  li.now .label { font-weight: 600; }
+  li.now .label::after { content: attr(data-now); margin-left: 8px; font-size: 11px; font-weight: 500;
+    color: var(--accent); }
+  li.new .box { border-style: dashed; border-color: var(--new); color: var(--new); }
+  .body { padding: 0 2px 10px 28px; }
+  .body p { margin: 0 0 6px; }
+  .because { color: var(--dim); font-size: 13px; }
+  .link { background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; font: inherit;
+    font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
+  code { font: 12.5px/1.4 var(--font-mono, ui-monospace, Menlo, monospace); background: var(--soft);
+    padding: 1px 4px; border-radius: 4px; }
+  .see { margin-top: 10px; font-size: 13px; color: var(--dim); }
+  .see .link { font-size: 13px; }
+  .row { display: flex; gap: 8px; margin: 6px 0 2px; }
   button { font: inherit; font-size: 13px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line);
     background: transparent; color: var(--fg); cursor: pointer; }
   button:hover { border-color: var(--accent); }
   input { font: inherit; font-size: 13px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line);
-    background: transparent; color: var(--fg); flex: 1; min-width: 160px; }
+    background: var(--bg); color: var(--fg); flex: 1; min-width: 140px; }
+  .foot { margin-top: 12px; color: var(--dim); font-size: 11px; }
+  .empty { color: var(--dim); }
   .hidden, [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
-  <div class="bar">
-    <button id="pip" class="hidden"></button>
-    <button id="full" class="hidden"></button>
+  <div class="top">
+    <span class="brand">Athos</span>
+    <span class="hello" id="hello"></span>
+    <span class="modes"><button id="pip" class="hidden"></button> <button id="full" class="hidden"></button></span>
   </div>
-  <div class="hello" id="hello"></div>
-  <div class="ready" id="ready"></div>
-  <div id="trail"></div>
-  <div class="actions" id="adjustRow" hidden>
-    <input id="adjustText">
-    <button id="adjustSend"></button>
-  </div>
-  <div class="actions">
-    <button id="adjust" class="hidden"></button>
-    <button id="save" class="hidden"></button>
-  </div>
+  <div id="page"></div>
+  <div class="foot" id="foot"></div>
 </main>
 <script>
-// Athos's trail panel for MCP Apps hosts (Claude Desktop's chat): JSON-RPC with the host over postMessage. It draws
-// what the athos_* tools return (structuredContent) and asks the app-only athos_trail again while the task runs.
+// Athos's trail panel for MCP Apps hosts (Claude Desktop's chat). It reads like a wiki page with a task list and,
+// above it, the agent's reasoning in sentences: which of the person's know-how it found and why, how far it is.
+// JSON-RPC with the host over postMessage; it draws what the athos_* tools return (structuredContent) and asks the
+// app-only athos_trail again while the task runs.
 const WORDS = {
-  en: { ready: n => `${n} way${n === 1 ? '' : 's'} of working ready`, progress: (d, n) => `${d}/${n} steps`,
-        matched: 'matched', opened: 'opened by the agent', newStep: 'new', agents: 'Subagents', skills: 'Skills',
-        adjust: 'Adjust step', saveNew: 'Save new steps', send: 'Send', how: 'How should this step change?',
-        drafting: 'No know-how for this task yet: its steps draft a new one.',
-        waiting: 'The trail of the next task shows here.', pip: 'Keep beside', full: 'Full screen' },
-  es: { ready: n => `${n} forma${n === 1 ? '' : 's'} de trabajar lista${n === 1 ? '' : 's'}`,
-        progress: (d, n) => `${d}/${n} pasos`, matched: 'coincidió', opened: 'abierta por el agente',
-        newStep: 'nuevo', agents: 'Subagentes', skills: 'Skills', adjust: 'Ajustar paso',
-        saveNew: 'Guardar pasos nuevos', send: 'Enviar', how: '¿Cómo cambia este paso?',
-        drafting: 'Todavía no hay know-how para esta tarea: sus pasos arman uno nuevo.',
-        waiting: 'Acá se ve la trayectoria de la próxima tarea.', pip: 'Fijar al costado', full: 'Pantalla completa' },
+  en: {
+    thinking: 'How I am going about it',
+    searched: n => `I looked through your ${n} way${n === 1 ? '' : 's'} of working for this request.`,
+    found: t => `I'm following «${t}».`,
+    opened: t => `I also opened «${t}».`,
+    used: (u, ok, m, a) => `You've used it ${u} time${u === 1 ? '' : 's'}` + (m ? `; ${ok} of ${m} went well` : '') +
+      (a.length ? ` (in ${a.join(', ')})` : '') + '.',
+    first: 'It is the first time it is used.',
+    at: (i, n, l) => `Step ${i} of ${n}: ${l}.`, allDone: n => `All ${n} steps applied.`,
+    notYet: 'Its steps are below; each one shows what to do and why.',
+    agent: (n, w) => w ? `I asked ${n} to ${w}.` : `I used the ${n} agent.`, skill: n => `I used the ${n} skill.`,
+    newOne: n => `I took a step your know-how doesn't have yet: ${n}.`,
+    nothing: "I found no way of working for this yet. If the task takes several steps, I'll note them so you can keep it.",
+    steps: 'Steps', now: 'now', why: 'Why', adjust: 'Change this step', send: 'Send',
+    how: 'How should this step change?', newSteps: 'New steps', saveNew: 'Save as a way of working',
+    see: 'See also', show: t => `Show me the way of working «${t}»`, version: v => `version ${v}`,
+    foot: 'Your know-how, in ~/.athos on this computer.', waiting: 'The next task shows here.',
+    pip: 'Keep beside', full: 'Full screen', for: 'For',
+  },
+  es: {
+    thinking: 'Cómo lo estoy resolviendo',
+    searched: n => `Busqué entre tus ${n} forma${n === 1 ? '' : 's'} de trabajar la que corresponde a este pedido.`,
+    found: t => `Sigo «${t}».`,
+    opened: t => `También abrí «${t}».`,
+    used: (u, ok, m, a) => `La usaste ${u} ${u === 1 ? 'vez' : 'veces'}` + (m ? `; ${ok} de ${m} salieron bien` : '') +
+      (a.length ? ` (en ${a.join(', ')})` : '') + '.',
+    first: 'Es la primera vez que se usa.',
+    at: (i, n, l) => `Paso ${i} de ${n}: ${l}.`, allDone: n => `Apliqué los ${n} pasos.`,
+    notYet: 'Sus pasos están abajo; cada uno dice qué hacer y por qué.',
+    agent: (n, w) => w ? `Le pedí a ${n}: ${w}.` : `Usé el agente ${n}.`, skill: n => `Usé la skill ${n}.`,
+    newOne: n => `Di un paso que tu know-how todavía no tiene: ${n}.`,
+    nothing: 'No encontré una forma de trabajar para esto. Si la tarea tiene varios pasos, los anoto para que la puedas guardar.',
+    steps: 'Pasos', now: 'ahora', why: 'Por qué', adjust: 'Cambiar este paso', send: 'Enviar',
+    how: '¿Cómo tiene que cambiar este paso?', newSteps: 'Pasos nuevos', saveNew: 'Guardar como forma de trabajar',
+    see: 'Ver también', show: t => `Mostrame la forma de trabajar «${t}»`, version: v => `versión ${v}`,
+    foot: 'Tu know-how, en ~/.athos en esta computadora.', waiting: 'Acá se ve la próxima tarea.',
+    pip: 'Fijar al costado', full: 'Pantalla completa', for: 'Para',
+  },
 };
-let state = null, host = {}, nextId = 1, polls = 0;
+let state = null, host = {}, nextId = 1, polls = 0, editing = null;
+const open = new Set();
 const pending = new Map();
 const $ = id => document.getElementById(id);
 const w = () => WORDS[state && state.lang === 'es' ? 'es' : 'en'];
@@ -105,7 +153,7 @@ window.addEventListener('message', ev => {
   } else if (m.method === 'ui/notifications/tool-result') {
     take(m.params);
   } else if (m.method === 'ui/notifications/host-context-changed') {
-    theme(m.params || {});
+    theme(m.params || {}); draw();
   }
 });
 
@@ -120,79 +168,122 @@ function theme(ctx) {
 function take(result) {
   const s = result && (result.structuredContent ||
     (() => { try { return JSON.parse(result.content[0].text) } catch (e) { return null } })());
-  if (s && s.trail) { state = s; draw(); }
+  if (!s || !s.trail) return;
+  const before = JSON.stringify(state);
+  state = s;
+  if (JSON.stringify(state) !== before && editing === null) draw();
 }
 
 function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
+// The pages are markdown: `code`, **bold** and [[page#step|label]] links read as such, not as symbols.
+function md(t) {
+  return esc(t)
+    .replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (_, p, l) => l || p.replace(/-/g, ' '))
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+}
+const lower = t => t ? t[0].toLowerCase() + t.slice(1).replace(/[.\s]+$/, '') : t;
+// Long text cut at a word, with an ellipsis, never in the middle of one.
+const cut = (t, n) => t.length <= n ? t : t.slice(0, t.lastIndexOf(' ', n)).replace(/[,;:(\s]+$/, '') + '…';
+
+function thinking(t, W) {
+  const out = [W.searched(state.pieces)];
+  const p = t.pieces[0];
+  if (p) {
+    out.push(W.found(p.title));
+    const r = p.record || {};
+    out.push(r.uses > 1 ? W.used(r.uses, r.ok, r.marked, r.agents || []) : W.first);
+    const i = p.steps.findIndex(x => x.state === 'now');
+    const done = p.steps.filter(x => x.state === 'done').length;
+    out.push(i >= 0 ? W.at(i + 1, p.steps.length, lower(p.steps[i].label))
+      : done && done === p.steps.length ? W.allDone(done) : W.notYet);
+    for (const q of t.pieces.slice(1)) out.push(W.opened(q.title));
+  } else if (!t.new.length) out.push(W.nothing);
+  for (const b of t.beside) out.push(b.kind === 'agent' ? W.agent(b.name, b.why) : W.skill(b.name));
+  for (const n of t.new) out.push(W.newOne(n));
+  return out;
+}
+
+function step(p, x, W) {
+  const key = p.id + '#' + x.id;
+  const isOpen = open.has(key) || x.state === 'now';
+  const mark = x.state === 'done' ? '✓' : x.state === 'now' ? '▸' : '';
+  return `<li class="${x.state}"><details data-key="${esc(key)}"${isOpen ? ' open' : ''}>
+    <summary><span class="box">${mark}</span><span class="label" data-now="${esc(W.now)}">${md(x.label)}</span></summary>
+    <div class="body">${x.do ? `<p>${md(x.do)}</p>` : ''}${x.because ? `<p class="because"><b>${esc(W.why)}:</b> ${md(x.because)}</p>` : ''}
+    ${editing === key
+      ? `<div class="row"><input id="adjustText" placeholder="${esc(W.how)}"><button data-send="${esc(key)}">${esc(W.send)}</button></div>`
+      : `<button class="link" data-adjust="${esc(key)}">${esc(W.adjust)}</button>`}</div></details></li>`;
+}
 
 function draw() {
   if (!state) return;
   const W = w(), t = state.trail;
   $('hello').textContent = state.greeting || '';
-  $('ready').textContent = W.ready(state.pieces);
-  let html = '';
-  for (const p of t.pieces) {
-    const done = p.steps.filter(x => x.state === 'done').length;
-    const how = p.how === 'read' ? W.opened : p.why.length ? `${W.matched}: ${p.why.slice(0, 3).join(', ')}` : '';
-    html += `<h2>«${esc(p.title)}» v${p.version} <span class="why">· ${W.progress(done, p.steps.length)}${how ? ' · ' + esc(how) : ''}</span></h2><ol>`;
-    for (const x of p.steps) {
-      const mark = x.state === 'done' ? '✓' : x.state === 'now' ? '▶' : '○';
-      html += `<li class="${x.state}"><span class="mark">${mark}</span><span>#${esc(x.id)}` +
-        (x.state === 'now' && x.do ? `<span class="do">${esc(x.do)}</span>` : '') + '</span></li>';
-    }
-    html += '</ol>';
+  $('foot').textContent = W.foot;
+  let html = `<details class="think" open><summary>${esc(W.thinking)}</summary>` +
+    thinking(t, W).map(l => `<p>${md(l)}</p>`).join('') + '</details>';
+  const p = t.pieces[0];
+  if (p) {
+    html += `<article><h1>${esc(p.title)}</h1><div class="meta">${esc(W.version(p.version))}</div>` +
+      `<p class="lede"><b>${esc(W.for)}:</b> ${md(cut(lower(p.when), 240))}</p>` +
+      `<h2>${esc(W.steps)}</h2><ol class="tasks">${p.steps.map(x => step(p, x, W)).join('')}</ol>`;
+    if (p.see.length)
+      html += `<div class="see">${esc(W.see)}: ` + p.see.map(s =>
+        `<button class="link" data-show="${esc(s.title)}">${esc(s.title)}</button>`).join(' · ') + '</div>';
+    html += '</article>';
   }
   if (t.new.length) {
-    if (!t.pieces.length) html += `<div class="note">${esc(W.drafting)}</div>`;
-    html += '<ol>' + t.new.map(n => `<li class="new"><span class="mark">+</span><span>${esc(W.newStep)}: ${esc(n)}</span></li>`).join('') + '</ol>';
+    html += `<h2>${esc(W.newSteps)}</h2><ol class="tasks">` + t.new.map(n =>
+      `<li class="new"><details><summary><span class="box">+</span><span class="label">${md(n)}</span></summary></details></li>`).join('') +
+      `</ol><div class="row"><button id="save">${esc(W.saveNew)}</button></div>`;
   }
-  const agents = t.beside.filter(b => b.kind === 'agent').map(b => b.why ? `${b.name} (${b.why})` : b.name);
-  const skills = t.beside.filter(b => b.kind === 'skill').map(b => b.name);
-  if (agents.length) html += `<div class="note">${esc(W.agents)}: ${esc(agents.join(' · '))}</div>`;
-  if (skills.length) html += `<div class="note">${esc(W.skills)}: ${esc(skills.join(' · '))}</div>`;
-  $('trail').innerHTML = html || `<div class="empty">${esc(W.waiting)}</div>`;
+  if (!p && !t.new.length && !state.trail.task_id) html = `<p class="empty">${esc(W.waiting)}</p>`;
+  $('page').innerHTML = html;
 
-  const now = current();
-  $('adjust').textContent = W.adjust; $('adjust').classList.toggle('hidden', !now);
-  $('save').textContent = W.saveNew; $('save').classList.toggle('hidden', !t.new.length);
-  $('adjustSend').textContent = W.send; $('adjustText').placeholder = W.how;
   const modes = host.modes || [];
   $('pip').textContent = W.pip; $('pip').classList.toggle('hidden', !modes.includes('pip') || host.mode === 'pip');
   $('full').textContent = W.full;
   $('full').classList.toggle('hidden', !modes.includes('fullscreen') || host.mode === 'fullscreen');
+  const input = $('adjustText');
+  if (input) { input.focus(); input.onkeydown = e => { if (e.key === 'Enter') adjustSend(editing); }; }
   size();
 }
 
-function current() {
-  for (const p of (state && state.trail.pieces) || [])
-    for (const x of p.steps) if (x.state === 'now') return { piece: p.id, step: x.id };
-  return null;
+// The person's words go to the chat as their message; the agent then improves the page (the server's
+// instructions say how). Hosts may ask the person first.
+function say(text) { return request('ui/message', { role: 'user', content: { type: 'text', text } }).catch(() => {}); }
+function adjustSend(key) {
+  const text = ($('adjustText') || {}).value;
+  if (!key || !text || !text.trim()) return;
+  say(`${state.adjust_prefix} ${key}: ${text.trim()}`);
+  editing = null; draw();
+}
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.adjust) { editing = b.dataset.adjust; open.add(editing); draw(); }
+  else if (b.dataset.send) adjustSend(b.dataset.send);
+  else if (b.dataset.show) say(w().show(b.dataset.show));
+  else if (b.id === 'save') say(state.save_prompt);
+  else if (b.id === 'pip') mode('pip');
+  else if (b.id === 'full') mode('fullscreen');
+});
+document.addEventListener('toggle', e => {
+  const k = e.target.dataset && e.target.dataset.key;
+  if (k) { e.target.open ? open.add(k) : open.delete(k); size(); }
+}, true);
+
+async function mode(m) {
+  try { host.mode = (await request('ui/request-display-mode', { mode: m })).mode; } catch (e) {}
+  draw();
 }
 
 function size() {
   notify('ui/notifications/size-changed', { width: document.documentElement.scrollWidth,
                                             height: document.documentElement.scrollHeight });
 }
-
-// The person's words go to the chat as their message; the agent then improves the piece (see the server's
-// instructions). Hosts may ask the person first.
-function say(text) { return request('ui/message', { role: 'user', content: { type: 'text', text } }).catch(() => {}); }
-
-$('adjust').onclick = () => { $('adjustRow').hidden = false; $('adjustText').focus(); size(); };
-$('adjustSend').onclick = () => {
-  const now = current(), text = $('adjustText').value.trim();
-  if (!now || !text) return;
-  say(`${state.adjust_prefix} ${now.piece}#${now.step}: ${text}`);
-  $('adjustText').value = ''; $('adjustRow').hidden = true; size();
-};
-$('adjustText').onkeydown = e => { if (e.key === 'Enter') $('adjustSend').onclick(); };
-$('save').onclick = () => say(state.save_prompt);
-async function mode(m) {
-  try { host.mode = (await request('ui/request-display-mode', { mode: m })).mode; } catch (e) {}
-  draw();
-}
-$('pip').onclick = () => mode('pip');
-$('full').onclick = () => mode('fullscreen');
 
 // While the panel is up the task moves (athos_step): ask again, quickly at first, then slower, and stop after an hour.
 async function poll() {
@@ -205,7 +296,7 @@ async function poll() {
 (async () => {
   try {
     const r = await request('ui/initialize', {
-      protocolVersion: '2025-06-18', appInfo: { name: 'athos-trail', version: '1' },
+      protocolVersion: '2025-06-18', appInfo: { name: 'athos-trail', version: '2' },
       appCapabilities: { availableDisplayModes: ['inline', 'pip', 'fullscreen'] },
     });
     host.serverTools = !!(r.hostCapabilities && r.hostCapabilities.serverTools);

@@ -102,3 +102,9 @@ class DesktopTest(TempHome):
         from athos import mcp as m
         m.call("athos_find", {"request": "quiero que revises este contrato de locación, por favor"})
         self.assertEqual(m.panel()["lang"], "es")
+
+    def test_find_tells_the_model_which_steps_to_report(self):
+        from athos import mcp as m
+        store.create("Release the greet package", "releasing greet with a new option", BODY, piece_id="release")
+        self.assertIn("athos_step with `step`", m.call("athos_find", {"request": "release greet 0.3.0"}))
+        self.assertIn("release#tag", m.call("athos_find", {"request": "release greet 0.3.0"}))

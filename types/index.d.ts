@@ -46,7 +46,12 @@ export type Trail = {
     /** Loaded for the request, or opened by the agent on its own. */
     how: 'loaded' | 'read'
     why: string[]
-    steps: { id: string; do: string; state: 'done' | 'now' | 'ahead' }[]
+    /** What it is for (the piece's "when"), how it has done, and the pages it leads to. */
+    when?: string
+    record?: { uses: number; ok: number; marked: number; agents: string[] }
+    see?: { id: string; title: string }[]
+    /** Each step as a person reads it: `label` (its moment, or the first sentence of what to do), `do`, `because`. */
+    steps: { id: string; label?: string; do: string; because?: string; state: 'done' | 'now' | 'ahead' }[]
   }[]
   /** Subagents and skills the task used, in order. */
   beside: ({ kind: 'agent'; name: string; why: string } | { kind: 'skill'; name: string })[]

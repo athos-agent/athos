@@ -111,31 +111,47 @@ def step(session_id: str, ref: str | None, new: str | None) -> str:
     return "ok"
 
 
+def label(when: str, do: str, sid: str) -> str:
+    """A step as a person reads it in a task list: its moment ("Deciding where to keep the key"), or the first
+    sentence of what to do when the moment is only a few words, else its id in words."""
+    # A moment of a few words ("al empezar", "at the end") says less than what to do.
+    for text in ((when, do) if len((when or "").split()) >= 4 else (do, when)):
+        t = re.sub(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]", lambda m: m.group(2) or m.group(1), text or "")
+        t = re.split(r"(?<=[.;:])\s", t.strip(), maxsplit=1)[0].rstrip(".;: ")
+        if t:
+            return (t[0].upper() + t[1:])[:110]
+    return sid.replace("_", " ").replace("-", " ").capitalize()
+
+
 def view(state: dict) -> dict:
-    """What the pane draws: each piece the task walks with its statements (done, current, ahead), what happened
-    beside them, and the steps that were new."""
-    from athos import wiki
+    """What the pane draws: each piece the task walks, as a page (what it is for, its steps as a task list with what
+    to do and why, the pages it leads to), the steps the agent reported (done, current, ahead), what happened beside
+    them, and the steps that were new."""
+    from athos import eval as ev, wiki
     trail = state.get("trail") or []
     order: list[str] = []
     for pid in list(state.get("task_loaded") or []) + [x["piece"] for x in trail if x.get("piece")]:
         if pid not in order:
             order.append(pid)
     why = state.get("task_why") or {}
+    tasks = ev.tasks()
     pieces = []
     for pid in order[:3]:
         p = store.get(pid)
         if not p:
             continue
         seen = {x["step"]: x for x in trail if x["kind"] == "step" and x["piece"] == pid}
-        steps = [{"id": s.id, "do": s.do[:140], "state": ("done" if seen[s.id].get("done") else "now")
-                  if s.id in seen else "ahead"} for s in wiki.statements(p)]
+        steps = [{"id": s.id, "label": label(s.when, s.do, s.id), "do": s.do[:400], "because": s.because[:300],
+                  "state": ("done" if seen[s.id].get("done") else "now") if s.id in seen else "ahead"}
+                 for s in wiki.statements(p)]
         how = "loaded" if pid in (state.get("task_loaded") or []) else "read"
-        pieces.append({"id": pid, "title": p.title, "version": p.version, "how": how, "why": why.get(pid, []),
-                       "steps": steps})
+        see = [{"id": q, "title": store.get(q).title} for q in wiki.links_of(p)[:3] if store.get(q)]
+        pieces.append({"id": pid, "title": p.title, "version": p.version, "when": p.when[:600], "how": how,
+                       "why": why.get(pid, []), "record": ev.record(pid, tasks), "see": see, "steps": steps})
     beside = [{k: v for k, v in x.items() if k != "t"} for x in trail if x["kind"] in ("agent", "skill")]
     new = [x["text"] for x in trail if x["kind"] == "new"]
-    return {"task_id": state.get("task_id"), "pieces": pieces, "beside": beside, "new": new,
-            "busy": bool(trail) or bool(pieces)}
+    return {"task_id": state.get("task_id"), "request": state.get("task_request", ""), "pieces": pieces,
+            "beside": beside, "new": new, "busy": bool(trail) or bool(pieces)}
 
 
 # ------------------------------------------------------------------------------------------------ the greeting

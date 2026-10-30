@@ -130,9 +130,11 @@ export function trailRows(t: Trail | undefined, w: ReturnType<typeof words>): Tr
     const how = p.how === 'read' ? w.opened : p.why.length ? `${w.loadedBy}: ${p.why.slice(0, 3).join(', ')}` : ''
     rows.push({ mark: '', text: `«${p.title}» v${p.version} · ${w.progress(done, p.steps.length)}${how ? ` · ${how}` : ''}`,
                 tone: 'title' })
+    // Steps as sentences, the way the person wrote them, not as their ids; the current one says what it does.
     for (const x of p.steps)
       rows.push({ mark: x.state === 'done' ? '✓' : x.state === 'now' ? '▶' : '○',
-                  text: x.state === 'now' && x.do ? `${x.id} — ${x.do}` : x.id, tone: x.state })
+                  text: x.state === 'now' && x.do && x.do !== x.label ? `${x.label ?? x.id} — ${x.do}` : x.label ?? x.id,
+                  tone: x.state })
   }
   if (t?.new.length && !t.pieces.length) rows.push({ mark: '', text: w.drafting, tone: 'note' })
   for (const n of t?.new ?? []) rows.push({ mark: '+', text: `${w.newStep}: ${n}`, tone: 'new' })

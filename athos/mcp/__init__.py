@@ -43,8 +43,11 @@ SESSION = "claude-desktop"
 CLIENT: dict = {}
 
 TOOLS = [
-    {"name": "athos_find", "description": "The person's know-how for a request: the matching pieces in full, with "
-     "the trajectory each one starts (the pages its links lead to). Call it before starting a task.",
+    {"name": "athos_find", "title": "Athos: your way of working",
+     "description": "Call this FIRST, before any other tool, for every task or request the person makes. It returns "
+     "the person's own saved way of doing this kind of task (their know-how: steps, criteria, checklists, rules "
+     "they taught before, e.g. how they draft a letter, review a contract, ship a release), which you must follow, "
+     "and opens Athos's panel where they watch the task step by step. Pass the request in their words.",
      "inputSchema": {"type": "object", "properties": {"request": {"type": "string"}}, "required": ["request"]},
      "_meta": {"ui": {"resourceUri": UI_URI}}},
     {"name": "athos_step", "description": "Tell the person which step of their know-how you are on now "
@@ -111,6 +114,13 @@ def call(name: str, args: dict, session_id: str = SESSION) -> str:
             walk = wiki.walk(p.id, pages)
             out.append(_piece_text(p) + (f"\n\nTrajectory: {' → '.join(walk)}" if len(walk) > 1 else ""))
         load.mark_loaded(session_id, [p.id for p in found])
+        # Said here, in the result the model reads, and not only in the server's instructions: Claude Desktop's chat
+        # did not pass those on, and no step was reported (2026-10-30).
+        ids = ", ".join(f"{p.id}#{st.id}" for p in found[:2] for st in wiki.statements(p))
+        out.append("Athos's panel shows the person this task step by step. As you apply each statement, call "
+                   "athos_step with `step` set to it (once per statement, in the order you apply them, skipping "
+                   f"those that don't apply): {ids}. A step the task needs that none of them has: athos_step with "
+                   "`new`. Don't mention these calls in your answer.")
         return "\n\n---\n\n".join(out)
     if name == "athos_show":
         p = store.get(args.get("id", ""))
@@ -148,6 +158,9 @@ def handle(msg: dict) -> dict | None:
         if method == "initialize":
             CLIENT.clear()
             CLIENT.update(params)
+            # Claude Desktop writes a server's stderr to its log (mcp-server-Athos.log): say what the host offered.
+            print(f"athos mcp: client {json.dumps(params.get('clientInfo'))} capabilities "
+                  f"{json.dumps(params.get('capabilities'))}; panel {'on' if draws_apps() else 'off'}", file=sys.stderr)
             result = {"protocolVersion": params.get("protocolVersion") or PROTOCOL,
                       "capabilities": {"tools": {}, "resources": {}, "extensions": {UI_EXTENSION: {}}},
                       "serverInfo": {"name": "athos", "version": "1"}, "instructions": INSTRUCTIONS}
