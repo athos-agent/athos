@@ -91,7 +91,10 @@ class TrailTest(TempHome):
         self.assertEqual([s.id for s in wiki.statements(p)], ["subir-version", "tag"])
         self.assertEqual(wiki.LINK.findall(p.body), [("pub", "subir-version")])
 
-    def test_a_step_reads_as_its_moment_or_its_action(self):
-        self.assertEqual(trail.label("deciding where to keep the Meta key.", "x", "key"), "Deciding where to keep the Meta key")
+    def test_a_step_reads_as_its_action(self):
+        self.assertEqual(trail.label("con el contrato a la vista.", "resumir en cinco líneas: partes, objeto, plazo.", "x"),
+                         "Resumir en cinco líneas")
         self.assertEqual(trail.label("al empezar.", "leer solo caso.md, nunca cliente/.", "x"), "Leer solo caso.md, nunca cliente/")
+        self.assertEqual(trail.label("deciding where to keep the key.", "", "key"), "Deciding where to keep the key")
+        self.assertTrue(trail.label("", "a " * 80, "x").endswith("…"))
         self.assertEqual(trail.label("", "", "native_harness"), "Native harness")

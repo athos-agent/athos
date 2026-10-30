@@ -112,14 +112,16 @@ def step(session_id: str, ref: str | None, new: str | None) -> str:
 
 
 def label(when: str, do: str, sid: str) -> str:
-    """A step as a person reads it in a task list: its moment ("Deciding where to keep the key"), or the first
-    sentence of what to do when the moment is only a few words, else its id in words."""
-    # A moment of a few words ("al empezar", "at the end") says less than what to do.
-    for text in ((when, do) if len((when or "").split()) >= 4 else (do, when)):
+    """A step as a person reads it in a task list: the action, i.e. the first clause of what to do ("Resumir en cinco
+    líneas", "Revisar una por una, citando el número de cláusula"), cut at a word; else its moment; else its id in
+    words. The moment ("con el contrato a la vista") goes inside the step, not in its title."""
+    for text in (do, when):
         t = re.sub(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]", lambda m: m.group(2) or m.group(1), text or "")
-        t = re.split(r"(?<=[.;:])\s", t.strip(), maxsplit=1)[0].rstrip(".;: ")
+        t = re.split(r"(?<=[.;:])\s|\s[—–]\s|\n", t.strip(), maxsplit=1)[0].strip().rstrip(".;: ")
         if t:
-            return (t[0].upper() + t[1:])[:110]
+            if len(t) > 90:
+                t = t[:t.rfind(" ", 0, 88)].rstrip(",;:( ") + "…"
+            return t[0].upper() + t[1:]
     return sid.replace("_", " ").replace("-", " ").capitalize()
 
 
@@ -141,7 +143,8 @@ def view(state: dict) -> dict:
         if not p:
             continue
         seen = {x["step"]: x for x in trail if x["kind"] == "step" and x["piece"] == pid}
-        steps = [{"id": s.id, "label": label(s.when, s.do, s.id), "do": s.do[:400], "because": s.because[:300],
+        steps = [{"id": s.id, "label": label(s.when, s.do, s.id), "when": s.when[:200], "do": s.do[:400],
+                  "because": s.because[:300],
                   "state": ("done" if seen[s.id].get("done") else "now") if s.id in seen else "ahead"}
                  for s in wiki.statements(p)]
         how = "loaded" if pid in (state.get("task_loaded") or []) else "read"

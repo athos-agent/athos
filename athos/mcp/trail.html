@@ -104,7 +104,7 @@ const WORDS = {
     agent: (n, w) => w ? `I asked ${n} to ${w}.` : `I used the ${n} agent.`, skill: n => `I used the ${n} skill.`,
     newOne: n => `I took a step your know-how doesn't have yet: ${n}.`,
     nothing: "I found no way of working for this yet. If the task takes several steps, I'll note them so you can keep it.",
-    steps: 'Steps', now: 'now', why: 'Why', adjust: 'Change this step', send: 'Send',
+    steps: 'Steps', now: 'now', why: 'Why', when: 'When', adjust: 'Change this step', send: 'Send',
     how: 'How should this step change?', newSteps: 'New steps', saveNew: 'Save as a way of working',
     see: 'See also', show: t => `Show me the way of working «${t}»`, version: v => `version ${v}`,
     foot: 'Your know-how, in ~/.athos on this computer.', waiting: 'The next task shows here.',
@@ -123,7 +123,7 @@ const WORDS = {
     agent: (n, w) => w ? `Le pedí a ${n}: ${w}.` : `Usé el agente ${n}.`, skill: n => `Usé la skill ${n}.`,
     newOne: n => `Di un paso que tu know-how todavía no tiene: ${n}.`,
     nothing: 'No encontré una forma de trabajar para esto. Si la tarea tiene varios pasos, los anoto para que la puedas guardar.',
-    steps: 'Pasos', now: 'ahora', why: 'Por qué', adjust: 'Cambiar este paso', send: 'Enviar',
+    steps: 'Pasos', now: 'ahora', why: 'Por qué', when: 'Cuándo', adjust: 'Cambiar este paso', send: 'Enviar',
     how: '¿Cómo tiene que cambiar este paso?', newSteps: 'Pasos nuevos', saveNew: 'Guardar como forma de trabajar',
     see: 'Ver también', show: t => `Mostrame la forma de trabajar «${t}»`, version: v => `versión ${v}`,
     foot: 'Tu know-how, en ~/.athos en esta computadora.', waiting: 'Acá se ve la próxima tarea.',
@@ -210,7 +210,7 @@ function step(p, x, W) {
   const mark = x.state === 'done' ? '✓' : x.state === 'now' ? '▸' : '';
   return `<li class="${x.state}"><details data-key="${esc(key)}"${isOpen ? ' open' : ''}>
     <summary><span class="box">${mark}</span><span class="label" data-now="${esc(W.now)}">${md(x.label)}</span></summary>
-    <div class="body">${x.do ? `<p>${md(x.do)}</p>` : ''}${x.because ? `<p class="because"><b>${esc(W.why)}:</b> ${md(x.because)}</p>` : ''}
+    <div class="body">${x.when ? `<p class="because"><b>${esc(W.when)}:</b> ${md(lower(x.when))}</p>` : ''}${x.do && x.do !== x.label ? `<p>${md(x.do)}</p>` : ''}${x.because ? `<p class="because"><b>${esc(W.why)}:</b> ${md(x.because)}</p>` : ''}
     ${editing === key
       ? `<div class="row"><input id="adjustText" placeholder="${esc(W.how)}"><button data-send="${esc(key)}">${esc(W.send)}</button></div>`
       : `<button class="link" data-adjust="${esc(key)}">${esc(W.adjust)}</button>`}</div></details></li>`;
