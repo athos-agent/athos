@@ -4,10 +4,10 @@ Your AI know-how. Free to move, fast to run.
 
 **Ask as you always do. Claude follows *your* way of working, and you watch it, step by step.**
 
-![Claude Desktop (not the Code tab). A coach asked for next week's training plan for an athlete, without mentioning Athos. Athos's panel says how Claude is going about it in plain sentences, then shows the coach's own way of working as a page, with its steps ticked as they are done.](demo/athos-desktop-es.png)
+![Claude Desktop (not the Code tab). A coach asked for next week's training plan for an athlete, without mentioning Athos. Athos's panel says how Claude is going about it in plain sentences, then shows the coach's own way of working as a page, with its steps ticked as they are done.](demo/athos-desktop-en.png)
 
-*Claude Desktop, not the Code tab (in Spanish; fictional data). A coach pastes an athlete's last four weeks and asks for
-next week's plan, with no word about Athos. Claude picks up the coach's own way of working, "Plan the training week
+*Claude Desktop, not the Code tab (fictional data; [en español](demo/athos-desktop-es.png)). A coach pastes an
+athlete's last four weeks and asks for next week's plan, with no word about Athos. Claude picks up the coach's own way of working, "Plan the training week
 with my rules". Athos's panel says how it is going about it, in plain sentences, then shows that way of working as a
 page: what it is for, and its steps as a task list, ticked as Claude does them, each opening to when, what and why.
 The answer is just the plan, with the coach's rules, and the decisions left to the coach.*
@@ -33,9 +33,6 @@ explain it twice. On your own tasks, it shows what each agent and model does wit
 [for coaches](docs/guides/coach.md) ([en español](docs/guides/entrenador.md)) ·
 [your checklist is know-how](docs/guides/checklist-en.md) ([en español](docs/guides/checklist.md)) · why this should
 exist and what isn't solved: [WHY.md](WHY.md).
-
-In the terminal, the same know-how moves between agents: [a lawyer in Claude Code, then OpenCode on Muse
-Spark](demo/lawyer-en.gif) ([en español](demo/lawyer.gif)).
 
 ## Your know-how moves, and it works where it lands
 

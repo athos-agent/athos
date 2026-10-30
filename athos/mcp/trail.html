@@ -197,7 +197,9 @@ function thinking(t, W) {
     const done = p.steps.filter(x => x.state === 'done').length;
     out.push(i >= 0 ? W.at(i + 1, p.steps.length, lower(p.steps[i].label))
       : done && done === p.steps.length ? W.allDone(done) : W.notYet);
-    for (const q of t.pieces.slice(1)) out.push(W.opened(q.title));
+    // Only pieces the agent opened on purpose; another one the request's words merely matched is not news to the
+    // person (and named a private piece in a demo, 2026-10-30).
+    for (const q of t.pieces.slice(1).filter(q => q.how === 'read')) out.push(W.opened(q.title));
   } else if (!t.new.length) out.push(W.nothing);
   for (const b of t.beside) out.push(b.kind === 'agent' ? W.agent(b.name, b.why) : W.skill(b.name));
   for (const n of t.new) out.push(W.newOne(n));
