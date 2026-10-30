@@ -20,7 +20,7 @@ The answer is just the plan, with the coach's rules, and the decisions left to t
 - **It stays yours.** Plain markdown files in `~/.athos`, on your computer, that you can read and edit. The same know-how
   runs in Claude Code, Codex, Meta's Muse Code and OpenCode.
 
-**In Codex, Muse Code and OpenCode too.** The same way of working, followed in Codex from a one-line request, with
+**In Codex, Muse Code and OpenCode too** (in OpenCode, in its own sidebar). The same way of working, followed in Codex from a one-line request, with
 `athos watch --trail` beside it ticking the steps as Codex reports them:
 
 ![Codex reviews a lease for the tenant from a one-line request; beside it, Athos's trail says it follows the lawyer's own checklist and ticks its four steps as Codex works, ending with the checklist's table of clause, issue, proposed wording and priority.](demo/codex-lawyer-en.gif)
