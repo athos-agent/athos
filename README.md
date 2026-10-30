@@ -23,7 +23,7 @@ The answer is just the plan, with the coach's rules, and the decisions left to t
   runs in Claude Code, Codex, Meta's Muse Code and OpenCode.
 
 **In Codex, Muse Code and OpenCode too** (in OpenCode, in its own sidebar). The same way of working, followed in Codex from a one-line request, with
-`athos watch --trail` beside it ticking the steps as Codex reports them:
+Athos's trail beside it ticking the steps as Codex reports them:
 
 ![Codex reviews a lease for the tenant from a one-line request; beside it, Athos's trail says it follows the lawyer's own checklist and ticks its four steps as Codex works, ending with the checklist's table of clause, issue, proposed wording and priority.](demo/codex-lawyer-en.gif)
 
@@ -37,7 +37,7 @@ And in Meta's Muse Code on Muse Spark, a coach's rules for planning an athlete's
 *Muse Code on Muse Spark (fictional athlete). In OpenCode the same trail sits in its sidebar, and **Athos: change this
 step** and **Athos: save as a way of working** are in its command palette (ctrl+p).*
 
-**Connectors: when a way of working needs a service.** A step can ask for one with `[[connector:<name>]]`, and Athos
+**Connectors: when a way of working needs a service.** A step of your way of working can need a service, and Athos
 checks it on every request and shows it in the panel. The first one is [pii-guard](https://github.com/watt-mind/pii-guard),
 which masks a client's personal data before the model and restores it in the answer: a lawyer's contract review in
 OpenCode on Muse Spark went through it with every name, email and account masked, and the sidebar said *🔒 data through
@@ -47,9 +47,6 @@ pii-guard*. [How to use it](docs/guides/connectors.md) ([en español](docs/guide
 
 *OpenCode on Muse Spark through pii-guard (fictional lease). The trail in OpenCode's sidebar; then **ctrl+p → Athos:
 change this step**, and the lawyer's way of working gains a "legal basis" column, kept for next time.*
-
-**In Claude Desktop:** `athos desktop` builds two files: double-click `athos.mcpb`, and upload `athos-skill.zip` in
-Customize → Skills. [Step by step](docs/guides/claude-desktop-en.md) ([en español](docs/guides/claude-desktop.md)).
 
 Every day you teach AI agents how you do things: your checklist, your steps, your format, the mistakes to avoid. Not
 only in code: coding agents now do everyday work in any field, and a lawyer reviewing a contract or a coach planning a
@@ -91,12 +88,12 @@ Plain words count too: "ok excelente, …" marks the last task good. Only the la
 **It starts to pay off on a cheaper model.** On five public bench tasks in five domains (code, data, devices, a
 planning method, sports coaching), Meta's Muse Spark did 22 of 23 runs right with the know-how and 2 of 23 without it,
 at 8 to 24 times less per run than Claude Code where we compared. Small cases written for the bench, 3 to 5 runs each;
-reproduce with `athos bench all --without`.
+[how to reproduce](docs/REFERENCE.md#use).
 
 ## For professionals, not only programmers
 
-`athos start` asks your language (English or Spanish) and your profession, and adds example ways of working to start
-from: **law** (build the argument of a brief, review a contract against your checklist) and **sports coaching** (plan
+On first use, ask *"set up Athos for a lawyer"* (or *"para un entrenador"*): Athos adds example ways of working to
+start from, in English or Spanish: **law** (build the argument of a brief, review a contract against your checklist) and **sports coaching** (plan
 the training week, write the post-match report). They leave every professional decision to you and ask before
 touching client or athlete data. No terminal needed: Claude Desktop's Code tab runs the plugin. Start with the
 [overview for professionals](docs/PROFESSIONALS.md) ([en español](docs/PROFESIONALES.md)) or the guides above.
@@ -111,183 +108,45 @@ it, or to improve the piece it used with your own items. [How it works](docs/gui
   history. Only the pieces that match a request are loaded, and each reuse can improve them.
 - **Yours, and free to move.** Plain files in `~/.athos` that you can read, edit, version and copy. Nothing leaves
   your machine unless you move it.
-- **Your own benchmark.** Benchmarks measure someone else's tests; Athos measures yours. Mark each task with one key,
-  and `/athos:report` shows what every piece of know-how and every model brings to your own work.
-- **Hands mastered tasks to cheaper models.** Once a piece has proven itself, `athos delegate` runs the task on a
-  smaller model, local or hosted, and `athos bench` shows whether it keeps up.
+- **Your own benchmark.** Benchmarks measure someone else's tests; Athos measures yours. Tell it how each task went,
+  and ask *"what has my know-how brought?"*: every piece and every model, on your own work.
+- **Hands mastered tasks to cheaper models.** Once a piece has proven itself, the task can run on a smaller model,
+  local or hosted, and Athos's bench shows whether it keeps up.
 
-## Install
+## Get started
 
-In **Claude Code** (or Claude Desktop's Code tab):
+**Claude Desktop (the chat).** Download [athos.mcpb](https://github.com/athos-agent/athos/releases/latest/download/athos.mcpb),
+double-click it and press **Install**, then open a new chat. Two minutes, no terminal:
+[step by step](docs/guides/claude-desktop-en.md) ([en español](docs/guides/claude-desktop.md)).
+
+**Claude Code, or Claude Desktop's Code tab.** Paste this one line and press Enter:
 
 ```
 /plugin install athos --marketplace athos-agent/athos
 ```
 
-In **Codex**:
+**Codex, Muse Code and OpenCode.** One-time setup in the terminal: [Install](docs/REFERENCE.md#install).
 
-```
-codex plugin marketplace add athos-agent/athos
-codex plugin add athos@athos
-```
+## How to use it
 
-In **Muse Code**:
+No commands. You talk to the agent as you always do, in your own language.
 
-```
-muse plugins marketplace add athos https://github.com/athos-agent/athos
-muse plugins install athos@athos
-muse plugins approve athos
-```
+1. **Teach a task once.** Do it with the agent the way you do it: your steps, your checklist, your format, your
+   corrections. When it's done, press **Save as a way of working**, or just say *"save this as a way of working"*.
+2. **Then just ask.** Next time, *"review this lease"* is enough. The answer opens with the way of working it follows,
+   and the panel (Claude Desktop, Claude Code), the sidebar (OpenCode) or the trail beside the agent ticks its steps
+   as they are done.
+3. **Change it when you need to.** Press **Change this step** and write what changes, or simply say it: *"from now on,
+   add a column with the legal basis"*. Your way of working is improved and kept for next time. A task that needed new
+   steps offers **Save as a way of working** again.
+4. **Say how it went.** In the coding agents, *"great, thanks"* marks the task good and a correction marks it
+   corrected. If a way of working didn't fit the request, press **Didn't apply** and it won't load for those words
+   again.
 
-In **OpenCode**, with the `athos` command from the installer:
+You can also ask in plain words: *"what ways of working do I have?"*, *"show me my contract review"*.
 
-```
-curl -fsSL https://raw.githubusercontent.com/athos-agent/athos/main/install.sh | sh
-athos opencode install       then restart OpenCode
-```
-
-Then `athos start` asks your language and profession and adds example ways of working (law and sports coaching today).
-
-Requires Python 3.11+ (the installer picks the newest one you have). No other dependencies. Your know-how lives in
-`~/.athos/know-how`, the same for every agent.
-
-## Use
-
-Athos works on its own: it loads matching know-how with each request and, after real work, offers to save what the
-task taught. These are the commands you will reach for:
-
-```
-/athos:list          see your know-how and what is enabled
-/athos:mark g        mark the last task: g good, c needed corrections, f failed
-/athos:report        what each piece and each model brings to your work
-/athos:codex         take your know-how to Codex
-```
-
-When a piece has proven itself, hand the task to a smaller, cheaper model: on your own machine through
-[Ollama](https://ollama.com), or on Meta's models through Meta Model API (`--backend meta`, key in `MODEL_API_KEY` or
-`~/.athos/.env`):
-
-```
-athos delegate <piece> "<request>"           runs in the current folder; asks before every command and write
-athos delegate <piece> "<request>" --model qwen3.5:9b
-athos delegate <piece> "<request>" --backend meta       muse-spark-1.3; --model muse-wonder-1.0 for the largest
-```
-
-The model follows the piece with four tools (run a command, read, edit and write a file), confined to the current
-folder. The task lands in `/athos:report` as `local / <model>`, beside Claude Code and Codex, and you mark it like any
-other. Nothing is delegated unless you run `athos delegate`. The default is `gemma4:12b`; in our tests a 4B model was
-not enough for a release task, and the 12B one did it in about a minute and a half but still needed a correction.
-`--yes` runs the model's commands without asking: use it only in a folder you can throw away.
-
-To see what the know-how is worth before trusting a cheaper model with it, `athos bench` runs the same task several
-times on each agent and model, with and without the know-how, and checks what each run left behind (git, the tests,
-the files) instead of taking the agent's word:
-
-```
-athos bench --list                                         the cases: code, data, devices, a planning method, sports, law, literature
-athos bench all --agents claude,meta,local --runs 5 --without --max-usd 5
-athos bench report                                         success, time, tokens and cost per agent; the cheapest that keeps up
-```
-
-`athos bench transfer` asks whether what you taught one agent carries to the others, whole. Claude Code first works a
-task the way a person teaches it (their checklist, their corrections, "save it"); then a fresh folder with another
-document and no checklist gets a one-line request in Claude Code, Codex, Muse Code and OpenCode, with no Athos, with
-only the project's `.athos/` folder, and with the folder plus the plugin. Each point of the person's know-how is
-checked on its own, and the rules they added while teaching, which exist nowhere else, show what really travelled:
-
-```
-athos bench transfer contract-transfer --agents claude,codex,muse,opencode --arms A,B,C --runs 3 --max-usd 10
-athos bench transfer chapter-transfer  --agents claude,codex,muse,opencode   an author's editing rules, the same way
-athos bench transfer-report contract-transfer             per agent and arm: points applied, taught rules, time, cost
-```
-
-Each run gets a throwaway folder and its own Athos home, so your store and your recorded tasks stay untouched. Your own cases
-(a folder with `case.json`, `piece.md`, `setup.py` and `check.py`, like the ones in `athos/bench/cases/`) go in
-`~/.athos/bench/cases/` and never leave your machine.
-
-Your know-how lives in `~/.athos/know-how/`, one markdown page per piece, as a wiki: each step is a statement
-(when / do / because / links), the links follow the order things are done in a task, and `Index.md` says where each
-kind of task starts. Walks that cross pages become subagents that improve with the pages. See [docs/WIKI.md](docs/WIKI.md). Choose what may load with
-`/athos:load all | project <name> | pieces <id>... | none`, and copy everything out with `/athos:export <folder>`.
-
-### In Codex
-
-Athos is also a Codex plugin, reading the same store:
-
-```
-codex plugin marketplace add athos-agent/athos
-codex plugin add athos@athos
-```
-
-The plugin brings the `athos` skill. In the Codex desktop app it also brings Athos's hooks; in the Codex CLI add them
-once with `athos codex install` (Codex asks you to trust them with `/hooks`). Codex's footer takes no custom lines, so
-run `athos watch` in a terminal beside it: one bar per agent for this project's know-how, the same bars Claude Code
-shows under its prompt, marked with g / c / f.
-
-### In Muse Code
-
-Muse Code runs the same plugin as Claude Code: the pieces that match each request are loaded, every task is recorded
-with the model that answered and its tokens (from Muse's own session log), and after a turn that changed something or
-followed a checklist Athos asks once whether to save or improve a piece. `athos watch` and `/athos:report` show Muse Code beside Claude
-Code and Codex. Keep Muse Code's Contributor mode off (`muse` → `/settings`) unless you want Meta to train on your
-sessions; Athos warns when a task ran with it.
-
-Without the plugin, `athos export --muse` writes your pieces as skills in `~/.agents/skills` and `athos import muse`
-records past tasks from Muse's session logs.
-
-### In OpenCode
-
-Athos is an OpenCode plugin. Install it once:
-
-```
-athos opencode install       writes ~/.config/opencode/plugins/athos.js; restart OpenCode
-```
-
-With any model OpenCode runs, the pieces that match each message go into its system prompt, every task is recorded
-with OpenCode's own token counts, and after a turn that changed something or followed a checklist Athos asks once
-whether to save or improve a piece, as in Claude Code. `athos opencode uninstall` removes it.
-
-### In Claude Desktop
-
-In the **Code** tab, Claude Desktop runs Claude Code with the same settings, so the plugin works as it is, including
-the trail pane beside the transcript. For the regular **chat**, which takes MCP servers but not plugins, install Athos
-as a Desktop extension: `athos desktop` builds `dist/athos.mcpb`; double-click it (or drag it into Settings →
-Extensions). It runs `athos mcp` against your own `~/.athos`.
-
-In the chat, Athos finds the know-how for each request (`athos_find`) and opens its **trail panel** in the
-conversation (MCP Apps): a greeting, the piece the task walks with each step ✓ done, ▶ now and ○ ahead as the model
-reports it (`athos_step`), the steps your know-how lacks, and two buttons: **Adjust step** (you write how the step
-changes; the piece is improved) and **Save new steps**. **Keep beside** pins the panel where the host allows it. In a
-chat without MCP Apps, the same tools answer as text.
-
-Step by step, for people who don't program: [docs/guides/claude-desktop-en.md](docs/guides/claude-desktop-en.md)
-(en español: [docs/guides/claude-desktop.md](docs/guides/claude-desktop.md)).
-
-Without the extension, the server can also be added by hand in Settings → Developer → Edit Config
-(`claude_desktop_config.json`), with the absolute path of the `athos` command:
-
-```json
-{ "mcpServers": { "athos": { "command": "/Users/you/.local/bin/athos", "args": ["mcp"] } } }
-```
-
-### Inside a project, for any agent
-
-`athos project sync` writes this project's know-how into `.athos/`, as plain markdown any agent reads without Athos
-installed:
-
-```
-.athos/
-  wiki/      Index.md (where a task starts), the pages, METHOD.md (how the pages and their trajectories were made)
-  agents/    one subagent per trajectory, and AGENTS.md listing them
-  skills/    one skill per page, and SKILLS.md listing them
-  tools/     code the pages call when a step is a calculation, not a judgement
-```
-
-Each agent finds it where it already looks: `.claude/skills` and `CLAUDE.md` (Claude Code), `.agents/skills` and
-`AGENTS.md` (Codex, Muse Code, OpenCode), `.claude/agents` and `.opencode/agents` (subagents). By default it picks the
-pieces this project used or is tagged with (`--piece ID` or `--all` to choose), and adds itself to `.gitignore`: your
-know-how stays yours even in someone else's repository, unless you share it with `--commit`. `athos project remove`
-takes it all out again.
+Everything stays on your computer, in the `.athos` folder of your home, as plain text you can read and edit. The same
+ways of working run in every agent. For terminal users, every command is in the [reference](docs/REFERENCE.md).
 
 ## Roadmap
 
