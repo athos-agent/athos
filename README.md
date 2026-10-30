@@ -1,6 +1,6 @@
 # Athos
 
-![A musketeer walks out of the open gate of a tall tower onto a sunlit road, holding up an open notebook whose pages glow; a broken chain lies at the gate, and the road leads on to other towers, each with its gate open.](docs/athos-banner.jpg)
+![A musketeer walks a sunlit road from an open tower gate, holding an open notebook whose glowing pages lift into a floating checklist: two steps checked, one in progress, two ahead. Along the road, other towers with open gates show the same checklist, ticking in the same order.](docs/athos-banner.jpg)
 
 Your AI know-how. Free to move, fast to run.
 
