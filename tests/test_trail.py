@@ -109,3 +109,14 @@ class TrailTest(TempHome):
         t = self.status()["trail"]
         self.assertEqual(t["pieces"][0]["steps"][0]["state"], "done")
         self.assertEqual(t["beside"], [{"kind": "skill", "name": "pdf"}])
+
+    def test_the_tool_hook_records_steps_a_sandbox_kept_from_athos(self):
+        self.run_athos("save", stdin=PIECE)
+        ev = {"session_id": "sb", "cwd": self.home}
+        self.hook("prompt", {**ev, "prompt": "cut a release of the package"})
+        cmd = "'/x/bin/athos' step cut-a-release#bump && /x/bin/athos step --new 'announce it'"
+        self.hook("tool", {**ev, "tool_name": "Bash", "tool_input": {"command": cmd}})
+        self.hook("tool", {**ev, "tool_name": "Bash", "tool_input": {"command": cmd}})      # repeated: no duplicates
+        t = self.status()["trail"]
+        self.assertEqual(t["pieces"][0]["steps"][0]["state"], "now")
+        self.assertEqual(t["new"], ["announce it"])

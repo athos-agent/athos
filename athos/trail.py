@@ -21,6 +21,9 @@ import time
 from athos import paths, session, store
 
 SHOW = re.compile(r"(?:^|[\s/;&|])athos\s+show\s+([A-Za-z0-9_-]+)")
+# `athos step …` as the agent typed it, seen by the tool hook: in a sandbox (Codex, Muse Code) the command itself may
+# not reach ~/.athos, but the hook runs outside it.
+STEP = re.compile(r"(?:^|[\s/;&|'\"])athos['\"]?\s+step\s+(?:--new\s+(?:\"([^\"]*)\"|'([^']*)'|(\S+))|([^\s;&|'\"]+))")
 STEP_TOOLS_AGENT = {"Task", "Agent"}
 
 
@@ -83,6 +86,13 @@ def on_tool(event: dict) -> None:
                    "why": str(tin.get("description") or "")[:120]})
     elif name == "Skill":
         note(sid, {"kind": "skill", "name": str(tin.get("skill") or tin.get("name") or "")})
+    elif STEP.search(str(tin.get("command", ""))):
+        for m in STEP.finditer(str(tin.get("command", ""))):
+            new = m.group(1) or m.group(2) or m.group(3)
+            try:
+                step(sid, None if new else m.group(4), new)
+            except SystemExit:
+                pass
     else:
         pid = None
         m = SHOW.search(str(tin.get("command", "")))
