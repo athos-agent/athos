@@ -73,15 +73,16 @@ class McpAppTest(TempHome):
                      self.call(4, "athos_step", new="announce it"),
                      self.call(5, "athos_trail"),
                      self.call(6, "athos_step", step="nope"))
-        first = r[0]["result"]["structuredContent"]["trail"]["pieces"][0]
+        self.assertNotIn("structuredContent", r[0]["result"])                    # the model reads the text
+        first = r[0]["result"]["_meta"]["athos/panel"]["trail"]["pieces"][0]
         self.assertEqual([s["state"] for s in first["steps"]], ["ahead", "ahead"])
         t = r[4]["result"]["structuredContent"]["trail"]
         self.assertEqual([(s["id"], s["state"]) for s in t["pieces"][0]["steps"]], [("tag", "done"), ("push-tag", "now")])
         self.assertEqual(t["new"], ["announce it"])
         self.assertTrue(r[5]["result"]["isError"])
-        self.assertNotIn("structuredContent", r[5]["result"])
+        self.assertNotIn("_meta", r[5]["result"])
         again = self.rpc(self.call(1, "athos_find", request="something unrelated"))[0]["result"]
-        self.assertEqual(again["structuredContent"]["trail"]["pieces"], [])            # a new request, a new trail
+        self.assertEqual(again["_meta"]["athos/panel"]["trail"]["pieces"], [])            # a new request, a new trail
 
 
 class DesktopTest(TempHome):
@@ -106,5 +107,7 @@ class DesktopTest(TempHome):
     def test_find_tells_the_model_which_steps_to_report(self):
         from athos import mcp as m
         store.create("Release the greet package", "releasing greet with a new option", BODY, piece_id="release")
-        self.assertIn("athos_step with `step`", m.call("athos_find", {"request": "release greet 0.3.0"}))
+        text = m.call("athos_find", {"request": "release greet 0.3.0"})
+        self.assertIn("athos_step with `step`", text)
+        self.assertIn("Don't narrate tools", text)
         self.assertIn("release#tag", m.call("athos_find", {"request": "release greet 0.3.0"}))

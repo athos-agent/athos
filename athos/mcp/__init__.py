@@ -34,11 +34,21 @@ INSTRUCTIONS = ("The person's own know-how, kept by Athos as a wiki of pieces. B
                 "steps included (improve the piece it used: its id and a note); one that starts with "
                 "\"Athos · adjust\" or \"Athos · ajustar\" names <piece>#<statement> and how it should change: improve "
                 "that piece with athos_save (its id and a note), then go on. Answer those in one short line.")
+# How the model talks to the person once Athos's panel shows the method: in the chat, only the answer. The person
+# may be a lawyer or a coach, not the author of the notes in the piece (2026-10-30, Claude Desktop: the answer
+# narrated tools in English, cited "piece v7" and "checked live on 27/10" and pasted the piece's commands).
+ANSWER = ("How to answer: the person sees Athos's panel above your answer, with the way of working you follow and "
+          "its steps, so your answer is only the answer. Write in the person's language, plainly, as a colleague who "
+          "already knows how they work: do the task or answer the question directly. Don't narrate tools or say "
+          "you are reading something; don't mention Athos, pieces, ids, versions, or the dates, measurements and "
+          "notes the piece keeps for you; give commands, paths or settings only when the person must act on them. "
+          "Take from the piece only what this request needs.")
 UI_EXTENSION = "io.modelcontextprotocol/ui"
 UI_MIME = "text/html;profile=mcp-app"
 UI_URI = "ui://athos/trail"
 UI_HTML = Path(__file__).with_name("trail.html")
 SESSION = "claude-desktop"
+PANEL_META = "athos/panel"
 # What the host said about itself in `initialize`: whether it draws MCP Apps.
 CLIENT: dict = {}
 
@@ -117,10 +127,9 @@ def call(name: str, args: dict, session_id: str = SESSION) -> str:
         # Said here, in the result the model reads, and not only in the server's instructions: Claude Desktop's chat
         # did not pass those on, and no step was reported (2026-10-30).
         ids = ", ".join(f"{p.id}#{st.id}" for p in found[:2] for st in wiki.statements(p))
-        out.append("Athos's panel shows the person this task step by step. As you apply each statement, call "
-                   "athos_step with `step` set to it (once per statement, in the order you apply them, skipping "
-                   f"those that don't apply): {ids}. A step the task needs that none of them has: athos_step with "
-                   "`new`. Don't mention these calls in your answer.")
+        out.append(ANSWER + "\n\nAs you apply each statement, call athos_step with `step` set to it (once per "
+                   f"statement, in the order you apply them, skipping those that don't apply): {ids}. A step the "
+                   "task needs that none of them has: athos_step with `new`.")
         return "\n\n---\n\n".join(out)
     if name == "athos_show":
         p = store.get(args.get("id", ""))
@@ -181,8 +190,13 @@ def handle(msg: dict) -> dict | None:
             except (ValueError, LookupError) as e:
                 text, err = f"{type(e).__name__}: {e}", True
             result = {"content": [{"type": "text", "text": text}], "isError": err}
-            if name in ("athos_find", "athos_step", "athos_trail") and not err:
+            # The panel's state goes where the model doesn't read it: Claude Desktop gave the model
+            # structuredContent instead of the text, so it saw steps cut short for the panel and missed what the
+            # text asks of it. The panel reads _meta, and asks athos_trail (app-only) for the rest.
+            if name == "athos_trail" and not err:
                 result["structuredContent"] = panel()
+            elif name in ("athos_find", "athos_step") and not err:
+                result["_meta"] = {PANEL_META: panel()}
         elif method == "ping":
             result = {}
         else:

@@ -166,7 +166,7 @@ function theme(ctx) {
 }
 
 function take(result) {
-  const s = result && (result.structuredContent ||
+  const s = result && (result.structuredContent || (result._meta && result._meta['athos/panel']) ||
     (() => { try { return JSON.parse(result.content[0].text) } catch (e) { return null } })());
   if (!s || !s.trail) return;
   const before = JSON.stringify(state);
