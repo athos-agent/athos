@@ -18,8 +18,9 @@ Athos server.
 - **Claude Desktop** on a Mac (or Linux), signed in.
 - **Python 3**, which macOS already has. The first time it is used, the Mac may ask to install the "command line
   tools": accept.
-- The **`athos.mcpb`** file, Athos's extension for Claude Desktop. Whoever gave you Athos can send it; if you already
-  have Athos in the terminal, `athos desktop` builds it in Athos's `dist/` folder.
+- Two files, downloaded from Athos's page: [**athos.mcpb**](https://github.com/athos-agent/athos/releases/latest/download/athos.mcpb), the extension for Claude Desktop, and
+  [**athos-skill.zip**](https://github.com/athos-agent/athos/releases/latest/download/athos-skill.zip), the skill. If you already have Athos in the terminal, `athos desktop`
+  builds both in Athos's `dist/` folder, with your own ways of working in the skill.
 
 ## 2. Install (2 minutes)
 
@@ -28,7 +29,7 @@ Athos server.
 2. Check that **Athos** is enabled in **Settings → Extensions**.
 3. Open a **new chat**. Chats that were already open don't see the extension.
 
-4. Upload the **skill** `athos-skill.zip` (it comes with `athos.mcpb`; `athos desktop` builds both) in Claude Desktop →
+4. Upload the **skill** `athos-skill.zip` in Claude Desktop →
    **Customize → Skills**. Without it, Claude uses Athos only when you name it: in the chat, extension tools stay out
    of sight until the model searches for them, and a request like *"review this contract"* makes it search for
    nothing. The skill tells it what your tasks are. Upload it again when you save new ways of working.

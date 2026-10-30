@@ -85,6 +85,7 @@ from what was built during the event.
 - [#68](https://github.com/athos-agent/athos/pull/68) README: a banner (Athos as a musketeer walking out of a platform's open gate with his own know-how; made with ChatGPT) and the talk "Own Your Intelligence", which tells the idea behind Athos (0.1.62)
 - [#69](https://github.com/athos-agent/athos/pull/69) README: an OpenCode demo GIF (Muse Spark through pii-guard, the trail in the sidebar, then ctrl+p → "Athos: change this step" adds a legal-basis column to the lawyer's way of working); the palette always lists "change this step"; [Adjust] reads the piece with `athos show` and saves it whole; the Desktop skill tells terminal agents to use `athos`, not its copies (0.1.63)
 - [#70](https://github.com/athos-agent/athos/pull/70) README without commands: "Get started" (download and double-click in Claude Desktop, one line in Claude Code) and "How to use it" in four plain steps; every command moves to docs/REFERENCE.md (0.1.64)
+- [#71](https://github.com/athos-agent/athos/pull/71) Claude Desktop with no terminal: the README and the Desktop guides link both downloads of the latest release, `athos.mcpb` and a generic `athos-skill.zip` (built from the law and coaching starters) (0.1.65)
 
 ## Meta models used
 
