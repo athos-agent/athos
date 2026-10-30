@@ -270,10 +270,16 @@ document.addEventListener('click', e => {
   else if (b.id === 'pip') mode('pip');
   else if (b.id === 'full') mode('fullscreen');
 });
-document.addEventListener('toggle', e => {
-  const k = e.target.dataset && e.target.dataset.key;
-  if (k) { e.target.open ? open.add(k) : open.delete(k); size(); }
+// Only the person's own clicks keep a step open: the current step opens by itself and closes once it is done, so
+// the finished list reads as a list (a step opened while current stayed open, 2026-10-30).
+document.addEventListener('click', e => {
+  const sum = e.target.closest('ol.tasks summary');
+  const d = sum && sum.parentElement;
+  if (!d || !d.dataset.key) return;
+  const k = d.dataset.key, now = d.parentElement.classList.contains('now');
+  setTimeout(() => { (d.open && !now) ? open.add(k) : open.delete(k); size(); });
 }, true);
+document.addEventListener('toggle', () => size(), true);
 
 async function mode(m) {
   try { host.mode = (await request('ui/request-display-mode', { mode: m })).mode; } catch (e) {}
