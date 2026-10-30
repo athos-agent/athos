@@ -547,6 +547,23 @@ def cmd_step(args) -> int:
     return 0
 
 
+def cmd_desktop(args) -> int:
+    from athos import desktop
+    out = desktop.pack(Path(args.out) if args.out else desktop.ROOT / "dist" / "athos.mcpb")
+    carry = [i for c in (args.carry or []) for i in c.split(",") if i]
+    skill = desktop.pack_skill(out.with_name("athos-skill.zip"), carry)
+    from athos import start
+    if start.lang() == "es":
+        print(f"{out}\n{skill}\n1. Abrí {out.name} con doble clic (o arrastralo a Claude Desktop → Configuración → "
+              f"Extensiones).\n2. Subí {skill.name} en Claude Desktop → Personalizar → Skills, para que Claude use tus "
+              f"formas de trabajar sin que se lo pidas. Volvé a subirla cuando guardes formas de trabajar nuevas.")
+    else:
+        print(f"{out}\n{skill}\n1. Double-click {out.name} (or drag it into Claude Desktop → Settings → Extensions)."
+              f"\n2. Upload {skill.name} in Claude Desktop → Customize → Skills, so Claude uses your ways of working "
+              f"without being asked. Upload it again when you save new ways of working.")
+    return 0
+
+
 def cmd_start(args) -> int:
     from athos import start
     def pick(prompt: str, options: tuple, default: str) -> str:
@@ -663,6 +680,13 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("watch", help="a live panel of how each agent applies this project's know-how")
     s.add_argument("--once", action="store_true", help="print the panel once and exit")
     s.set_defaults(fn=lambda a: __import__("athos.watch", fromlist=["run"]).run(once=a.once))
+    s = sub.add_parser("desktop", help="build Athos as a Claude Desktop extension (.mcpb): the chat gets your "
+                                       "know-how and the trail panel")
+    s.add_argument("--out", help="where to write it (default dist/athos.mcpb in the Athos folder)")
+    s.add_argument("--carry", action="append", metavar="ID[,ID…]",
+                   help="ways of working to put inside the skill, so Claude follows them even without the connector "
+                        "(they are then kept in your Claude account too)")
+    s.set_defaults(fn=cmd_desktop)
     s = sub.add_parser("step", help="(for the agent) the step of your know-how it is on, shown in Athos's pane")
     s.add_argument("ref", nargs="?", help="<piece>#<statement>")
     s.add_argument("--new", help="a step the task needed that your know-how doesn't have yet")

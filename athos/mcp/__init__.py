@@ -5,6 +5,10 @@ Tools: find the pieces for a request (and say where their walk goes), show one, 
 or a new version of an existing one), the same way Claude Code's capture does. Nothing leaves the machine: the server
 reads and writes ~/.athos like the `athos` command.
 
+In a host with MCP Apps (Claude Desktop's chat), athos_find also opens Athos's trail panel (`ui://athos/trail`): the
+person's know-how the task walks, step by step, as the agent reports it with athos_step, refreshed by the panel through
+the app-only athos_trail. A host without MCP Apps gets the same tools as text.
+
 In Claude Desktop, add to claude_desktop_config.json (Settings → Developer → Edit Config):
 
     "mcpServers": {"athos": {"command": "/absolute/path/to/athos", "args": ["mcp"]}}
@@ -14,18 +18,55 @@ from __future__ import annotations
 
 import json
 import sys
+import uuid
+from pathlib import Path
 
-from athos import capture, load, session, store, wiki
+from athos import capture, load, session, store, trail, wiki
 
 PROTOCOL = "2025-06-18"
-INSTRUCTIONS = ("The person's own know-how, kept by Athos as a wiki of pieces. Before a task, call athos_find with "
-                "the request: follow the pieces it returns, statement by statement, and cite them as [[page#id]]. "
-                "When a task taught something reusable, call athos_save once.")
+INSTRUCTIONS = ("The person's own know-how, kept by Athos as a wiki of pieces. Before each task, call athos_find with "
+                "the request: follow the pieces it returns, statement by statement, and cite them as [[page#id]]. The "
+                "person watches the task in Athos's panel: as you start each statement call athos_step with "
+                "<piece-id>#<statement_id>; a step the task needs that no piece has, athos_step with `new` (a few "
+                "words, in the person's language). Once per step, never per action, and say nothing about it. "
+                "When a task taught something reusable, call athos_save once. A message from the panel that starts "
+                "with \"Athos · save:\" or \"Athos · guardar:\" asks you to save the task that just ended, its new "
+                "steps included (improve the piece it used: its id and a note); one that starts with "
+                "\"Athos · adjust\" or \"Athos · ajustar\" names <piece>#<statement> and how it should change: improve "
+                "that piece with athos_save (its id and a note), then go on. Answer those in one short line.")
+# How the model talks to the person once Athos's panel shows the method: in the chat, only the answer. The person
+# may be a lawyer or a coach, not the author of the notes in the piece (2026-10-30, Claude Desktop: the answer
+# narrated tools in English, cited "piece v7" and "checked live on 27/10" and pasted the piece's commands).
+ANSWER = ("How to answer: the person sees Athos's panel above your answer, with the way of working you follow and "
+          "its steps, so your answer is only the answer. Write in the person's language, plainly, as a colleague who "
+          "already knows how they work: do the task or answer the question directly. Don't narrate tools or say "
+          "you are reading something; don't mention Athos, pieces, ids, versions, or the dates, measurements and "
+          "notes the piece keeps for you; give commands, paths or settings only when the person must act on them. "
+          "Take from the piece only what this request needs.")
+UI_EXTENSION = "io.modelcontextprotocol/ui"
+UI_MIME = "text/html;profile=mcp-app"
+UI_URI = "ui://athos/trail"
+UI_HTML = Path(__file__).with_name("trail.html")
+SESSION = "claude-desktop"
+PANEL_META = "athos/panel"
+# What the host said about itself in `initialize`: whether it draws MCP Apps.
+CLIENT: dict = {}
 
 TOOLS = [
-    {"name": "athos_find", "description": "The person's know-how for a request: the matching pieces in full, with "
-     "the trajectory each one starts (the pages its links lead to). Call it before starting a task.",
-     "inputSchema": {"type": "object", "properties": {"request": {"type": "string"}}, "required": ["request"]}},
+    {"name": "athos_find", "title": "Athos: your way of working",
+     "description": "Call this FIRST, before any other tool, for every task or request the person makes. It returns "
+     "the person's own saved way of doing this kind of task (their know-how: steps, criteria, checklists, rules "
+     "they taught before, e.g. how they draft a letter, review a contract, ship a release), which you must follow, "
+     "and opens Athos's panel where they watch the task step by step. Pass the request in their words.",
+     "inputSchema": {"type": "object", "properties": {"request": {"type": "string"}}, "required": ["request"]},
+     "_meta": {"ui": {"resourceUri": UI_URI}}},
+    {"name": "athos_step", "description": "Tell the person which step of their know-how you are on now "
+     "(`step`: <piece-id>#<statement_id>), or a step the task needs that their know-how doesn't have yet (`new`). "
+     "Once per step, as you start it.",
+     "inputSchema": {"type": "object", "properties": {"step": {"type": "string"}, "new": {"type": "string"}}}},
+    {"name": "athos_trail", "description": "What Athos's panel draws: the current task's trail, the greeting, the "
+     "person's language. Called by the panel only.",
+     "inputSchema": {"type": "object", "properties": {}}, "_meta": {"ui": {"visibility": ["app"]}}},
     {"name": "athos_show", "description": "One piece of know-how, in full, by id.",
      "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}},
     {"name": "athos_list", "description": "Every piece: id, title and when it applies.",
@@ -41,21 +82,70 @@ def _piece_text(p: store.Piece) -> str:
     return f"# {p.title} (`{p.id}`, v{p.version})\nWhen: {p.when}\n\n{p.body}"
 
 
-def call(name: str, args: dict, session_id: str = "mcp") -> str:
+def draws_apps() -> bool:
+    ui = ((CLIENT.get("capabilities") or {}).get("extensions") or {}).get(UI_EXTENSION) or {}
+    return UI_MIME in (ui.get("mimeTypes") or [])
+
+
+def tools() -> list[dict]:
+    """The tools this host gets: the panel's own one only where the panel can be drawn."""
+    return [t for t in TOOLS if t["name"] != "athos_trail" or draws_apps()]
+
+
+def panel(session_id: str = SESSION) -> dict:
+    """What the panel draws, as the structured result of the tools that move it."""
+    from athos import start
+    state = session.load(session_id)
+    # The language of this request, not a preference seen elsewhere: a Spanish request got an English panel when
+    # another agent had last seen English (2026-10-30).
+    lang = (start.detect(state.get("task_request", "")) if not start.config().get("lang") else None) or start.lang()
+    return {"lang": lang, "greeting": trail.greeting(lang), "pieces": len(store.all_pieces()),
+            "trail": trail.view(state),
+            "save_prompt": capture.SAVE_PROMPT["es" if lang == "es" else "en"],
+            "adjust_prefix": capture.ADJUST_PREFIX["es" if lang == "es" else "en"]}
+
+
+def _new_task(session_id: str, request: str) -> None:
+    """A request starts a task: its own trail. Not a measured task: a chat has no end of turn to time it by."""
+    session.update(session_id, task_id=uuid.uuid4().hex[:12], task_loaded=[], task_why={}, trail=[],
+                   platform="claude-desktop", task_request=request[:200])
+
+
+def call(name: str, args: dict, session_id: str = SESSION) -> str:
     if name == "athos_find":
+        from athos import start
+        start.note_language(args.get("request", ""))         # the panel speaks the language the person writes in
+        _new_task(session_id, args.get("request", ""))
         found = load.relevant(args.get("request", ""), load.enabled(None))
         if not found:
-            return "No know-how for this request yet."
+            return ("No know-how for this request yet. If the task takes several steps, report each with athos_step "
+                    "`new`: they draft a new way of working.")
+        session.update(session_id, task_why={p.id: load.why(args.get("request", ""), p) for p in found})
         pages = {p.id: p for p in store.all_pieces()}
         out = []
         for p in found:
-            trail = wiki.walk(p.id, pages)
-            out.append(_piece_text(p) + (f"\n\nTrajectory: {' → '.join(trail)}" if len(trail) > 1 else ""))
+            walk = wiki.walk(p.id, pages)
+            out.append(_piece_text(p) + (f"\n\nTrajectory: {' → '.join(walk)}" if len(walk) > 1 else ""))
         load.mark_loaded(session_id, [p.id for p in found])
+        # Said here, in the result the model reads, and not only in the server's instructions: Claude Desktop's chat
+        # did not pass those on, and no step was reported (2026-10-30).
+        ids = ", ".join(f"{p.id}#{st.id}" for p in found[:2] for st in wiki.statements(p))
+        out.append(ANSWER + "\n\nAs you apply each statement, call athos_step with `step` set to it (once per "
+                   f"statement, in the order you apply them, skipping those that don't apply): {ids}. A step the "
+                   "task needs that none of them has: athos_step with `new`.")
         return "\n\n---\n\n".join(out)
     if name == "athos_show":
         p = store.get(args.get("id", ""))
+        if p:
+            trail.note(session_id, {"kind": "read", "piece": p.id, "title": p.title})
         return _piece_text(p) if p else f"No piece {args.get('id')!r}."
+    if name == "athos_step":
+        try:
+            return trail.step(session_id, args.get("step"), args.get("new"))
+        except SystemExit as e:
+            raise ValueError(str(e)) from None
+    if name == "athos_trail":
+        return json.dumps(panel(session_id), ensure_ascii=False)
     if name == "athos_list":
         return "\n".join(f"- `{p.id}` {p.title}. When: {p.when}" for p in store.all_pieces()) or "No pieces yet."
     if name == "athos_save":
@@ -78,17 +168,38 @@ def handle(msg: dict) -> dict | None:
         return None
     try:
         if method == "initialize":
+            CLIENT.clear()
+            CLIENT.update(params)
+            # Claude Desktop writes a server's stderr to its log (mcp-server-Athos.log): say what the host offered.
+            print(f"athos mcp: client {json.dumps(params.get('clientInfo'))} capabilities "
+                  f"{json.dumps(params.get('capabilities'))}; panel {'on' if draws_apps() else 'off'}", file=sys.stderr)
             result = {"protocolVersion": params.get("protocolVersion") or PROTOCOL,
-                      "capabilities": {"tools": {}}, "serverInfo": {"name": "athos", "version": "1"},
-                      "instructions": INSTRUCTIONS}
+                      "capabilities": {"tools": {}, "resources": {}, "extensions": {UI_EXTENSION: {}}},
+                      "serverInfo": {"name": "athos", "version": "1"}, "instructions": INSTRUCTIONS}
         elif method == "tools/list":
-            result = {"tools": TOOLS}
+            result = {"tools": tools()}
+        elif method == "resources/list":
+            result = {"resources": [{"uri": UI_URI, "name": "Athos · trail", "mimeType": UI_MIME,
+                                     "description": "The task's walk through the person's know-how, step by step"}]}
+        elif method == "resources/read":
+            if params.get("uri") != UI_URI:
+                return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32002, "message": "no such resource"}}
+            result = {"contents": [{"uri": UI_URI, "mimeType": UI_MIME, "text": UI_HTML.read_text(),
+                                    "_meta": {"ui": {"prefersBorder": True}}}]}
         elif method == "tools/call":
+            name = params.get("name", "")
             try:
-                text, err = call(params.get("name", ""), params.get("arguments") or {}), False
+                text, err = call(name, params.get("arguments") or {}), False
             except (ValueError, LookupError) as e:
                 text, err = f"{type(e).__name__}: {e}", True
             result = {"content": [{"type": "text", "text": text}], "isError": err}
+            # The panel's state goes where the model doesn't read it: Claude Desktop gave the model
+            # structuredContent instead of the text, so it saw steps cut short for the panel and missed what the
+            # text asks of it. The panel reads _meta, and asks athos_trail (app-only) for the rest.
+            if name == "athos_trail" and not err:
+                result["structuredContent"] = panel()
+            elif name in ("athos_find", "athos_step") and not err:
+                result["_meta"] = {PANEL_META: panel()}
         elif method == "ping":
             result = {}
         else:

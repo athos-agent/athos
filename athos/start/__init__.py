@@ -103,15 +103,20 @@ ES_WORDS = set("que de la el en los las por para con una como esta este pero hay
 EN_WORDS = set("the and to of is are you can this that with what how please now then could would should".split())
 
 
+def detect(text: str) -> str | None:
+    """The language a text is written in, in clear cases only: "es", "en" or None."""
+    ws = re.findall(r"[a-záéíóúñ]+", (text or "").lower())
+    es, en = sum(w in ES_WORDS for w in ws), sum(w in EN_WORDS for w in ws)
+    return "es" if es >= 2 and es > 2 * en else "en" if en >= 2 and en > 2 * es else None
+
+
 def note_language(prompt: str) -> None:
     """Without a language chosen with `athos start`, remember the one the person writes in (clear cases only), so
     the lines Athos shows them read in it."""
     c = config()
     if c.get("lang"):
         return
-    ws = re.findall(r"[a-záéíóúñ]+", (prompt or "").lower())
-    es, en = sum(w in ES_WORDS for w in ws), sum(w in EN_WORDS for w in ws)
-    seen = "es" if es >= 2 and es > 2 * en else "en" if en >= 2 and en > 2 * es else None
+    seen = detect(prompt)
     if seen and seen != c.get("lang_seen"):
         c["lang_seen"] = seen
         config_file().parent.mkdir(parents=True, exist_ok=True)

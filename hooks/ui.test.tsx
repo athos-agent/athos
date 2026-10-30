@@ -234,3 +234,9 @@ test('when the pane is not on screen, the band says where the task is and opens 
   expect(opened).toEqual(['athos-trail'])
   await ui.unmount()
 })
+
+test('a step reads as its sentence, not its id', () => {
+  const t = { ...TRAIL, pieces: [{ ...TRAIL.pieces[0], steps: [
+    { id: 'key', label: 'Deciding where to keep the key', do: 'keep it in ~/.athos/.env', state: 'now' }] }] }
+  expect(trailRows(t as never, words(null))[1].text).toBe('Deciding where to keep the key — keep it in ~/.athos/.env')
+})

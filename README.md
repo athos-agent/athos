@@ -2,24 +2,40 @@
 
 Your AI know-how. Free to move, fast to run.
 
+**Ask as you always do. Claude follows *your* way of working, and you watch it, step by step.**
+
+![Claude Desktop (not the Code tab). A coach asked for next week's training plan for an athlete, without mentioning Athos. Athos's panel says how Claude is going about it in plain sentences, then shows the coach's own way of working as a page, with its steps ticked as they are done.](demo/athos-desktop-es.png)
+
+*Claude Desktop, not the Code tab (in Spanish; fictional data). A coach pastes an athlete's last four weeks and asks for
+next week's plan, with no word about Athos. Claude picks up the coach's own way of working, "Plan the training week
+with my rules". Athos's panel says how it is going about it, in plain sentences, then shows that way of working as a
+page: what it is for, and its steps as a task list, ticked as Claude does them, each opening to when, what and why.
+The answer is just the plan, with the coach's rules, and the decisions left to the coach.*
+
+- **Your way, not a generic one.** Ask a lawyer's "review this lease" and the answer comes back with *their*
+  five-line summary and *their* table: clause, problem, proposed wording, priority. Without it, the same request got
+  a good, generic review.
+- **You see the method, like a model's thinking.** Not tool calls: sentences, a page and a task list. **Change this
+  step** improves your way of working on the spot; a task that needed new steps offers **Save as a way of working**.
+- **It stays yours.** Plain markdown files in `~/.athos`, on your computer, that you can read and edit. The same know-how
+  runs in Claude Code, Codex, Meta's Muse Code and OpenCode.
+
+**In Claude Desktop:** `athos desktop` builds two files: double-click `athos.mcpb`, and upload `athos-skill.zip` in
+Customize → Skills. [Step by step](docs/guides/claude-desktop-en.md) ([en español](docs/guides/claude-desktop.md)).
+
 Every day you teach AI agents how you do things: your checklist, your steps, your format, the mistakes to avoid. Not
 only in code: coding agents now do everyday work in any field, and a lawyer reviewing a contract or a coach planning a
 week teaches them just as much. That know-how gets stuck in one chat of one tool. Athos keeps it as plain files on your
 machine and carries it to every agent you use, **Claude Code, Codex, Meta's Muse Code and OpenCode**, so you never
 explain it twice. On your own tasks, it shows what each agent and model does with it.
 
-**Guides:** [for lawyers](docs/guides/lawyer.md) ([en español](docs/guides/abogado.md)) ·
+**Guides:** [Claude Desktop](docs/guides/claude-desktop-en.md) ([en español](docs/guides/claude-desktop.md)) · [for lawyers](docs/guides/lawyer.md) ([en español](docs/guides/abogado.md)) ·
 [for coaches](docs/guides/coach.md) ([en español](docs/guides/entrenador.md)) ·
 [your checklist is know-how](docs/guides/checklist-en.md) ([en español](docs/guides/checklist.md)) · why this should
 exist and what isn't solved: [WHY.md](WHY.md).
 
-![A lawyer reviews a lease in Claude Code from their own checklist; Athos's band shows which way of working was used and why, and the lawyer presses Save; OpenCode on Meta's Muse Spark then reviews a services agreement from a one-line request with that way of working.](demo/lawyer-en.gif)
-
-*A lawyer reviews a lease in Claude Code with their checklist file. Above the prompt, Athos says which way of working
-the task used and why, and offers Save; the lawyer presses it and the way of working improves to v2. OpenCode, on Meta's
-Muse Spark, then reviews a services agreement from a one-line request with it, and sees there is nothing new to save.
-Each bar on the right is one agent (real run, fictional contracts, waits cut). En español:
-[demo/lawyer.gif](demo/lawyer.gif). The earlier release demo: [demo/athos-claude-to-codex.gif](demo/athos-claude-to-codex.gif).*
+In the terminal, the same know-how moves between agents: [a lawyer in Claude Code, then OpenCode on Muse
+Spark](demo/lawyer-en.gif) ([en español](demo/lawyer.gif)).
 
 ## Your know-how moves, and it works where it lands
 
@@ -204,16 +220,25 @@ whether to save or improve a piece, as in Claude Code. `athos opencode uninstall
 ### In Claude Desktop
 
 In the **Code** tab, Claude Desktop runs Claude Code with the same settings, so the plugin works as it is, including
-the lines under the prompt. For the regular **chat**, which takes MCP servers but not plugins, Athos serves your
-know-how over MCP: add it in Settings → Developer → Edit Config (`claude_desktop_config.json`), with the absolute path
-of the `athos` command (`command -v athos`, after `install.sh`):
+the trail pane beside the transcript. For the regular **chat**, which takes MCP servers but not plugins, install Athos
+as a Desktop extension: `athos desktop` builds `dist/athos.mcpb`; double-click it (or drag it into Settings →
+Extensions). It runs `athos mcp` against your own `~/.athos`.
+
+In the chat, Athos finds the know-how for each request (`athos_find`) and opens its **trail panel** in the
+conversation (MCP Apps): a greeting, the piece the task walks with each step ✓ done, ▶ now and ○ ahead as the model
+reports it (`athos_step`), the steps your know-how lacks, and two buttons: **Adjust step** (you write how the step
+changes; the piece is improved) and **Save new steps**. **Keep beside** pins the panel where the host allows it. In a
+chat without MCP Apps, the same tools answer as text.
+
+Step by step, for people who don't program: [docs/guides/claude-desktop-en.md](docs/guides/claude-desktop-en.md)
+(en español: [docs/guides/claude-desktop.md](docs/guides/claude-desktop.md)).
+
+Without the extension, the server can also be added by hand in Settings → Developer → Edit Config
+(`claude_desktop_config.json`), with the absolute path of the `athos` command:
 
 ```json
 { "mcpServers": { "athos": { "command": "/Users/you/.local/bin/athos", "args": ["mcp"] } } }
 ```
-
-Restart Claude Desktop. The chat can then find the know-how for a request (`athos_find`, with the trajectory each piece
-starts), show and list pieces, and save what a conversation taught (`athos_save`), into the same `~/.athos`.
 
 ### Inside a project, for any agent
 
