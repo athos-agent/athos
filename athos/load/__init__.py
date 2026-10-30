@@ -159,9 +159,13 @@ def inject_text(pieces: list[store.Piece], cmd: str = "athos") -> str:
     for p in pieces:
         parts.append(f"## {p.title} (`{p.id}`, v{p.version})\nWhen: {p.when}\n\n{p.body}\n")
     # The person watches the trail in Athos's pane (Claude Code) or `athos watch`: one call per step, not per action.
+    # Muse Code wrote a whole plan in one reply and reported one step (2026-10-30): a statement whose work is only part
+    # of the answer is still a step.
     parts.append(f"**As you go**, when you start one of these statements run `{cmd} step <piece-id>#<statement_id>` "
                  f"(once per statement, as its own command right before that statement's work, never chained with "
-                 f"other steps: the person watches them tick one by one); if the task needs a step none of them has, run "
+                 f"other steps: the person watches them tick one by one). This holds when the work is only thinking "
+                 f"or writing part of your answer: run the step for each statement before writing that part, even if "
+                 f"the whole answer is one reply. If the task needs a step none of them has, run "
                  f"`{cmd} step --new \"<the step, in a few words, in the person's language>\"`. Say nothing about it "
                  f"in your answer.\n")
     # The person may be a lawyer or a coach, not the author of the piece's notes (2026-10-30, Claude Desktop: answers

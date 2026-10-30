@@ -81,6 +81,7 @@ from what was built during the event.
 - [#64](https://github.com/athos-agent/athos/pull/64) README: a Codex demo GIF (a lawyer's English lease review from a one-line request, `athos watch --trail` beside it ticking the checklist's steps); demo/codex-lawyer-en.tape
 - [#65](https://github.com/athos-agent/athos/pull/65) OpenCode: Athos's trail in OpenCode's own sidebar (a TUI plugin, compiled from opencode/athos-sidebar.tsx, installed by `athos opencode install` and listed in tui.json); agents type plain `athos` whenever the terminal's has `step`; checked that Codex 0.166's MCP client doesn't announce MCP Apps yet, so its panel stays beside it (0.1.60)
 - [#66](https://github.com/athos-agent/athos/pull/66) Connectors guide (en, es) and README: pii-guard as the first connector, checked live in OpenCode on Muse Spark (every personal value masked, answer restored, sidebar "🔒 data through pii-guard")
+- [#67](https://github.com/athos-agent/athos/pull/67) README: a Muse Code demo GIF (a coach's rules for an athlete's week, `athos watch --trail` ticking its five steps); OpenCode's palette gets "Athos: change this step" and "Athos: save as a way of working"; agents report a step even when its work is only part of the answer (0.1.61)
 
 ## Meta models used
 
