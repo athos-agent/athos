@@ -28,9 +28,9 @@ from pathlib import Path
 from athos import paths, store
 
 INDEX = "Index.md"
-STATEMENT = re.compile(r"^## #([a-z0-9_]+)\s*$", re.M)
+STATEMENT = re.compile(r"^## #([a-z0-9][a-z0-9_-]*)\s*$", re.M)
 FIELD = re.compile(r"^\*\*(When|Do|Because|Links):\*\*\s*(.*)$", re.M)
-LINK = re.compile(r"\[\[([a-z0-9][a-z0-9-]*)(?:#([a-z0-9_]+))?(?:\|[^\]]*)?\]\]")
+LINK = re.compile(r"\[\[([a-z0-9][a-z0-9-]*)(?:#([a-z0-9][a-z0-9_-]*))?(?:\|[^\]]*)?\]\]")
 AGENT_PREFIX = "athos-"
 OVERLAP = 0.4          # share of the words two **When** lines have in common to call them the same moment
 STALE_DAYS = 30

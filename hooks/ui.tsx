@@ -1,15 +1,19 @@
-// Athos in the terminal. The status line counts the know-how ("N ways of working · K in use · M to mark"; the engine
+// Athos in the terminal and in Desktop. A greeting when the session starts; a pane with the current task's trail
+// (the person's know-how it walks, step by step, and the subagents and skills beside it). The status line counts the know-how ("N ways of working · K in use · M to mark"; the engine
 // prefixes the plugin's name); the band above the prompt says when the last task saved or improved a piece and, while
 // it has no verdict, offers one-key marking. Both read `athos status --json` and stay silent with nothing to say.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Bar, Status } from '../types'
+import type { Bar, Status, Trail } from '../types'
 
 const snap = atom({ plugin: 'athos', key: 'snap' } as const, null)
 const dismissed = atom({ plugin: 'athos', key: 'dismissed' } as const, null)
 const offered = atom({ plugin: 'athos', key: 'offered' } as const, null)
 const misfired = atom({ plugin: 'athos', key: 'misfired' } as const, null)
+const greeted = atom({ plugin: 'athos', key: 'greeted' } as const, false)
+const paneFor = atom({ plugin: 'athos', key: 'paneFor' } as const, null)
+const PANE = 'athos-trail'
 
 // What the person reads, in the language they chose with `athos start` (English by default), in plain words.
 const WORDS = {
@@ -26,6 +30,11 @@ const WORDS = {
     record: (ok: number, marked: number, agents: string[]) =>
       `${ok}/${marked} good` + (agents.length ? ` in ${agents.join(', ')}` : ''),
     firstTime: 'first time',
+    ready_: (n: number) => `${n} way${n === 1 ? '' : 's'} of working ready`, trail: 'Trail', show: 'Show trail',
+    progress: (d: number, n: number) => `${d}/${n} steps`, loadedBy: 'matched', opened: 'opened by the agent',
+    newStep: 'new', agents: 'Subagents', skills: 'Skills', adjust: 'Adjust step', saveNew: 'Save new steps',
+    adjustPrefix: 'Athos · adjust', drafting: 'No know-how for this task yet: its steps draft a new one.',
+    waiting: 'The trail of the next task shows here.',
   },
   es: {
     ways: (n: number) => `${n} forma${n === 1 ? '' : 's'} de trabajar`, inUse: (n: number) => `${n} en uso`,
@@ -40,6 +49,12 @@ const WORDS = {
     record: (ok: number, marked: number, agents: string[]) =>
       `${ok}/${marked} bien` + (agents.length ? ` en ${agents.join(', ')}` : ''),
     firstTime: 'primera vez',
+    ready_: (n: number) => `${n} forma${n === 1 ? '' : 's'} de trabajar lista${n === 1 ? '' : 's'}`,
+    trail: 'Trayectoria', show: 'Ver trayectoria', progress: (d: number, n: number) => `${d}/${n} pasos`,
+    loadedBy: 'coincidió', opened: 'abierta por el agente', newStep: 'nuevo', agents: 'Subagentes',
+    skills: 'Skills', adjust: 'Ajustar paso', saveNew: 'Guardar pasos nuevos', adjustPrefix: 'Athos · ajustar',
+    drafting: 'Todavía no hay know-how para esta tarea: sus pasos arman uno nuevo.',
+    waiting: 'Acá se ve la trayectoria de la próxima tarea.',
   },
 }
 export function words(s: Status | null) {
@@ -104,6 +119,38 @@ export function savedText(s: Status | null): string {
   return out.join(' · ')
 }
 
+export type TrailRow = { mark: string; text: string; tone: 'title' | 'done' | 'now' | 'ahead' | 'new' | 'note' }
+
+/** The trail as rows, the way a model's thinking reads: each piece with its steps (✓ done, ▶ now, ○ ahead), the
+ * steps the know-how lacks (+), then the subagents and skills used beside them, each with why. */
+export function trailRows(t: Trail | undefined, w: ReturnType<typeof words>): TrailRow[] {
+  const rows: TrailRow[] = []
+  for (const p of t?.pieces ?? []) {
+    const done = p.steps.filter(x => x.state === 'done').length
+    const how = p.how === 'read' ? w.opened : p.why.length ? `${w.loadedBy}: ${p.why.slice(0, 3).join(', ')}` : ''
+    rows.push({ mark: '', text: `«${p.title}» v${p.version} · ${w.progress(done, p.steps.length)}${how ? ` · ${how}` : ''}`,
+                tone: 'title' })
+    for (const x of p.steps)
+      rows.push({ mark: x.state === 'done' ? '✓' : x.state === 'now' ? '▶' : '○',
+                  text: x.state === 'now' && x.do ? `${x.id} — ${x.do}` : x.id, tone: x.state })
+  }
+  if (t?.new.length && !t.pieces.length) rows.push({ mark: '', text: w.drafting, tone: 'note' })
+  for (const n of t?.new ?? []) rows.push({ mark: '+', text: `${w.newStep}: ${n}`, tone: 'new' })
+  const agents = (t?.beside ?? []).flatMap(b => (b.kind === 'agent' ? [b.why ? `${b.name} (${b.why})` : b.name] : []))
+  const skills = (t?.beside ?? []).flatMap(b => (b.kind === 'skill' ? [b.name] : []))
+  if (agents.length) rows.push({ mark: '', text: `${w.agents}: ${agents.join(' · ')}`, tone: 'note' })
+  if (skills.length) rows.push({ mark: '', text: `${w.skills}: ${skills.join(' · ')}`, tone: 'note' })
+  return rows
+}
+
+/** The band's short form of the trail: the piece and how far the task is in it. */
+export function trailText(t: Trail | undefined, w: ReturnType<typeof words>): string | undefined {
+  const p = t?.pieces[0]
+  if (p) return `«${p.title}» · ${w.progress(p.steps.filter(x => x.state === 'done').length, p.steps.length)}`
+  if (t?.new.length) return `${w.newStep}: ${t.new[t.new.length - 1]}`
+  return undefined
+}
+
 const BAR_WIDTH = 20
 const BAR_COLORS: Record<string, string> = { 'claude-code': '#d38b5d', codex: '#6fa8dc', 'muse-code': '#9b8cf2' }
 
@@ -141,6 +188,21 @@ async function refresh($: EngineInterface): Promise<void> {
   }
 }
 
+let lastRefresh = 0
+
+/** While the task runs: look again at most every 1.5 s, and the first time a task has a trail, open its pane. */
+async function follow($: EngineInterface): Promise<void> {
+  if (Date.now() - lastRefresh < 1500) return
+  lastRefresh = Date.now()
+  await refresh($)
+  const t = (await read($, snap))?.trail
+  if (!t?.busy || !t.task_id || (await read($, paneFor)) === t.task_id) return
+  await update($, paneFor, () => t.task_id)
+  // Unasked, the engine seats it only on a wide terminal (beside the transcript in fullscreen); the band's
+  // [Show trail] opens it at any width.
+  void $.ui.open({ id: PANE, title: `athos · ${words(await read($, snap)).trail}` })
+}
+
 async function mark($: EngineInterface, key: 'g' | 'c' | 'f'): Promise<void> {
   try {
     $.ui.toast(`athos: ${await athos($, ['mark', key])}`)
@@ -159,9 +221,49 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     const done = await next(e)
-    void refresh($)
+    await update($, greeted, () => true)
+    lastRefresh = 0
+    void follow($)
     return done
   }).catch(($, e, next) => next(e))
+
+  // Each tool the agent runs may move the trail (a step, a subagent, a skill, a piece opened).
+  on('tool.call', async ($, e, next) => {
+    const ran = await next(e)
+    void follow($)
+    return ran
+  }).catch(($, e, next) => next(e))
+
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const s = await read($, snap)
+    const w = words(s)
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const t = s?.trail
+    const rows = trailRows(t, w)
+    const now = t?.pieces.flatMap(p => p.steps.filter(x => x.state === 'now').map(x => ({ piece: p.id, step: x.id })))[0]
+    const adjust = async () => {
+      if (now) await $.prompt.fill({ text: `${w.adjustPrefix} ${now.piece}#${now.step}: ` })
+    }
+    const keep = () => $.prompt.submit({ text: s!.save_prompt || 'Athos · save: keep this task as a way of working',
+                                         asUser: true })
+    return (
+      <Box flexDirection="column">
+        {!rows.length ? <Text dimColor>{w.waiting}</Text> : null}
+        {rows.map((r, i) => (
+          <Text key={String(i)} color={r.tone === 'now' ? 'cyan' : r.tone === 'new' ? 'yellow' : r.tone === 'done' ? 'green' : undefined}
+                dimColor={r.tone === 'ahead' || r.tone === 'note'} bold={r.tone === 'title'}>
+            {r.mark ? `  ${r.mark} ${r.text}` : r.text}
+          </Text>
+        ))}
+        {now || t?.new.length ? (
+          <Box>
+            {now ? <Button key="a" label={w.adjust} onPress={adjust} /> : null}
+            {t?.new.length ? <Button key="s" label={w.saveNew} onPress={keep} /> : null}
+          </Box>
+        ) : null}
+      </Box>
+    )
+  })
 
   // After each answer: the task ended and may have saved a piece, which the band above the prompt announces.
   on('turn.complete', async ($, e, next) => {
@@ -215,7 +317,27 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const s = await read($, snap)
     const last = s?.last
-    if (e.props.hasSurvey || !last || last.task_id === (await read($, dismissed))) return next(e)
+    if (e.props.hasSurvey) return next(e)
+    const w0 = words(s)
+    // Before the first request: a greeting and what is ready, the way Claude says hello.
+    const hello = s?.greeting && !last && !(await read($, greeted)) ? `${s.greeting} · ${w0.ready_(s.pieces)}` : undefined
+    // While a task walks know-how and its pane is not on screen: where it is, and a press to see it.
+    const trail = trailText(s?.trail, w0)
+    const shown = trail ? (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced) : true
+    const { Box: B0, Button: Bt0, Text: T0 } = $.ui.resolve(e)
+    const head = hello || (trail && !shown) ? (
+      <B0 flexDirection="column">
+        {hello ? <B0><T0 color="cyan">athos </T0><T0>{hello}</T0></B0> : null}
+        {trail && !shown ? (
+          <B0>
+            <T0 color="cyan">athos </T0>
+            <T0 dimColor>{`${trail} `}</T0>
+            <Bt0 key="t" label={w0.show} onPress={() => void $.ui.open({ id: PANE, title: `athos · ${w0.trail}` })} />
+          </B0>
+        ) : null}
+      </B0>
+    ) : null
+    if (!last || last.task_id === (await read($, dismissed))) return head ?? next(e)
     const unmarked = last.result === 'unevaluated'
     // The save is announced here and not under the answer: text a plugin adds there is drawn with an engine prefix.
     const savedNow = s?.last_saved && [...last.saved, ...last.improved].includes(s.last_saved.id)
@@ -226,7 +348,7 @@ export const register: Register = on => {
     // Which of the person's know-how this task loaded and why, with one key to say it didn't fit.
     const load = s?.loads?.[0]
     const why = load && (await read($, misfired)) !== `${last.task_id}:${load.id}` ? load : null
-    if (!unmarked && !saved && !offer && !why) return next(e)
+    if (!unmarked && !saved && !offer && !why) return head ?? next(e)
 
     const { Box, Button, Text } = $.ui.resolve(e)
     const hide = () => update($, dismissed, () => last.task_id)
@@ -247,10 +369,11 @@ export const register: Register = on => {
     const w = words(s)
     return (
       <Box flexDirection="column">
+        {head}
         {why ? (
           <Box>
-            <Text color="cyan">athos </Text>
-            <Text dimColor>{`${whyText(why, w)} `}</Text>
+            {/* One Text, so a narrow band (the trail pane docked beside it) wraps it without losing the space. */}
+            <Text><Text color="cyan">athos </Text><Text dimColor>{`${whyText(why, w)} `}</Text></Text>
             <Button key="x" label={w.didntApply} onPress={notIt} />
           </Box>
         ) : null}

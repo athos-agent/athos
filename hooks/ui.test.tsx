@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { announceText, barText, followingText, savedText, statusText, stepsText, whyText, words } from './ui'
+import { announceText, barText, followingText, savedText, statusText, stepsText, trailRows, trailText, whyText, words }
+  from './ui'
 
 const BAND = { plugin: 'athos', component: 'AbovePrompt', props: { hasSurvey: false } } as const
 
@@ -161,3 +162,75 @@ test('the "used" row keeps to one line: at most three matched words', () => {
     .toBe('used «Review a contract» · first time · matched: against, checklist, lease…')
 })
 
+
+const TRAIL = {
+  task_id: 't2',
+  pieces: [{ id: 'cut-a-release', title: 'Cut a release', version: 2, how: 'loaded', why: ['release'],
+             steps: [{ id: 'bump', do: 'bump the version', state: 'done' }, { id: 'tag', do: 'tag and push', state: 'now' },
+                     { id: 'notes', do: 'write the notes', state: 'ahead' }] }],
+  beside: [{ kind: 'agent', name: 'Explore', why: 'find the changelog' }, { kind: 'skill', name: 'pdf' }],
+  new: ['announce it'],
+  busy: true,
+}
+
+test('the trail reads like thinking: the piece, its steps done, now and ahead, the new ones, and what ran beside', () => {
+  const rows = trailRows(TRAIL as never, words({ lang: 'es' } as never))
+  expect(rows.map(r => `${r.mark}|${r.text}`)).toEqual([
+    '|«Cut a release» v2 · 1/3 pasos · coincidió: release',
+    '✓|bump',
+    '▶|tag — tag and push',
+    '○|notes',
+    '+|nuevo: announce it',
+    '|Subagentes: Explore (find the changelog)',
+    '|Skills: pdf',
+  ])
+  expect(trailText(TRAIL as never, words(null))).toBe('«Cut a release» · 1/3 steps')
+  expect(trailText({ ...TRAIL, pieces: [] } as never, words(null))).toBe('new: announce it')
+  expect(trailRows({ ...TRAIL, pieces: [] } as never, words(null))[0].text).toMatch(/No know-how for this task yet/)
+})
+
+test('the pane shows the trail and [Adjust step] puts the step in the prompt for the person to finish', async ($, on) => {
+  const status = { ...STATUS, last: null, trail: TRAIL }
+  const filled: string[] = []
+  on('session.root', () => ({ value: '/work' }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: JSON.stringify(status), stderr: '' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('prompt.fill', (_, e) => { filled.push((e as unknown as { text: string }).text); return { isFilled: true } })
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'athos', component: 'Pane', requestId: 'athos-trail', surface: 'terminal',
+                                props: { title: 'athos · Trail', isFocused: true, bodyColumns: 80, placement: 'dock' } } as never)
+  expect((await ui.find({ type: 'Text', text: /tag — tag and push/ }))?.text).toBeTruthy()
+  await ui.press({ key: 'a' })
+  expect(filled).toEqual(['Athos · adjust cut-a-release#tag: '])
+  await ui.unmount()
+})
+
+test('before the first request the band greets the person and says what is ready', async ($, on) => {
+  const status = { ...STATUS, last: null, greeting: 'Buen día, Ana', lang: 'es' }
+  on('session.root', () => ({ value: '/work' }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: JSON.stringify(status), stderr: '' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /Buen día, Ana · 3 formas de trabajar listas/ }))?.text).toBeTruthy()
+  await ui.unmount()
+})
+
+test('when the pane is not on screen, the band says where the task is and opens it with one press', async ($, on) => {
+  const status = { ...STATUS, last: null, trail: TRAIL }
+  const opened: string[] = []
+  on('session.root', () => ({ value: '/work' }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: JSON.stringify(status), stderr: '' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.panes', () => ({ value: [] }))
+  on('ui.open', (_, e) => { opened.push((e as unknown as { id: string }).id); return { value: { isPlaced: true } } })
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /«Cut a release» · 1\/3 steps/ }))?.text).toBeTruthy()
+  await ui.press({ key: 't' })
+  expect(opened).toEqual(['athos-trail'])
+  await ui.unmount()
+})

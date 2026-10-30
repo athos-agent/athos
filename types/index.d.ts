@@ -21,6 +21,10 @@ export type Status = {
   offer: { task_id: string; reason: 'work' | 'checklist' } | null
   /** The pieces this task loaded, with the request's words that loaded each one. */
   loads?: { id: string; title: string; why: string[]; record?: { uses: number; ok: number; marked: number; agents: string[] } }[]
+  /** The current task's trail: the know-how it walks, step by step, and what happened beside it. */
+  trail?: Trail
+  /** "Good morning, Ana": how the band greets the person when a session starts. */
+  greeting?: string
   /** What [Save] submits: the save, in the person's language. */
   save_prompt?: string
   last: {
@@ -30,6 +34,25 @@ export type Status = {
     saved: string[]
     improved: string[]
   } | null
+}
+
+/** What the trail pane draws (`athos status --json` → `trail`). */
+export type Trail = {
+  task_id: string | null
+  pieces: {
+    id: string
+    title: string
+    version: number
+    /** Loaded for the request, or opened by the agent on its own. */
+    how: 'loaded' | 'read'
+    why: string[]
+    steps: { id: string; do: string; state: 'done' | 'now' | 'ahead' }[]
+  }[]
+  /** Subagents and skills the task used, in order. */
+  beside: ({ kind: 'agent'; name: string; why: string } | { kind: 'skill'; name: string })[]
+  /** Steps the task needed that the know-how doesn't have yet. */
+  new: string[]
+  busy: boolean
 }
 
 /** One agent's row: how it applies the piece this project used last. */
@@ -46,6 +69,12 @@ export type Bar = {
 
 declare module 'claude-code' {
   interface PluginState {
-    athos: { snap: Status | null; dismissed: string | null; offered: string | null; misfired: string | null }
+    athos: {
+      snap: Status | null; dismissed: string | null; offered: string | null; misfired: string | null
+      /** The session has had its first request: the greeting is gone. */
+      greeted: boolean
+      /** The task whose trail the pane was opened for (once per task, unasked). */
+      paneFor: string | null
+    }
   }
 }

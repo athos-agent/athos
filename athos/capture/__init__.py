@@ -64,12 +64,16 @@ short line. Then either save exactly one piece by running:
 
 or, if nothing reusable came out of it, just stop. If a piece already loaded in this session covers the task, improve
 it (its `id:` and a `note:`) instead of creating a new one. Don't announce the save in your answer and don't print the
-piece: Athos itself shows the user one line with what was saved and where it is available."""
+piece: Athos itself shows the user one line with what was saved and where it is available.
+
+The person watches the task's trail in Athos's pane. When a task follows none of their know-how but takes several
+steps of real work, run `{cmd} step --new "<the step, in a few words, in the person's language>"` as you start each
+main step (not each action), so the way of working drafts itself as you go. Say nothing about it in your answer."""
 
 
 def guide(cmd: str = "athos") -> str:
     """The capture instructions, given once at session start (out of the user's sight) so the Stop hook can be short."""
-    return GUIDE.format(format=FORMAT.format(cmd=cmd))
+    return GUIDE.format(format=FORMAT.format(cmd=cmd), cmd=cmd)
 
 
 def origin_for(session_id: str, transcript_path: str | None = None) -> dict:
@@ -204,6 +208,18 @@ SAVE_PROMPT = {"en": "Athos · save: keep this task as a way of working",
 SAVE_CONTEXT = ("The person pressed [Save]: keep what the task that just ended taught as exactly one way of working, "
                 "with `{cmd} save` as the session guide says (improve the piece that task used, if it used one, with "
                 "its id and a note). Reply in one short line, in the person's language; Athos shows what was saved.")
+
+
+# [Adjust] on a step of the pane fills the prompt with this prefix and the step; the person writes the change.
+ADJUST_PREFIX = {"en": "Athos · adjust", "es": "Athos · ajustar"}
+ADJUST_CONTEXT = ("The person pressed [Adjust] on a step of their know-how and wrote how it should change. Improve that "
+                  "piece now with `{cmd} save` (its `id:` and a `note:` with the change), rewriting only that statement "
+                  "unless the change needs more; then go on with the task as changed. Reply in one short line, in the "
+                  "person's language.")
+
+
+def is_adjust_prompt(text: str) -> bool:
+    return (text or "").lstrip().startswith(tuple(ADJUST_PREFIX.values()))
 
 
 def is_save_prompt(text: str) -> bool:
