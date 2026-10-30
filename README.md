@@ -1,5 +1,7 @@
 # Athos
 
+![A musketeer walks out of the open gate of a tall tower onto a sunlit road, holding up an open notebook whose pages glow; a broken chain lies at the gate, and the road leads on to other towers, each with its gate open.](docs/athos-banner.jpg)
+
 Your AI know-how. Free to move, fast to run.
 
 **Ask as you always do. Claude follows *your* way of working, and you watch it, step by step.**
@@ -49,6 +51,11 @@ only in code: coding agents now do everyday work in any field, and a lawyer revi
 week teaches them just as much. That know-how gets stuck in one chat of one tool. Athos keeps it as plain files on your
 machine and carries it to every agent you use, **Claude Code, Codex, Meta's Muse Code and OpenCode**, so you never
 explain it twice. On your own tasks, it shows what each agent and model does with it.
+
+Athos is a musketeer: free, and on its own two feet. The idea behind it, freedom and autonomy for what you know, is
+very well told in this talk:
+
+[![Own Your Intelligence (YouTube)](https://img.youtube.com/vi/eRrc1pUY5oU/hqdefault.jpg)](https://www.youtube.com/watch?v=eRrc1pUY5oU)
 
 **Guides:** [Claude Desktop](docs/guides/claude-desktop-en.md) ([en español](docs/guides/claude-desktop.md)) · [for lawyers](docs/guides/lawyer.md) ([en español](docs/guides/abogado.md)) ·
 [for coaches](docs/guides/coach.md) ([en español](docs/guides/entrenador.md)) ·
