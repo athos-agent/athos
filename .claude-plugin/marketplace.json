@@ -12,7 +12,7 @@
       "name": "athos",
       "source": "./",
       "description": "Captures how you work with AI as plain markdown you own, improves it, and loads only what each task needs.",
-      "version": "0.1.66",
+      "version": "0.1.69",
       "category": "productivity"
     }
   ]
