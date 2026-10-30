@@ -18,7 +18,7 @@ computadora, y se las da a la IA la próxima vez, para que no tengas que repetir
    /plugin install athos --marketplace athos-agent/athos
    ```
    y reiniciá Claude Desktop cuando te lo pida.
-4. Pedile a Claude, con tus palabras: *«Corré `athos start --lang es --profile law`»* (o `--profile sports`, u
+4. Pedile a Claude, con tus palabras: *«Corré `athos start --lang es --profile law`»* (o `--profile sports`, `ops`, `journalism`, `science`, `finance`, u
    `other` para otra profesión). Eso agrega formas de trabajar de ejemplo de tu profesión y te dice cómo seguir.
 
 Athos necesita Python 3, que en una Mac se instala solo la primera vez que algo lo pide (aceptá la instalación de las
@@ -66,6 +66,10 @@ profesionales en tus manos y le piden a la IA que pregunte en vez de decidir.
 | Abogacía | Revisar un contrato con tu checklist (cláusula por cláusula, tabla de observaciones) |
 | Entrenamiento | Planificar la semana de entrenamiento con tus reglas (cargas calculadas con código, objetivo, días duros, descanso después de la tirada larga) |
 | Entrenamiento | Escribir el informe post partido en tu formato (números con su fuente, tres cosas bien y tres a corregir) |
+| Guardias de ingeniería | Atender un incidente en producción donde suelen estar las trampas (contener primero, qué cambió, evidencia, arreglo mínimo, postmortem sin culpas) |
+| Periodismo | Verificar una pista antes de publicarla (proteger la fuente, afirmaciones verificables, doble fuente independiente, fechas y vínculos, derecho a réplica) |
+| Ciencia | Analizar los datos de un experimento para que otro laboratorio pueda repetirlo (crudos intactos, reglas de limpieza escritas antes, un solo script, volver a correrlo desde cero) |
+| Finanzas y asesoría impositiva | Analizar una inversión con las reglas de tu comité; si cruza fronteras, su paso pasa a *Revisar el tratamiento fiscal entre países* |
 
 Reemplazalas por las tuyas: la mejor forma de trabajar es la que ya usás.
 
