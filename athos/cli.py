@@ -547,6 +547,19 @@ def cmd_step(args) -> int:
     return 0
 
 
+def cmd_desktop(args) -> int:
+    from athos import desktop
+    out = desktop.pack(Path(args.out) if args.out else desktop.ROOT / "dist" / "athos.mcpb")
+    from athos import start
+    if start.lang() == "es":
+        print(f"{out}\nAbrilo con doble clic (o arrastralo a Claude Desktop → Configuración → Extensiones). En el chat, "
+              f"Athos busca tu know-how para cada pedido y muestra su trayectoria en un panel.")
+    else:
+        print(f"{out}\nDouble-click it (or drag it into Claude Desktop → Settings → Extensions). In the chat, Athos "
+              f"finds your know-how for each request and shows its trail in a panel.")
+    return 0
+
+
 def cmd_start(args) -> int:
     from athos import start
     def pick(prompt: str, options: tuple, default: str) -> str:
@@ -663,6 +676,10 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("watch", help="a live panel of how each agent applies this project's know-how")
     s.add_argument("--once", action="store_true", help="print the panel once and exit")
     s.set_defaults(fn=lambda a: __import__("athos.watch", fromlist=["run"]).run(once=a.once))
+    s = sub.add_parser("desktop", help="build Athos as a Claude Desktop extension (.mcpb): the chat gets your "
+                                       "know-how and the trail panel")
+    s.add_argument("--out", help="where to write it (default dist/athos.mcpb in the Athos folder)")
+    s.set_defaults(fn=cmd_desktop)
     s = sub.add_parser("step", help="(for the agent) the step of your know-how it is on, shown in Athos's pane")
     s.add_argument("ref", nargs="?", help="<piece>#<statement>")
     s.add_argument("--new", help="a step the task needed that your know-how doesn't have yet")

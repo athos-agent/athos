@@ -204,16 +204,22 @@ whether to save or improve a piece, as in Claude Code. `athos opencode uninstall
 ### In Claude Desktop
 
 In the **Code** tab, Claude Desktop runs Claude Code with the same settings, so the plugin works as it is, including
-the lines under the prompt. For the regular **chat**, which takes MCP servers but not plugins, Athos serves your
-know-how over MCP: add it in Settings → Developer → Edit Config (`claude_desktop_config.json`), with the absolute path
-of the `athos` command (`command -v athos`, after `install.sh`):
+the trail pane beside the transcript. For the regular **chat**, which takes MCP servers but not plugins, install Athos
+as a Desktop extension: `athos desktop` builds `dist/athos.mcpb`; double-click it (or drag it into Settings →
+Extensions). It runs `athos mcp` against your own `~/.athos`.
+
+In the chat, Athos finds the know-how for each request (`athos_find`) and opens its **trail panel** in the
+conversation (MCP Apps): a greeting, the piece the task walks with each step ✓ done, ▶ now and ○ ahead as the model
+reports it (`athos_step`), the steps your know-how lacks, and two buttons: **Adjust step** (you write how the step
+changes; the piece is improved) and **Save new steps**. **Keep beside** pins the panel where the host allows it. In a
+chat without MCP Apps, the same tools answer as text.
+
+Without the extension, the server can also be added by hand in Settings → Developer → Edit Config
+(`claude_desktop_config.json`), with the absolute path of the `athos` command:
 
 ```json
 { "mcpServers": { "athos": { "command": "/Users/you/.local/bin/athos", "args": ["mcp"] } } }
 ```
-
-Restart Claude Desktop. The chat can then find the know-how for a request (`athos_find`, with the trajectory each piece
-starts), show and list pieces, and save what a conversation taught (`athos_save`), into the same `~/.athos`.
 
 ### Inside a project, for any agent
 
