@@ -163,6 +163,13 @@ def inject_text(pieces: list[store.Piece]) -> str:
                  f"(once per statement, not per action); if the task needs a step none of them has, run "
                  f"`athos step --new \"<the step, in a few words, in the person's language>\"`. Say nothing about it "
                  f"in your answer.\n")
+    # The person may be a lawyer or a coach, not the author of the piece's notes (2026-10-30, Claude Desktop: answers
+    # narrated tools, cited "piece v7" and pasted the piece's commands until told otherwise).
+    parts.append("**How to answer**: plainly, in the person's language, as a colleague who already knows how they work: "
+                 "do the task or answer the question directly. Don't narrate tools or say you are reading something; "
+                 "after the first line, don't mention Athos, pieces, ids, versions, or the dates, measurements and notes "
+                 "the piece keeps for you; give commands, paths or settings only when the person must act on them. "
+                 "Take from the piece only what this request needs.\n")
     # Last, so it is the freshest instruction: the person sees which of their know-how is applied, in every agent.
     parts.append(f"**The first line of your reply** names the way of working you follow and how it applies to this "
                  f"request, in the person's language, in this form: `Athos · «{first}»: <how it applies here, in a few "

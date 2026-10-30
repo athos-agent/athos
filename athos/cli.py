@@ -11,6 +11,7 @@
     athos import codex [--include-tmp] record Codex's past tasks from its session files (report does it too)
     athos revert <id>                  put back a piece's previous version
     athos watch                       a live panel: one bar per agent for this project's know-how (for Codex)
+    athos watch --web                 the trail panel as a local page, beside Muse Code, Codex or OpenCode
     athos export --muse [<folder>]    the same skills for Muse Code; `athos import muse` records its tasks
     athos delegate <id> "<request>"    run a task you have mastered on a small local model (Ollama), recorded as `local`
     athos delegate <id> "<request>" --backend meta   the same on Meta Model API (muse-spark-1.3), recorded as `meta`
@@ -679,7 +680,11 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=lambda a: __import__("athos.mcp", fromlist=["serve"]).serve())
     s = sub.add_parser("watch", help="a live panel of how each agent applies this project's know-how")
     s.add_argument("--once", action="store_true", help="print the panel once and exit")
-    s.set_defaults(fn=lambda a: __import__("athos.watch", fromlist=["run"]).run(once=a.once))
+    s.add_argument("--web", action="store_true", help="the trail panel as a local page, beside an agent without one")
+    s.add_argument("--port", type=int, default=8711)
+    s.add_argument("--no-open", action="store_true", help="don't open the browser")
+    s.set_defaults(fn=lambda a: __import__("athos.watch_web", fromlist=["serve"]).serve(port=a.port, open_browser=not a.no_open)
+                   if a.web else __import__("athos.watch", fromlist=["run"]).run(once=a.once))
     s = sub.add_parser("desktop", help="build Athos as a Claude Desktop extension (.mcpb): the chat gets your "
                                        "know-how and the trail panel")
     s.add_argument("--out", help="where to write it (default dist/athos.mcpb in the Athos folder)")
