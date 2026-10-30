@@ -80,6 +80,7 @@ from what was built during the event.
 - [#63](https://github.com/athos-agent/athos/pull/63) Connectors: a way of working asks for a service with `[[connector:<name>]]` (first one: pii-guard, which masks personal data before the model); Athos checks it on each request, tells the model to keep placeholders (or not to process client data when it's down), and the panels show it; `athos connector list|add|check|wire`; `athos watch --trail` shows the trail in a terminal beside Codex or Muse Code; the trail puts first the piece being followed (then by relevance), and agents type plain `athos` when the one on PATH is as new (0.1.59)
 - [#64](https://github.com/athos-agent/athos/pull/64) README: a Codex demo GIF (a lawyer's English lease review from a one-line request, `athos watch --trail` beside it ticking the checklist's steps); demo/codex-lawyer-en.tape
 - [#65](https://github.com/athos-agent/athos/pull/65) OpenCode: Athos's trail in OpenCode's own sidebar (a TUI plugin, compiled from opencode/athos-sidebar.tsx, installed by `athos opencode install` and listed in tui.json); agents type plain `athos` whenever the terminal's has `step`; checked that Codex 0.166's MCP client doesn't announce MCP Apps yet, so its panel stays beside it (0.1.60)
+- [#66](https://github.com/athos-agent/athos/pull/66) Connectors guide (en, es) and README: pii-guard as the first connector, checked live in OpenCode on Muse Spark (every personal value masked, answer restored, sidebar "🔒 data through pii-guard")
 
 ## Meta models used
 

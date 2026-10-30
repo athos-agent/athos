@@ -28,6 +28,12 @@ The answer is just the plan, with the coach's rules, and the decisions left to t
 *Codex (fictional lease). No word about Athos in the request: Codex opens with the way of working it follows, reports
 each step, and answers with the checklist's own table. Waits are hidden, not sped up.*
 
+**Connectors: when a way of working needs a service.** A step can ask for one with `[[connector:<name>]]`, and Athos
+checks it on every request and shows it in the panel. The first one is [pii-guard](https://github.com/watt-mind/pii-guard),
+which masks a client's personal data before the model and restores it in the answer: a lawyer's contract review in
+OpenCode on Muse Spark went through it with every name, email and account masked, and the sidebar said *🔒 data through
+pii-guard*. [How to use it](docs/guides/connectors.md) ([en español](docs/guides/conectores.md)).
+
 **In Claude Desktop:** `athos desktop` builds two files: double-click `athos.mcpb`, and upload `athos-skill.zip` in
 Customize → Skills. [Step by step](docs/guides/claude-desktop-en.md) ([en español](docs/guides/claude-desktop.md)).
 
