@@ -167,6 +167,8 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
     await refresh($)
+    // The Stop hook may still be writing the [Save] offer when the turn completes: look once more shortly after.
+    $.clock.after(2000, () => void refresh($))
     return done
   }).catch(($, e, next) => next(e))
 

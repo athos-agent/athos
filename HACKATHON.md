@@ -71,6 +71,7 @@ from what was built during the event.
 - [#54](https://github.com/athos-agent/athos/pull/54) [Save] sends one short line as the person's own words; the instruction goes in out of sight (0.1.43)
 - [#55](https://github.com/athos-agent/athos/pull/55) The band's "used" row keeps to one line; the lawyer takes press [Save] and give OpenCode the fictitious-data note (0.1.44)
 - [#56](https://github.com/athos-agent/athos/pull/56) The README GIF re-recorded with the band: which know-how was used and why, [Save], then OpenCode on Muse Spark
+- [#57](https://github.com/athos-agent/athos/pull/57) The band looks again 2 s after a turn ends, so the [Save] offer the Stop hook writes late is not missed (0.1.45)
 
 ## Meta models used
 
