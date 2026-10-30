@@ -39,3 +39,14 @@ class WatchWebTest(TempHome):
         from athos import load
         p = store.create("Cut a release", "cut a release", BODY, piece_id="release")
         self.assertIn("Don't narrate tools", load.inject_text([p]))
+
+    def test_the_trail_reads_in_a_terminal_too(self):
+        from athos import watch
+        store.create("Cut a release", "cut a release", BODY, piece_id="release")
+        cli._remember_session({"session_id": "m2", "cwd": self.home})
+        session.update("m2", task_id="t2", task_loaded=["release"], task_request="cut a release please",
+                       trail=[{"kind": "step", "piece": "release", "step": "bump", "done": False}])
+        text = watch.trail_frame(self.home, color=False)
+        self.assertIn("I'm following «Cut a release».", text)
+        self.assertIn("▶ Bump the version", text)
+        self.assertIn("○ Tag it", text)
