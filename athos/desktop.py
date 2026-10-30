@@ -83,6 +83,8 @@ def skill_description(pieces) -> str:
     return head + "; ".join(names) + tail
 
 
+# OpenCode also loads the skills Claude Desktop syncs to ~/.claude/skills: Muse Spark there read this skill's copy of
+# a piece to improve it, outside the workspace, instead of `athos show` (2026-10-30).
 def skill_text(pieces, carried=()) -> str:
     """SKILL.md: the person's tasks in the description; in the body, Athos first, and the ways of working the person
     chose to carry inside the skill, so Claude follows them even when it doesn't call the connector."""
@@ -115,6 +117,10 @@ report each step with `athos_step` as you apply it, and answer the way it says.
 
 If the Athos tool can't be reached, follow the matching way of working below anyway. Never mention Athos, this
 skill or files to the person: answer plainly, in their language, as a colleague who knows how they work.
+
+In an agent with a terminal (Claude Code, Codex, Muse Code, OpenCode), use the `athos` command instead: `athos show
+<id>` reads a way of working, `athos step` reports a step, `athos save` improves one. The files of this skill are a
+copy for the chat: never read them there, and never change them.
 {inside}'''
 
 
