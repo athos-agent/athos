@@ -5,6 +5,7 @@ editing claude_desktop_config.json."""
 from __future__ import annotations
 
 import json
+import re
 import zipfile
 from pathlib import Path
 
@@ -47,4 +48,66 @@ def pack(dest: Path) -> Path:
         for f in sorted((ROOT / "athos").rglob("*")):
             if f.is_file() and "__pycache__" not in f.parts and f.suffix != ".pyc":
                 z.write(f, str(f.relative_to(ROOT)))
+    return dest
+
+
+# ------------------------------------------------------------------------------------------------ the skill
+# Claude Desktop's chat keeps connector tools out of sight until the model searches for one, and a request like
+# "revisá este contrato" makes it search for nothing (2026-10-30: Athos was connected and never called). Skills are
+# listed in every conversation by name and description, so a skill that names the person's tasks brings Athos in.
+SKILL_NAME = "athos-know-how"
+DESCRIPTION_LIMIT = 1024
+DANGLING = set("a an the of for to in into on with and or by from its their your my "
+               "el la los las un una de del al con en y o por para según sin su sus tu tus mi mis".split())
+
+
+def skill_description(pieces) -> str:
+    """What makes Claude load the skill: the person's own tasks, most recently used first, as many as fit."""
+    head = ("The person's own ways of working, kept by Athos. Use it first, before answering, whenever the request is "
+            "one of their tasks: ")
+    tail = ". Also for any task of several steps they may have taught before."
+    names: list[str] = []
+    for p in sorted(pieces, key=lambda p: p.last_used or p.created or "", reverse=True):
+        # Short titles fit more tasks: no parentheses, at most a few words.
+        t = re.sub(r"\s*«[^»]*»", "", re.sub(r"\s*\([^)]*\)", "", p.title)).strip().rstrip(".")
+        if len(t) > 48:
+            words = t[:t.rfind(" ", 0, 48)].split()
+            while words and words[-1].lower() in DANGLING:     # never end on "for a", "según el", "con mis"
+                words.pop()
+            t = " ".join(words)
+        if t in names:
+            continue
+        if len(head) + len("; ".join(names + [t])) + len(tail) > DESCRIPTION_LIMIT:
+            continue
+        names.append(t)
+    return head + "; ".join(names) + tail
+
+
+def skill_text(pieces) -> str:
+    desc = skill_description(pieces).replace('"', "'")
+    return f'''---
+name: {SKILL_NAME}
+description: "{desc}"
+---
+
+# The person's ways of working (Athos)
+
+The person keeps how they like each kind of task done (their steps, criteria and checklists) in Athos, on their own
+computer. Athos is connected to this chat as the **Athos** connector.
+
+1. Before answering, call the Athos tool `athos_find` with the person's request, in their words. If the tool is not
+   loaded yet, search the tools for "athos". It returns the person's way of working for this request and opens a
+   panel where they watch the task, step by step.
+2. Follow what it returns, and do exactly what its result asks: report each step with `athos_step` as you apply it,
+   and answer the way it says.
+3. If Athos finds nothing, or is not connected, answer as you would, and say nothing about Athos.
+'''
+
+
+def pack_skill(dest: Path) -> Path:
+    """The skill as a .zip to upload once in Claude Desktop (Customize → Skills); built again when the know-how grows."""
+    from athos import store
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(f"{SKILL_NAME}/SKILL.md", skill_text(store.all_pieces()))
     return dest

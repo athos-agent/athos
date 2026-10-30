@@ -111,3 +111,18 @@ class DesktopTest(TempHome):
         self.assertIn("athos_step with `step`", text)
         self.assertIn("Don't narrate tools", text)
         self.assertIn("release#tag", m.call("athos_find", {"request": "release greet 0.3.0"}))
+
+    def test_the_skill_names_the_persons_tasks_and_calls_athos(self):
+        import zipfile
+        from pathlib import Path
+        from athos import desktop
+        store.create("Revisar un contrato con tu checklist", "revisar un contrato", BODY, piece_id="contrato")
+        out = desktop.pack_skill(Path(self.home) / "athos-skill.zip")
+        text = zipfile.ZipFile(out).read("athos-know-how/SKILL.md").decode()
+        meta = store.parse_frontmatter(text)[0]
+        self.assertEqual(meta["name"], "athos-know-how")
+        self.assertIn("Revisar un contrato con tu checklist", meta["description"])
+        self.assertLessEqual(len(meta["description"]), 1024)
+        self.assertIn("athos_find", text)
+        many = [store.Piece(id=f"p{i}", title="x" * 60, when="w", body="b") for i in range(40)]
+        self.assertLessEqual(len(desktop.skill_description(many)), 1024)

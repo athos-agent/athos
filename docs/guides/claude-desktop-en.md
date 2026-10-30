@@ -28,6 +28,11 @@ Athos server.
 2. Check that **Athos** is enabled in **Settings → Extensions**.
 3. Open a **new chat**. Chats that were already open don't see the extension.
 
+4. Upload the **skill** `athos-skill.zip` (it comes with `athos.mcpb`; `athos desktop` builds both) in Claude Desktop →
+   **Customize → Skills**. Without it, Claude uses Athos only when you name it: in the chat, extension tools stay out
+   of sight until the model searches for them, and a request like *"review this contract"* makes it search for
+   nothing. The skill tells it what your tasks are. Upload it again when you save new ways of working.
+
 To uninstall, disable or remove it in **Settings → Extensions**. Your know-how stays in `~/.athos`.
 
 ## 3. Your first way of working

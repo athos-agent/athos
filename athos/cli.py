@@ -550,13 +550,16 @@ def cmd_step(args) -> int:
 def cmd_desktop(args) -> int:
     from athos import desktop
     out = desktop.pack(Path(args.out) if args.out else desktop.ROOT / "dist" / "athos.mcpb")
+    skill = desktop.pack_skill(out.with_name("athos-skill.zip"))
     from athos import start
     if start.lang() == "es":
-        print(f"{out}\nAbrilo con doble clic (o arrastralo a Claude Desktop → Configuración → Extensiones). En el chat, "
-              f"Athos busca tu know-how para cada pedido y muestra su trayectoria en un panel.")
+        print(f"{out}\n{skill}\n1. Abrí {out.name} con doble clic (o arrastralo a Claude Desktop → Configuración → "
+              f"Extensiones).\n2. Subí {skill.name} en Claude Desktop → Personalizar → Skills, para que Claude use tus "
+              f"formas de trabajar sin que se lo pidas. Volvé a subirla cuando guardes formas de trabajar nuevas.")
     else:
-        print(f"{out}\nDouble-click it (or drag it into Claude Desktop → Settings → Extensions). In the chat, Athos "
-              f"finds your know-how for each request and shows its trail in a panel.")
+        print(f"{out}\n{skill}\n1. Double-click {out.name} (or drag it into Claude Desktop → Settings → Extensions)."
+              f"\n2. Upload {skill.name} in Claude Desktop → Customize → Skills, so Claude uses your ways of working "
+              f"without being asked. Upload it again when you save new ways of working.")
     return 0
 
 
