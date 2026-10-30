@@ -95,9 +95,12 @@ def tools() -> list[dict]:
 def panel(session_id: str = SESSION) -> dict:
     """What the panel draws, as the structured result of the tools that move it."""
     from athos import start
-    lang = start.lang()
+    state = session.load(session_id)
+    # The language of this request, not a preference seen elsewhere: a Spanish request got an English panel when
+    # another agent had last seen English (2026-10-30).
+    lang = (start.detect(state.get("task_request", "")) if not start.config().get("lang") else None) or start.lang()
     return {"lang": lang, "greeting": trail.greeting(lang), "pieces": len(store.all_pieces()),
-            "trail": trail.view(session.load(session_id)),
+            "trail": trail.view(state),
             "save_prompt": capture.SAVE_PROMPT["es" if lang == "es" else "en"],
             "adjust_prefix": capture.ADJUST_PREFIX["es" if lang == "es" else "en"]}
 

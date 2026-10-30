@@ -140,3 +140,9 @@ class DesktopTest(TempHome):
         self.assertNotIn("Private thing", text)                      # the description names only what it carries
         self.assertIn("required, not optional", text)
         self.assertNotIn("secret", "".join(z.read(n).decode() for n in z.namelist()))
+
+    def test_the_panel_follows_the_language_of_this_request(self):
+        from athos import mcp as m, start
+        start.config_file().write_text('{"lang_seen": "en"}')
+        m.call("athos_find", {"request": "Revisá este contrato de locación antes de que mi cliente lo firme"})
+        self.assertEqual(m.panel()["lang"], "es")
