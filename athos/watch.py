@@ -84,3 +84,53 @@ def run(cwd: str | None = None, interval: float = 2.0, once: bool = False) -> in
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
         sys.stdout.write(RESET + "\n")
+
+
+# ------------------------------------------------------------------------------------------------ the trail, in text
+def trail_frame(cwd: str | None = None, color: bool = True, width: int = 72) -> str:
+    """The trail panel as text, for a terminal beside an agent: the reasoning in sentences, then the way of working
+    with its steps ticked (✓ done, ▶ now, ○ ahead). The same data as the Desktop panel and `athos watch --web`."""
+    import textwrap
+    from athos import cli, mcp
+    c = (lambda code, s: f"\x1b[{code}m{s}{RESET}") if color else (lambda code, s: s)
+    sid = cli._current_session(os.path.realpath(cwd or os.getcwd())).get("session_id")
+    p = mcp.panel(sid or "__none__")
+    es = p["lang"] == "es"
+    t = p["trail"]
+    out = [c("38;5;173;1", "ATHOS") + "  " + c("2", p["greeting"]), ""]
+    piece = t["pieces"][0] if t["pieces"] else None
+    if not piece:
+        out.append(c("2", "  Acá se ve la trayectoria de la próxima tarea." if es else "  The next task's trail shows here."))
+        return "\n".join(out)
+    steps = piece["steps"]
+    i = next((k for k, s in enumerate(steps) if s["state"] == "now"), -1)
+    done = sum(s["state"] == "done" for s in steps)
+    think = [("Sigo «%s»." if es else "I'm following «%s».") % piece["title"]]
+    if i >= 0:
+        think.append(("Paso %d de %d: %s." if es else "Step %d of %d: %s.") % (i + 1, len(steps), steps[i]["label"][0].lower() + steps[i]["label"][1:]))
+    elif done == len(steps):
+        think.append(("Apliqué los %d pasos." if es else "All %d steps applied.") % done)
+    for k in t.get("connectors") or []:
+        think.append(("🔒 Los datos personales pasan por %s." if es else "🔒 Personal data goes through %s.") % k["name"] if k["active"]
+                     else ("⚠ %s no está activo: sin datos de clientes." if es else "⚠ %s is not running: no client data.") % k["name"])
+    out.append(c("2", "  ▾ " + ("Cómo lo estoy resolviendo" if es else "How I am going about it")))
+    for line in think:
+        out += [c("2", "    " + w) for w in textwrap.wrap(line, width - 4)]
+    out += ["", c("1", "  " + piece["title"]), c("2", "  " + ("PASOS" if es else "STEPS"))]
+    for s in steps:
+        mark, tone = {"done": ("✓", "38;5;71"), "now": ("▶", "38;5;173;1"), "ahead": ("○", "2")}[s["state"]]
+        label = textwrap.shorten(s["label"], width - 8, placeholder="…")
+        out.append("  " + c(tone, f"{mark} {label}"))
+    for n in t["new"]:
+        out.append("  " + c("38;5;179", "+ " + textwrap.shorten(n, width - 8, placeholder="…")))
+    return "\n".join(out)
+
+
+def run_trail(cwd: str | None = None) -> int:
+    try:
+        while True:
+            sys.stdout.write(CLEAR + trail_frame(cwd) + "\n")
+            sys.stdout.flush()
+            time.sleep(1)
+    except KeyboardInterrupt:
+        return 0

@@ -144,8 +144,11 @@ def view(state: dict) -> dict:
     them, and the steps that were new."""
     from athos import eval as ev, wiki
     trail = state.get("trail") or []
+    # The piece the agent reports steps of comes first, then the others by relevance (task_why keeps the ranking;
+    # task_loaded is sorted by name, and put an unrelated piece first on screen, 2026-10-30).
     order: list[str] = []
-    for pid in list(state.get("task_loaded") or []) + [x["piece"] for x in trail if x.get("piece")]:
+    for pid in ([x["piece"] for x in trail if x.get("kind") == "step"] + list(state.get("task_why") or {})
+                + list(state.get("task_loaded") or []) + [x["piece"] for x in trail if x.get("piece")]):
         if pid not in order:
             order.append(pid)
     why = state.get("task_why") or {}
@@ -167,6 +170,8 @@ def view(state: dict) -> dict:
     beside = [{k: v for k, v in x.items() if k != "t"} for x in trail if x["kind"] in ("agent", "skill")]
     new = [x["text"] for x in trail if x["kind"] == "new"]
     return {"task_id": state.get("task_id"), "request": state.get("task_request", ""), "pieces": pieces,
+            "connectors": [{k: c.get(k) for k in ("name", "what", "active", "set_up", "start")}
+                           for c in state.get("task_connectors") or []],
             "beside": beside, "new": new, "busy": bool(trail) or bool(pieces)}
 
 

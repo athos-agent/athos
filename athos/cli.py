@@ -34,6 +34,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -63,7 +64,21 @@ def _runs_me(path: str) -> bool:
             head = fh.read(2000)
     except OSError:
         return False
-    return str(ME) in head or os.path.realpath(ME) in head
+    if str(ME) in head or os.path.realpath(ME) in head:
+        return True
+    # Another installation at least as new as this one has every command this one asks for: plain `athos` keeps the
+    # person's user name out of every command line on screen.
+    target = re.search(r'"([^"]+/bin/athos)"', head)
+    root = Path(target.group(1)).parents[1] if target else Path(os.path.realpath(path)).parents[1]
+    return _version(root) >= _version(ME.parents[1]) > (0,)
+
+
+def _version(root: Path) -> tuple:
+    try:
+        v = json.loads((root / ".claude-plugin" / "plugin.json").read_text())["version"]
+        return tuple(int(x) for x in v.split("."))
+    except (OSError, ValueError, KeyError):
+        return (0,)
 
 
 # ------------------------------------------------------------------------------------- which session a shell is in
@@ -569,6 +584,38 @@ def cmd_step(args) -> int:
     return 0
 
 
+def cmd_connector(args) -> int:
+    """Connectors a way of working can ask for ([[connector:<name>]]): list them, add one from a template, check it,
+    or print how to wire an agent through it. Athos never starts a service: the person runs it."""
+    from athos import connectors
+    if args.action == "add":
+        f = connectors.add(args.name)
+        c = connectors.parse(f.read_text())
+        print(f"{f}\nStart it in its own terminal:\n  {c.start}")
+        return 0
+    if args.action == "check":
+        c = connectors.get(args.name)
+        if not c:
+            print(f"no connector {args.name} (athos connector add {args.name})")
+            return 1
+        ok = connectors.active(c)
+        print(f"{c.name}: {'active' if ok else 'not running'}" + ("" if ok else f"\nStart it: {c.start}"))
+        return 0 if ok else 1
+    if args.action == "wire":
+        c = connectors.get(args.name)
+        if not c or args.agent not in c.wire:
+            known = ", ".join(c.wire) if c else ""
+            print(f"no wiring for {args.agent} in {args.name}" + (f" (known: {known})" if known else ""))
+            return 1
+        print(c.wire[args.agent])
+        return 0
+    for c in connectors.all_connectors():
+        print(f"{c.name:<14} {c.kind:<8} {'active' if connectors.active(c) else 'not running':<12} {c.what}")
+    if not connectors.all_connectors():
+        print(f"no connectors yet; available templates: {', '.join(connectors.TEMPLATES)} (athos connector add <name>)")
+    return 0
+
+
 def cmd_desktop(args) -> int:
     from athos import desktop
     out = desktop.pack(Path(args.out) if args.out else desktop.ROOT / "dist" / "athos.mcpb")
@@ -704,8 +751,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--web", action="store_true", help="the trail panel as a local page, beside an agent without one")
     s.add_argument("--port", type=int, default=8711)
     s.add_argument("--no-open", action="store_true", help="don't open the browser")
+    s.add_argument("--trail", action="store_true", help="the trail panel as text, in a terminal beside the agent")
     s.set_defaults(fn=lambda a: __import__("athos.watch_web", fromlist=["serve"]).serve(port=a.port, open_browser=not a.no_open)
-                   if a.web else __import__("athos.watch", fromlist=["run"]).run(once=a.once))
+                   if a.web else (__import__("athos.watch", fromlist=["run_trail"]).run_trail() if a.trail
+                                  else __import__("athos.watch", fromlist=["run"]).run(once=a.once)))
+    s = sub.add_parser("connector", help="services a way of working can ask for, e.g. pii-guard (list, add, check, wire)")
+    s.add_argument("action", nargs="?", default="list", choices=["list", "add", "check", "wire"])
+    s.add_argument("name", nargs="?")
+    s.add_argument("agent", nargs="?", help="for wire: opencode, codex, muse-code, claude-code")
+    s.set_defaults(fn=cmd_connector)
     s = sub.add_parser("desktop", help="build Athos as a Claude Desktop extension (.mcpb): the chat gets your "
                                        "know-how and the trail panel")
     s.add_argument("--out", help="where to write it (default dist/athos.mcpb in the Athos folder)")

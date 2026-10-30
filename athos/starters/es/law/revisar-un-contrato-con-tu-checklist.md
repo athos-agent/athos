@@ -6,7 +6,7 @@ when: revisar, comparar o comentar un contrato (locación, servicios, compravent
 
 ## #datos_fuera
 **When:** antes de pegar o abrir el contrato.
-**Do:** confirmar con la persona si el contrato tiene datos de clientes que no deben salir de su máquina; si los tiene, proponer anonimizar nombres y montos o usar un modelo local (`athos delegate` con Ollama).
+**Do:** confirmar con la persona si el contrato tiene datos de clientes que no deben salir de su máquina; si los tiene, proponer anonimizar nombres y montos, pasar la tarea por [[connector:pii-guard]] (enmascara los datos personales antes del modelo) o usar un modelo local (`athos delegate` con Ollama).
 **Because:** el modelo en la nube ve todo lo que se le muestra; el secreto profesional es de la persona.
 **Links:** [[revisar-un-contrato-con-tu-checklist#partes_y_objeto]]
 

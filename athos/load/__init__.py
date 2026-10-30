@@ -199,7 +199,21 @@ def on_prompt(event: dict, cmd: str = "athos") -> str:
     if found:
         session.update(event.get("session_id", "default"), task_why={p.id: why(prompt, p) for p in found})
     mark_loaded(event.get("session_id", "default"), [p.id for p in found])
-    return inject_text(found, cmd)
+    text = inject_text(found, cmd)
+    conn = note_connectors(event.get("session_id", "default"), found, cmd)
+    return text + ("\n" + conn + "\n" if conn else "")
+
+
+def note_connectors(session_id: str, pieces: list[store.Piece], cmd: str = "athos") -> str:
+    """The connectors the loaded pieces ask for ([[connector:<name>]]): checked now, kept for the panel, and told
+    to the model."""
+    from athos import connectors
+    states = connectors.status(pieces)
+    session.update(session_id, task_connectors=states)
+    for s in states:
+        ev.append({"type": "connector", "session_id": session_id, "name": s["name"], "active": s["active"],
+                   "at": ev._iso(ev.now())})
+    return connectors.model_text(states, cmd)
 
 
 def on_session_start(event: dict, cmd: str = "athos") -> str:
