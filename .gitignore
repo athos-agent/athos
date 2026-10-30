@@ -31,3 +31,4 @@ METRICS.md
 .env.*
 demo/*.gif
 !demo/athos-claude-to-codex.gif
+!demo/codex-lawyer-en.gif
