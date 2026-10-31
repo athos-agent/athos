@@ -117,6 +117,16 @@ failed in the last week, and the older tasks counted per way of working. `athos 
 It is read from the task log Athos already keeps on your machine; nothing new is stored, and another project's past
 never shows up in this one.
 
+### Curating: tidy the memory as it grows
+
+`athos curate` lists what is worth tidying, found from your pages and your task log: a page used in a project it
+isn't tagged with (per-project loading would leave it out there), a page unused for 45 days (one that another page
+calls is never proposed), two pages that look like the same way of working, links to pages or steps that don't
+exist, and work that keeps coming back in a project with no page for it. `athos curate apply <n>...` does the
+mechanical ones: tag the page with the project (a new version) or move it to `~/.athos/archive/` (it no longer
+loads; `athos curate restore <id>` brings it back). The rest are for you to act on. Nothing changes until you say
+which.
+
 ### The library
 
 `athos library [--port N] [--no-open]` opens every way of working you have as one page on `127.0.0.1` (default port
