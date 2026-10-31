@@ -193,11 +193,26 @@ def view(state: dict) -> dict:
         pieces.append({"id": pid, "title": p.title, "version": p.version, "when": p.when[:600], "how": how,
                        "why": why.get(pid, []), "record": ev.record(pid, tasks), "see": see, "steps": steps})
     beside = [{k: v for k, v in x.items() if k != "t"} for x in trail if x["kind"] in ("agent", "skill")]
+    # Files the person edited by hand after the agent wrote them (athos/edits.py): the agent proposed a rule in the
+    # answer; [Keep this rule] sends the request that saves it in its step, so nobody has to type it.
+    learned = state.get("learned_from_edit") or {}
+    edits = [{**f, "keep": keep_rule_prompt(f)} for f in learned.get("files") or []
+             if learned.get("task_id") == state.get("task_id")]
     new = [x["text"] for x in trail if x["kind"] == "new"]
     return {"task_id": state.get("task_id"), "request": state.get("task_request", ""), "pieces": pieces,
             "connectors": [{k: c.get(k) for k in ("name", "what", "active", "set_up", "start")}
                            for c in state.get("task_connectors") or []],
-            "beside": beside, "new": new, "busy": bool(trail) or bool(pieces)}
+            "beside": beside, "new": new, "edits": edits, "busy": bool(trail) or bool(pieces)}
+
+
+def keep_rule_prompt(f: dict) -> str:
+    """What [Keep this rule] sends: an adjust request for the step the edit belongs to, in the person's language."""
+    from athos import capture, start
+    es = start.lang() == "es"
+    ref = f"{f['piece']}#{f['statement']}" if f.get("statement") else f["piece"]
+    what = (f"guardá la regla que propusiste por mi edición de {f['name']}" if es
+            else f"keep the rule you proposed from my edit of {f['name']}")
+    return f"{capture.ADJUST_PREFIX['es' if es else 'en']} {ref}: {what}"
 
 
 # ------------------------------------------------------------------------------------------------ the greeting

@@ -123,6 +123,11 @@ def trail_frame(cwd: str | None = None, color: bool = True, width: int = 72) -> 
         out.append("  " + c(tone, f"{mark} {label}"))
     for n in t["new"]:
         out.append("  " + c("38;5;179", "+ " + textwrap.shorten(n, width - 8, placeholder="…")))
+    # No buttons here (Codex, Muse Code): the agent asked in its answer, and a plain "yes" keeps the rule.
+    for x in t.get("edits") or []:
+        line = (f"✎ Editaste {x['name']}: respondé «sí» para guardar la regla" if es
+                else f"✎ You edited {x['name']}: answer \"yes\" to keep the rule")
+        out.append("  " + c("38;5;179", textwrap.shorten(line, width - 4, placeholder="…")))
     return "\n".join(out)
 
 

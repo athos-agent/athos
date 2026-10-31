@@ -147,6 +147,9 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
                 return 0
             if capture.is_adjust_prompt(event.get("prompt", "")):
                 # The person pressed [Adjust] on a step of the pane and wrote the change: it improves that piece.
+                # [Keep this rule] is an adjust too: the edit it names is kept, and its button goes away.
+                if event.get("session_id"):
+                    _quietly(edits.kept, event["session_id"], event.get("prompt", ""))
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                                          "additionalContext": capture.ADJUST_CONTEXT.format(cmd=_cmd())}}))
                 return 0

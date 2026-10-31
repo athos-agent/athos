@@ -93,6 +93,7 @@ from what was built during the event.
 - [#76](https://github.com/athos-agent/athos/pull/76) Guilds: `athos export --guild` shares a way of working with per-step counts of how its tasks went (no request text), and `athos merge` (or `athos_merge` in Claude Desktop) merges colleagues' versions into one team version: the best-rated text of each step, steps that led to corrections dropped, a dry run first (0.1.70)
 - [#77](https://github.com/athos-agent/athos/pull/77) Per-step models: a step can say `**Model:** local | meta | ollama:<m> | meta:<m>`; `athos delegate --by-step` runs each step on its model and ticks it on the trail, and `athos route` suggests the cheapest model that never led to a correction at each step, from your own marks (0.1.71)
 - [#78](https://github.com/athos-agent/athos/pull/78) Your marked tasks become cases: corrected ones are regression tests (`athos test` re-checks them after you change a way of working), approved ones feed shadow benchmarking (`athos shadow`, opt-in in the background, local by default), and when a cheaper model matches 9 of your last 10 approved tasks Athos offers to hand the work to it (0.1.72)
+- [#79](https://github.com/athos-agent/athos/pull/79) **Keep this rule**: when you edit by hand a file the agent wrote, the panels offer a button that saves the rule the agent proposed (Claude Code's pane, the Desktop panel, OpenCode's palette and sidebar; `athos watch --trail` in Codex and Muse Code) (0.1.73)
 
 ## Meta models used
 

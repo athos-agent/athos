@@ -1,8 +1,8 @@
 // Athos's trail in OpenCode's own sidebar: which of the person's ways of working the task follows, in a sentence,
 // then its steps ticked as the agent reports them (✓ done, ▶ now, ○ ahead), and whether a connector guards the data.
 // The same data as Claude Desktop's panel and `athos watch --trail`, read from `athos status --json`.
-// Its two buttons are commands in OpenCode's palette (ctrl+p): "Athos: change this step" and "Athos: save as a way of
-// working". Each sends the same message as Desktop's panel to the session, so nobody has to type a command.
+// Its buttons are commands in OpenCode's palette (ctrl+p): "Athos: change this step", "Athos: save as a way of
+// working" and "Athos: keep the rule from my edit". Each sends the same message as Desktop's panel to the session, so nobody has to type a command.
 //
 // OpenCode loads plugins without Solid's JSX transform, so this file is compiled once to athos-sidebar.js
 // (`node opencode/build-sidebar.mjs`) and `athos opencode install` installs the compiled file.
@@ -13,11 +13,13 @@ const ATHOS = process.env.ATHOS_BIN || "__ATHOS__"
 const POLL_MS = 1500
 
 type Step = { id: string; label: string; state: "done" | "now" | "ahead"; piece?: string }
+// A file the person edited by hand after the agent wrote it; `keep` is the request that saves its rule.
+type Edit = { name: string; keep: string }
 type Piece = { id: string; title: string; steps: Step[] }
 type Status = {
   lang?: string
   save_prompt?: string
-  trail?: { pieces: Piece[]; new: string[]; connectors?: { name: string; active: boolean }[] }
+  trail?: { pieces: Piece[]; new: string[]; connectors?: { name: string; active: boolean }[]; edits?: Edit[] }
 }
 
 function read(cwd: string): Promise<Status> {
@@ -75,6 +77,16 @@ export const tui = async (api: any) => {
       />
     ))
   }
+  const keepRule = () => {
+    const s = status()
+    const edit = s.trail?.edits?.[0]
+    if (!edit) {
+      api.ui.toast({ variant: "info", message: s.lang === "es" ? "Athos: no hay ninguna edición tuya para guardar"
+                                                               : "Athos: there is no edit of yours to keep" })
+      return
+    }
+    say(edit.keep)
+  }
   const save = () => {
     const s = status()
     say(s.save_prompt || "Athos · save: keep this task as a way of working")
@@ -89,6 +101,8 @@ export const tui = async (api: any) => {
           category: "Athos", onSelect: change },
         { title: es ? "Athos: guardar como forma de trabajar" : "Athos: save as a way of working", value: "athos.save",
           category: "Athos", onSelect: save },
+        { title: es ? "Athos: guardar la regla de mi edición" : "Athos: keep the rule from my edit",
+          value: "athos.keep_rule", category: "Athos", onSelect: keepRule },
       ]
     })
     api.lifecycle.onDispose(off)
@@ -125,6 +139,9 @@ export const tui = async (api: any) => {
               </text>
             ))}
             {(s.trail?.new || []).map((n) => <text fg={t.warning}>{"+ " + n}</text>)}
+            {(s.trail?.edits || []).map((x) => (
+              <text fg={t.warning}>{(es ? "✎ Editaste " : "✎ You edited ") + x.name + (es ? ": ctrl+p guarda la regla" : ": ctrl+p keeps the rule")}</text>
+            ))}
           </box>
         )
       },

@@ -107,6 +107,7 @@ const WORDS = {
     nothing: "I found no way of working for this yet. If the task takes several steps, I'll note them so you can keep it.",
     steps: 'Steps', now: 'now', why: 'Why', when: 'When', adjust: 'Change this step', send: 'Send',
     how: 'How should this step change?', newSteps: 'New steps', saveNew: 'Save as a way of working',
+    edited: n => `You edited ${n} after the agent wrote it: a rule to keep?`, keepRule: 'Keep this rule',
     see: 'See also', show: t => `Show me the way of working «${t}»`, version: v => `version ${v}`,
     foot: 'Your know-how, in ~/.athos on this computer.', waiting: 'The next task shows here.',
     pip: 'Keep beside', full: 'Full screen', for: 'For',
@@ -127,6 +128,7 @@ const WORDS = {
     nothing: 'No encontré una forma de trabajar para esto. Si la tarea tiene varios pasos, los anoto para que la puedas guardar.',
     steps: 'Pasos', now: 'ahora', why: 'Por qué', when: 'Cuándo', adjust: 'Cambiar este paso', send: 'Enviar',
     how: '¿Cómo tiene que cambiar este paso?', newSteps: 'Pasos nuevos', saveNew: 'Guardar como forma de trabajar',
+    edited: n => `Editaste ${n} después del agente: ¿guardo la regla?`, keepRule: 'Guardar esta regla',
     see: 'Ver también', show: t => `Mostrame la forma de trabajar «${t}»`, version: v => `versión ${v}`,
     foot: 'Tu know-how, en ~/.athos en esta computadora.', waiting: 'Acá se ve la próxima tarea.',
     pip: 'Fijar al costado', full: 'Pantalla completa', for: 'Para',
@@ -243,6 +245,9 @@ function draw() {
       `<li class="new"><details><summary><span class="box">+</span><span class="label">${md(n)}</span></summary></details></li>`).join('') +
       `</ol><div class="row"><button id="save">${esc(W.saveNew)}</button></div>`;
   }
+  // A file the person edited by hand after the agent wrote it: the agent proposed the rule; one click keeps it.
+  for (const x of t.edits || [])
+    html += `<div class="row"><span>✎ ${esc(W.edited(x.name))}</span><button data-keep="${esc(x.keep)}">${esc(W.keepRule)}</button></div>`;
   if (!p && !t.new.length && !state.trail.task_id) html = `<p class="empty">${esc(W.waiting)}</p>`;
   $('page').innerHTML = html;
 
@@ -271,6 +276,7 @@ document.addEventListener('click', e => {
   if (b.dataset.adjust) { editing = b.dataset.adjust; open.add(editing); draw(); }
   else if (b.dataset.send) adjustSend(b.dataset.send);
   else if (b.dataset.show) say(w().show(b.dataset.show));
+  else if (b.dataset.keep) say(b.dataset.keep);
   else if (b.id === 'save') say(state.save_prompt);
   else if (b.id === 'pip') mode('pip');
   else if (b.id === 'full') mode('fullscreen');

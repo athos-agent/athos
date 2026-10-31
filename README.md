@@ -154,8 +154,9 @@ No commands. You talk to the agent as you always do, in your own language.
    and the panel (Claude Desktop, Claude Code), the sidebar (OpenCode) or the trail beside the agent ticks its steps
    as they are done.
 3. **Change it when you need to.** Press **Change this step** and write what changes, or simply say it: *"from now on,
-   add a column with the legal basis"*. Your way of working is improved and kept for next time. A task that needed new
-   steps offers **Save as a way of working** again.
+   add a column with the legal basis"*. Your way of working is improved and kept for next time. If you fix by hand a
+   file the agent wrote, it notices and proposes the rule: press **Keep this rule**. A task that needed new steps
+   offers **Save as a way of working** again.
 4. **Say how it went.** In the coding agents, *"great, thanks"* marks the task good and a correction marks it
    corrected. If a way of working didn't fit the request, press **Didn't apply** and it won't load for those words
    again.

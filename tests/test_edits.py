@@ -76,6 +76,9 @@ class EditsTest(TempHome):
         self.assertEqual(st["learned_from_edit"][0]["name"], "report.md")
         self.assertEqual(st["learned_from_edit"][0]["adjust_prompt"],
                          "Athos · adjust review-a-services-contract#penalties: ")
+        # The panels' [Keep this rule]: the request it sends, then gone once sent.
+        keep = "Athos · adjust review-a-services-contract#penalties: keep the rule you proposed from my edit of report.md"
+        self.assertEqual([x["keep"] for x in st["trail"]["edits"]], [keep])
         self.assertEqual(self.snapshots(), [])
         self.assertFalse((Path(self.home) / "snapshots" / "s1").exists())       # deleted after use
         evs = [json.loads(x) for x in (Path(self.home) / "events.jsonl").read_text().splitlines()]
@@ -147,3 +150,14 @@ class EditsUnitTest(TempHome):
         self.assertEqual([str(p) for p in edits.written_paths(ev)], ["/w/n.md", "/abs/o.md", "/w/p.md"])
         self.assertEqual(edits.written_paths({"tool_name": "Read", "tool_input": {"file_path": "/x"}}), [])
         self.assertEqual(session.load("none"), {})
+
+    def test_keep_this_rule_sends_an_adjust_and_the_button_goes_away(self):
+        session.update("s1", task_id="t1", learned_from_edit={"task_id": "t1", "files": [
+            {"file": "/w/report.md", "name": "report.md", "piece": "p", "title": "P", "statement": "penalties"},
+            {"file": "/w/memo.md", "name": "memo.md", "piece": "p", "title": "P", "statement": None}]})
+        from athos import trail
+        keeps = [x["keep"] for x in trail.view(session.load("s1"))["edits"]]
+        self.assertEqual(keeps, ["Athos · adjust p#penalties: keep the rule you proposed from my edit of report.md",
+                                 "Athos · adjust p: keep the rule you proposed from my edit of memo.md"])
+        edits.kept("s1", keeps[0])                       # what the prompt hook does with an adjust request
+        self.assertEqual([x["name"] for x in trail.view(session.load("s1"))["edits"]], ["memo.md"])
