@@ -45,6 +45,20 @@ journalism, science, operations and sports, each with the branches it takes when
 into your own Athos with **Use in Athos**. Have a checklist you are proud of? [Add it to the
 gallery](gallery/CONTRIBUTING.md) ([en español](gallery/CONTRIBUIR.md)).
 
+![The published gallery: a finance way of working with its cross-border branch, then the due diligence of a small company in Latin America, whose steps call the finance team's and the legal team's pages and, only when the buyer is in another country, the cross-border tax check. Use in Athos copies the request that adds it; the page also reads in Spanish.](demo/gallery-en.gif)
+
+![Claude Desktop: pasting "Athos · add from gallery: due-diligence-of-a-latam-sme" adds the due diligence and the three pages it calls; then a fictional purchase of 60% of a bakery chain in Córdoba by a Chilean family fund opens the panel with the steps of the finance, legal and cross-border tax pages nested under the steps that call them, and the memo comes back with the two conditions that decide the deal.](demo/desktop-gallery-dd-en.gif)
+
+*Above, the gallery; below, one of its entries added to Claude Desktop with one paste and run on a fictional deal.
+Waits are hidden, not sped up.*
+
+**One memory per project.** As the ways of working grow, each project keeps its own: a session loads its project's
+ways of working and the general ones (another project's only when you name it), starts with what happened lately in
+that project, and **curating** proposes, for your yes, what to tidy: pages used in a project they aren't tagged with,
+a «don't» rule from the corrections you made, pages that keep going wrong or nobody uses.
+
+![In a fictional SRE team's folder: the journal of its recent incidents, what is open, then the curating proposals (tag the pages each project really used, and a «don't» rule from a correction), applied in one line; in the newsroom's folder, only the newsroom's and the general ways of working load.](demo/memory-en.gif)
+
 **Connectors: when a way of working needs a service.** A step of your way of working can need a service, and Athos
 checks it on every request and shows it in the panel. The first one is [pii-guard](https://github.com/watt-mind/pii-guard),
 which masks a client's personal data before the model and restores it in the answer: a lawyer's contract review in
