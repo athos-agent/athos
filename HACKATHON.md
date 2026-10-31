@@ -101,6 +101,7 @@ from what was built during the event.
 - [#84](https://github.com/athos-agent/athos/pull/84) One memory per project: by default a session loads its project's ways of working and the general ones, another project's only when the request names it, and starts with an index that says in one line what each other project's know-how is about; measured on a real store, pages of another project loaded for 14 of 252 tasks before and none after (0.1.78)
 - [#85](https://github.com/athos-agent/athos/pull/85) Short-term memory per project: each session starts with its project's journal (the last tasks, what they used or saved, how they went, what is open), next to its ways of working; `athos journal` prints it (0.1.79)
 - [#86](https://github.com/athos-agent/athos/pull/86) `athos curate`: tidy the memory as it grows, with the person's yes: tag pages with the projects they are really used in, archive unused ones (restorable), spot look-alikes, broken links and work with no page yet (0.1.80)
+- [#87](https://github.com/athos-agent/athos/pull/87) Curating learns from what went wrong: your corrections become a proposed «don't» step for the page you followed, pages that keep going wrong are flagged, each pass is logged (new proposals marked, dismissed ones gone), and tests or demo folders propose nothing (0.1.81)
 
 ## Meta models used
 

@@ -127,6 +127,14 @@ mechanical ones: tag the page with the project (a new version) or move it to `~/
 loads; `athos curate restore <id>` brings it back). The rest are for you to act on. Nothing changes until you say
 which.
 
+It also learns from what went wrong: when you corrected a task that followed a page (your words after marking it
+corrected), it proposes a "don't" step for that page with your corrections, and prints the request that adds it, ready
+to paste; a page with at least three corrected or failed tasks and more than twice as many as good ones is flagged
+for review. Each pass is logged in `~/.athos/curate.json`: proposals not shown before are marked new, and `athos curate
+dismiss <n>...` hides one for good. Tests and rehearsals propose nothing: tasks in a temporary or demo folder, projects
+named like one (prueba, test, demo, tmp, scratch, sandbox, example), and any project you mark with `athos curate
+ignore <project>`.
+
 ### The library
 
 `athos library [--port N] [--no-open]` opens every way of working you have as one page on `127.0.0.1` (default port

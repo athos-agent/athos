@@ -1,6 +1,8 @@
+import json
 from pathlib import Path
+from unittest import mock
 
-from athos import curate, eval as ev, paths, store, trail
+from athos import curate, eval as ev, load, paths, store, trail
 from tests.helpers import TempHome
 
 BODY = "## #a\n**When:** at the start.\n**Do:** do it.\n"
@@ -11,9 +13,14 @@ class CurateTest(TempHome):
         super().setUp()
         self.shop = Path(self.home) / "shop"
         self.shop.mkdir()
+        # Test homes live in a temporary folder, which marks every task a rehearsal; here they are real work.
+        patcher = mock.patch.object(ev, "SCRATCH_PREFIXES", ("/nowhere/",))
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def task(self, sid, prompt, cwd, steps=()):
         ev.task_start({"session_id": sid, "prompt": prompt, "cwd": str(cwd)})
+        load.on_prompt({"session_id": sid, "prompt": prompt, "cwd": str(cwd)})
         for ref in steps:
             trail.step(sid, ref, None)
         ev.task_end({"session_id": sid})
@@ -61,3 +68,51 @@ class CurateTest(TempHome):
         self.assertNotIn("viene", new[0]["why"])                         # conversation isn't work
         with self.assertRaises(ValueError):
             curate.apply(new[0])                                         # advice, not an action
+
+    def test_tests_and_rehearsals_propose_nothing(self):
+        store.create("Release a package", "releasing a package", BODY, projects=["lib"], piece_id="release")
+        demo = Path(self.home) / "athos-demo-x"
+        demo.mkdir()
+        self.task("s1", "release the package for the demo", demo, ["release#a"])        # named like a demo
+        with mock.patch.object(ev, "SCRATCH_PREFIXES", (str(self.shop),)):
+            self.task("s2", "release the package in the shop", self.shop, ["release#a"])  # in a scratch folder
+        self.assertEqual([x for x in curate.proposals() if x["kind"] == "tag"], [])
+        other = Path(self.home) / "office"
+        other.mkdir()
+        self.task("s3", "release the package from the office", other, ["release#a"])
+        self.assertEqual([x["project"] for x in curate.proposals() if x["kind"] == "tag"], ["office"])
+        curate.ignore("office")
+        self.assertEqual([x for x in curate.proposals() if x["kind"] == "tag"], [])
+
+    def test_a_dismissed_proposal_stays_away_and_new_ones_say_so(self):
+        store.create("Release a package", "releasing a package", BODY, projects=["lib"], piece_id="release")
+        self.task("s1", "release the shop package now", self.shop, ["release#a"])
+        first = curate.proposals()
+        self.assertFalse(first[0]["new"])                                   # no earlier pass to compare with
+        curate.mark_pass(first)
+        store.create("Deploy", "deploying", BODY + "**Links:** [[gone]]\n", piece_id="deploy")
+        again = {x["kind"]: x for x in curate.proposals()}
+        self.assertFalse(again["tag"]["new"])
+        self.assertTrue(again["link"]["new"])
+        curate.dismiss(again["tag"])
+        self.assertNotIn("tag", {x["kind"] for x in curate.proposals()})
+        self.assertIn("tag", {x["kind"] for x in curate.proposals(all_=True)})
+
+    def test_corrections_become_a_proposed_dont_rule(self):
+        store.create("Review a lease", "reviewing a lease", BODY, piece_id="lease")
+        d = paths.home() / "cases" / "lease"
+        d.mkdir(parents=True)
+        (d / "t1.json").write_text(json.dumps({"task_id": "t1", "piece": "lease", "mark": "corrected",
+                                                "request": "review this lease", "correction": "never cite the old code",
+                                                "at": "2099-01-01T00:00:00"}))
+        rule = [x for x in curate.proposals() if x["kind"] == "rule"]
+        self.assertEqual(len(rule), 1)
+        self.assertIn("«never cite the old code»", rule[0]["why"])
+        self.assertTrue(rule[0]["request"].startswith("Athos · adjust lease: add a step with what not to do"))
+
+    def test_a_page_that_keeps_going_wrong_is_flagged_for_review(self):
+        store.create("Release a package", "release a package", BODY, piece_id="release")
+        for i in range(3):
+            self.task(f"b{i}", "release a package now", self.shop)
+            ev.mark("c", session_id=f"b{i}")
+        self.assertEqual([x["id"] for x in curate.proposals() if x["kind"] == "review"], ["release"])
