@@ -4,6 +4,9 @@
 
 Your AI know-how. Free to move, fast to run.
 
+**Athos turns how you work (your criteria, your steps, your checklists) into a living, local and portable memory, so
+any AI agent works by your rules without you explaining them twice.**
+
 **Ask as you always do. Claude follows *your* way of working, and you watch it, step by step.**
 
 ![Claude Desktop (not the Code tab). A coach asked for next week's training plan for an athlete, without mentioning Athos. Athos's panel says how Claude is going about it in plain sentences, then shows the coach's own way of working as a page, with its steps ticked as they are done.](demo/athos-desktop-en.png)
@@ -48,11 +51,22 @@ pii-guard*. [How to use it](docs/guides/connectors.md) ([en español](docs/guide
 *OpenCode on Muse Spark through pii-guard (fictional lease). The trail in OpenCode's sidebar; then **ctrl+p → Athos:
 change this step**, and the lawyer's way of working gains a "legal basis" column, kept for next time.*
 
-Every day you teach AI agents how you do things: your checklist, your steps, your format, the mistakes to avoid. Not
-only in code: coding agents now do everyday work in any field, and a lawyer reviewing a contract or a coach planning a
-week teaches them just as much. That know-how gets stuck in one chat of one tool. Athos keeps it as plain files on your
-machine and carries it to every agent you use, **Claude Code, Codex, Meta's Muse Code and OpenCode**, so you never
-explain it twice. On your own tasks, it shows what each agent and model does with it.
+## The idea
+
+Working with AI agents today is like hiring a brilliant intern with amnesia: every new chat, every new tool, you
+explain your format, your checklist, your exceptions and the mistakes to avoid all over again. And what you taught
+stays locked in one provider's cloud.
+
+Athos is a **living operations manual** for your work. It picks up your know-how while you work, keeps it as plain
+markdown files on your own computer, shows you, step by step, the agent following it, and lets you move it from an
+expensive model to a cheap or local one, and check it keeps up.
+
+- **From writing prompts to keeping your process.** You don't write prompts: you work with the agent and correct it,
+  and Athos turns that into a way of working, with versions, that you reuse.
+- **From tool calls to your own steps.** Instead of technical API calls, you see a task list of your own steps,
+  ticked as the agent does them.
+- **A small model with your know-how can do the job.** On our bench, Meta's Muse Spark went from 2 of 23 runs right
+  without the know-how to 22 of 23 with it, at 8 to 24 times less per run than Claude Code.
 
 Athos is a musketeer: free, and on its own two feet. The idea behind it, freedom and autonomy for what you know, is
 very well told in this talk:
