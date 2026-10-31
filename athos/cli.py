@@ -9,7 +9,8 @@
     athos export --codex [dir]         write each piece as a Codex skill (default ~/.agents/skills)
     athos codex install|uninstall      add or remove Athos's hooks in Codex (~/.codex/hooks.json)
     athos import codex [--include-tmp] record Codex's past tasks from its session files (report does it too)
-    athos revert <id>                  put back a piece's previous version
+    athos revert <id> [--to N]         put back a piece's previous version (or version N), as a new version
+    athos library [--port N]           every way of working at a glance, as a local page (127.0.0.1)
     athos watch                       a live panel: one bar per agent for this project's know-how (for Codex)
     athos watch --web                 the trail panel as a local page, beside Muse Code, Codex or OpenCode
     athos export --muse [<folder>]    the same skills for Muse Code; `athos import muse` records its tasks
@@ -460,7 +461,7 @@ def cmd_dismiss(args) -> int:
 
 def cmd_revert(args) -> int:
     try:
-        p = store.revert(args.id)
+        p = store.revert(args.id, args.to)
     except (KeyError, FileNotFoundError) as e:
         print(f"cannot revert: {e}", file=sys.stderr)
         return 1
@@ -932,7 +933,13 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=cmd_dismiss)
     s = sub.add_parser("revert")
     s.add_argument("id")
+    s.add_argument("--to", type=int, help="the version to go back to (default: the previous one)")
     s.set_defaults(fn=cmd_revert)
+    s = sub.add_parser("library", help="every way of working at a glance, as a local page on 127.0.0.1")
+    s.add_argument("--port", type=int, default=8712)
+    s.add_argument("--no-open", action="store_true", help="don't open the browser")
+    s.set_defaults(fn=lambda a: __import__("athos.library", fromlist=["serve"]).serve(port=a.port,
+                                                                                     open_browser=not a.no_open))
     s = sub.add_parser("delegate")
     s.add_argument("id", help="the piece of know-how the task follows")
     s.add_argument("request")

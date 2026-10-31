@@ -7,7 +7,9 @@ reads and writes ~/.athos like the `athos` command.
 
 In a host with MCP Apps (Claude Desktop's chat), athos_find also opens Athos's trail panel (`ui://athos/trail`): the
 person's know-how the task walks, step by step, as the agent reports it with athos_step, refreshed by the panel through
-the app-only athos_trail. A host without MCP Apps gets the same tools as text.
+the app-only athos_trail. A host without MCP Apps gets the same tools as text. There, athos_library also opens the
+person's library (`ui://athos/library`, athos/library.html): every way of working, its versions, what each model gave;
+its two buttons go through the app-only athos_library_do.
 
 In Claude Desktop, add to claude_desktop_config.json (Settings → Developer → Edit Config):
 
@@ -47,6 +49,11 @@ UI_EXTENSION = "io.modelcontextprotocol/ui"
 UI_MIME = "text/html;profile=mcp-app"
 UI_URI = "ui://athos/trail"
 UI_HTML = Path(__file__).with_name("trail.html")
+LIBRARY_URI = "ui://athos/library"
+LIBRARY_HTML = Path(__file__).resolve().parents[1] / "library.html"
+LIBRARY_META = "athos/library"
+APP_ONLY = {"athos_trail", "athos_library_do"}           # called by Athos's pages, never by the model
+APPS_ONLY = APP_ONLY | {"athos_library"}                 # offered only where a page can be drawn
 SESSION = "claude-desktop"
 PANEL_META = "athos/panel"
 # What the host said about itself in `initialize`: whether it draws MCP Apps.
@@ -67,6 +74,18 @@ TOOLS = [
     {"name": "athos_trail", "description": "What Athos's panel draws: the current task's trail, the greeting, the "
      "person's language. Called by the panel only.",
      "inputSchema": {"type": "object", "properties": {}}, "_meta": {"ui": {"visibility": ["app"]}}},
+    {"name": "athos_library", "title": "Athos: your library",
+     "description": "Open the person's library in the chat: every way of working they have, how often each was used "
+     "and how it went, in which agents and models, its versions (they can go back to one), and what each model gave "
+     "them. Call it when they ask to see, browse or review their ways of working, know-how or library.",
+     "inputSchema": {"type": "object", "properties": {}}, "_meta": {"ui": {"resourceUri": LIBRARY_URI}}},
+    {"name": "athos_library_do", "description": "The library page's buttons: go back to a version (`revert`, id, "
+     "version) or open a page's file in the person's editor (`open`, id). Called by the library page only, after "
+     "the person confirms.",
+     "inputSchema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["revert", "open"]},
+                                                      "id": {"type": "string"}, "version": {"type": "integer"}},
+                     "required": ["action", "id"]},
+     "_meta": {"ui": {"resourceUri": LIBRARY_URI, "visibility": ["app"]}}},
     {"name": "athos_show", "description": "One piece of know-how, in full, by id.",
      "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}},
     {"name": "athos_list", "description": "Every piece: id, title and when it applies.",
@@ -98,7 +117,7 @@ def draws_apps() -> bool:
 
 def tools() -> list[dict]:
     """The tools this host gets: the panel's own one only where the panel can be drawn."""
-    return [t for t in TOOLS if t["name"] != "athos_trail" or draws_apps()]
+    return [t for t in TOOLS if t["name"] not in APPS_ONLY or draws_apps()]
 
 
 def panel(session_id: str = SESSION) -> dict:
@@ -161,6 +180,15 @@ def call(name: str, args: dict, session_id: str = SESSION) -> str:
             raise ValueError(str(e)) from None
     if name == "athos_trail":
         return json.dumps(panel(session_id), ensure_ascii=False)
+    if name == "athos_library":
+        from athos import library
+        return library.summary(library.snapshot())
+    if name == "athos_library_do":
+        from athos import library
+        try:
+            return json.dumps(library.act(args.get("action", ""), args))
+        except (PermissionError, FileNotFoundError, KeyError, TypeError) as e:
+            raise ValueError(str(e)) from None
     if name == "athos_list":
         return "\n".join(f"- `{p.id}` {p.title}. When: {p.when}" for p in store.all_pieces()) or "No pieces yet."
     if name == "athos_save":
@@ -214,11 +242,14 @@ def handle(msg: dict) -> dict | None:
             result = {"tools": tools()}
         elif method == "resources/list":
             result = {"resources": [{"uri": UI_URI, "name": "Athos · trail", "mimeType": UI_MIME,
-                                     "description": "The task's walk through the person's know-how, step by step"}]}
+                                     "description": "The task's walk through the person's know-how, step by step"},
+                                    {"uri": LIBRARY_URI, "name": "Athos · library", "mimeType": UI_MIME,
+                                     "description": "Every way of working the person has, its versions and results"}]}
         elif method == "resources/read":
-            if params.get("uri") != UI_URI:
+            pages = {UI_URI: UI_HTML, LIBRARY_URI: LIBRARY_HTML}
+            if params.get("uri") not in pages:
                 return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32002, "message": "no such resource"}}
-            result = {"contents": [{"uri": UI_URI, "mimeType": UI_MIME, "text": UI_HTML.read_text(),
+            result = {"contents": [{"uri": params["uri"], "mimeType": UI_MIME, "text": pages[params["uri"]].read_text(),
                                     "_meta": {"ui": {"prefersBorder": True}}}]}
         elif method == "tools/call":
             name = params.get("name", "")
@@ -234,6 +265,9 @@ def handle(msg: dict) -> dict | None:
                 result["structuredContent"] = panel()
             elif name in ("athos_find", "athos_step") and not err:
                 result["_meta"] = {PANEL_META: panel()}
+            elif name == "athos_library" and not err:
+                from athos import library                # the page's data, where the model doesn't read it
+                result["_meta"] = {LIBRARY_META: library.snapshot()}
         elif method == "ping":
             result = {}
         else:
