@@ -111,7 +111,7 @@ class FollowingTest(TempHome):
         out = cli.following({"task_loaded": ["land", "gone"]})
         self.assertEqual(out, [{"id": "land", "title": "Land a change", "version": 1, "steps": 2, "wiki": True,
                                 "step_names": ["run_guard", "open_pr"],
-                                "platforms": ["Claude Code", "Codex", "Muse Code"]}])
+                                "platforms": ["Claude Code", "Codex", "Muse Code"], "tests": 0}])
 
     def test_following_names_opencode_and_muse_code_once_athos_is_installed_there(self):
         from athos import cli

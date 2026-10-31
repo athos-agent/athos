@@ -7,6 +7,9 @@ Everything is appended to `<home>/events.jsonl` on the user's machine and never 
                 when Athos asks for a capture; time and tokens count only up to the first end, so the capture's own
                 cost never inflates a baseline
     mark        the user's verdict on a task: ok, corrected or failed. A task never marked stays "unevaluated".
+                A marked task that loaded a piece is kept as a case (athos/cases.py)
+    test_run    `athos test`: a piece's past corrections replayed on its current version (athos/replay.py)
+    shadow      `athos shadow`: one approved task replayed on a cheaper model, and how close it came
 
 A task's baseline is the one in which a piece was first saved: that execution ran without the piece. Later tasks
 that load the piece are compared with it on time and tokens.
@@ -134,7 +137,10 @@ def task_start(event: dict, platform: str = "claude-code") -> str:
     # Capture is per request: only the work done for this request can trigger the Stop hook's ask.
     state.update(task_id=tid, task_started=started, task_loaded=[], task_saved=[], tools_since_capture=0,
                  work_since_capture=0, edits_since_capture=0, task_why={}, trail=[],
-                 task_request=str(event.get("prompt") or "")[:200])
+                 task_request=str(event.get("prompt") or "")[:200],
+                 # The whole request, until the task is marked: a case keeps it (athos/cases.py). Only in this
+                 # session's own state, replaced by the next request.
+                 case_request=str(event.get("prompt") or ""))
     session.save(sid, state)
     append({"type": "task_start", "task_id": tid, "session_id": sid, "platform": platform, "model": model,
             "project": paths.project_of(event.get("cwd")), "at": started, **request_fields(event.get("prompt"))})
@@ -214,7 +220,17 @@ def mark(result: str, task_id: str | None = None, session_id: str | None = None,
     if not tid:
         raise LookupError("no task to mark yet")
     append({"type": "mark", "task_id": tid, "result": res, "at": _iso(now())})
+    _keep_case(tid, res, session_id)
     return tid, res
+
+
+def _keep_case(tid: str, res: str, session_id: str | None, correction: str | None = None) -> None:
+    """A marked task that loaded a piece becomes a case (athos/cases.py). Keeping it must never stop the mark."""
+    from athos import cases
+    try:
+        cases.on_mark(tid, res, session_id, correction)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
 
 
 # What the person says right after a task, when it plainly judges it: the mark nobody has to click. Looked for in
@@ -238,6 +254,8 @@ def infer_mark(session_id: str, prompt: str) -> str | None:
     if any(e.get("type") == "mark" and e.get("task_id") == tid for e in events()):
         return None
     append({"type": "mark", "task_id": tid, "result": res, "by": "inferred", "at": _iso(now())})
+    # The words that judged the task wrong are the correction itself: the case keeps them as what to check.
+    _keep_case(tid, res, session_id, prompt.strip() if res == "corrected" else None)
     return res
 
 

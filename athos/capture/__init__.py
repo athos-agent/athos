@@ -118,6 +118,11 @@ def save_text(text: str, session_id: str = "default", cwd: str | None = None,
     state = session.load(session_id)
     state["last_saved"] = {"id": piece.id, "title": piece.title, "version": piece.version,
                            "platforms": ["Claude Code", *sync_other_agents()]}
+    if existing is not None:
+        # The piece changed: the corrections the person made on it before are the tests of the new version.
+        n = recheck(piece.id)
+        if n:
+            state["last_saved"].update(tests=n, recheck=recheck_words(n))
     try:
         same_moment = wiki.overlaps(piece)
     except OSError:
@@ -126,6 +131,23 @@ def save_text(text: str, session_id: str = "default", cwd: str | None = None,
                                  "overlaps": same_moment}
     session.save(session_id, state)
     return piece, diff
+
+
+def recheck(piece_id: str) -> int:
+    """How many past corrections of this piece `athos test` can re-check (athos/cases.py)."""
+    from athos import cases
+    try:
+        return len(cases.tests(piece_id))
+    except OSError:
+        return 0
+
+
+def recheck_words(n: int) -> str:
+    from athos import start
+    if start.lang() == "es":
+        return f"{n} corrección pasada para volver a probar" if n == 1 else \
+            f"{n} correcciones pasadas para volver a probar"
+    return f"{n} past correction{'s' if n != 1 else ''} to re-check"
 
 
 def sync_other_agents() -> list[str]:

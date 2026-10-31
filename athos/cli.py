@@ -24,6 +24,8 @@
                                        ~/.claude/agents and keeps them in step with every save
     athos bench <case|all> --agents claude,meta [--runs 5] [--without] [--max-usd 5]   the same task on each agent,
                                        checked by what it left behind; `athos bench --list`, `athos bench report`
+    athos test <id> [--backend meta]   re-check a piece against the corrections you made on it before
+    athos shadow [--limit N] | on|off  compare a cheaper model with the answers you approved (Ollama by default)
     athos status --json                what the terminal's status line and band show
     athos hook <event>                 used by the Claude Code plugin's hooks (reads the event JSON on stdin)
 """
@@ -40,7 +42,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from athos import capture, control, eval as ev, load, paths, session, store, trail
+from athos import capture, cases, control, eval as ev, load, paths, replay, session, store, trail
 
 ME = Path(__file__).resolve().parents[1] / "bin" / "athos"
 STEP_SINCE = (0, 1, 46)                 # the first version with `athos step`, which the agents are asked to run
@@ -104,6 +106,15 @@ def _current_session(cwd: str) -> dict:
 
 
 # ------------------------------------------------------------------------------------------------ hooks
+def _quietly(fn, *args):
+    """Cases and shadowing are extras: their failure must not cost the person the capture or the load."""
+    try:
+        return fn(*args)
+    except Exception as e:  # noqa: BLE001
+        print(f"athos: {fn.__module__}.{fn.__name__}: {e}", file=sys.stderr)
+        return None
+
+
 def hook(event_name: str, platform: str = "claude-code") -> int:
     """Never breaks the user's session: any error is reported on stderr and the hook exits 0."""
     try:
@@ -137,6 +148,8 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
             from athos import start
             start.note_language(event.get("prompt", ""))
             if event.get("session_id"):
+                # After `athos mark c`, these words are the correction the last task needed (athos/cases.py).
+                _quietly(cases.note_prompt, event["session_id"], event.get("prompt", ""))
                 ev.infer_mark(event["session_id"], event.get("prompt", ""))     # before the new task replaces it
             ev.task_start(event, platform)
             capture.note_request(event)
@@ -148,7 +161,9 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
             capture.count_tool(event)
             trail.on_tool(event)
         elif event_name == "stop":
-            ev.task_end(event)
+            rec = ev.task_end(event)
+            _quietly(cases.on_task_end, event, rec)
+            _quietly(replay.maybe_spawn, ME)          # background shadowing, when the person turned it on
             sid = event.get("session_id")
             if sid and not session.load(sid).get("trail") and event.get("cwd"):
                 sid = _current_session(event["cwd"]).get("session_id") or sid
@@ -210,7 +225,13 @@ def cmd_save(_args) -> int:
               "~/.codex/config.toml.", file=sys.stderr)
         return 1
     if diff:
-        print(f"improved {piece.id} → v{piece.version} ({piece.path})\n\n{diff}")
+        n = capture.recheck(piece.id)
+        print(f"improved {piece.id} → v{piece.version} ({piece.path})"
+              + (f" · {capture.recheck_words(n)}" if n else "") + f"\n\n{diff}")
+        if n:                                      # the model reads this: it offers the re-check in the person's words
+            print(f"\nThe person corrected this piece {n} time(s) before. Offer them, in one line and in their "
+                  f"language, to re-check that the new version respects those corrections: `{_cmd()} test {piece.id}` "
+                  f"(a local model; nothing leaves the machine).")
     else:
         print(f"saved {piece.id} ({piece.path})")
     broken = (session.load(cur.get("session_id", "default")).get("wiki") or {}).get("broken") or []
@@ -532,7 +553,8 @@ def following(state: dict) -> list[dict]:
                                                                                  (exported and plat == "muse-code"))]
         st = wiki.statements(p)
         out.append({"id": pid, "title": p.title, "version": p.version, "steps": len(st), "wiki": wiki.is_wiki(p),
-                    "step_names": [s.id for s in st][:6] if wiki.is_wiki(p) else [], "platforms": ready})
+                    "step_names": [s.id for s in st][:6] if wiki.is_wiki(p) else [], "platforms": ready,
+                    "tests": len(cases.tests(pid))})
     return out
 
 
@@ -553,9 +575,11 @@ def status() -> dict:
             "offer": state.get("offer") if (state.get("offer") or {}).get("task_id") == state.get("task_id") else None,
             "save_prompt": capture.SAVE_PROMPT["es" if start.lang() == "es" else "en"],
             "loads": [{"id": pid, "title": (store.get(pid).title if store.get(pid) else pid), "why": words,
-                       "record": ev.record(pid, tasks)}
+                       "record": ev.record(pid, tasks), "tests": len(cases.tests(pid))}
                       for pid, words in (state.get("task_why") or {}).items()],
             "following": following(state),
+            # A cheaper model that matched the person's approved answers on a piece (`athos shadow`).
+            "handoff": replay.handoffs(), "shadow": bool(replay.settings().get("on")),
             "trail": trail.view(state), "greeting": trail.greeting(start.lang()),
             # Only recent tasks wait for a mark: an old backlog reads as debt, not help.
             "to_mark": sum(1 for t in tasks if t["result"] == "unevaluated" and ev.recent(t)),
@@ -572,6 +596,81 @@ def cmd_status(args) -> int:
             print(f"athos · {s['pieces']} formas de trabajar · {len(s['loaded'])} en uso · {s['to_mark']} por marcar")
         else:
             print(f"athos · {s['pieces']} ways of working · {len(s['loaded'])} in use · {s['to_mark']} to mark")
+    return 0
+
+
+def _model_error(e: Exception, platform: str, model: str) -> str | None:
+    """What to tell the person when the model could not be reached; None for any other error."""
+    import urllib.error
+    if isinstance(e, urllib.error.HTTPError):
+        return f"Meta Model API refused the request (HTTP {e.code}): {e.read().decode(errors='ignore')[:300]}"
+    if isinstance(e, urllib.error.URLError):
+        if platform == "meta":
+            return f"cannot reach Meta Model API ({e.reason})."
+        from athos import delegate
+        return (f"cannot reach Ollama at {delegate.host()} ({e.reason}). Start it (`ollama serve`) and pull the "
+                f"model (`ollama pull {model}`).")
+    return None
+
+
+def cmd_test(args) -> int:
+    """Re-check a piece against the corrections the person made on it before (athos/replay.py)."""
+    from athos import start
+    platform, model, ask = replay.backend(args.backend, args.model)
+    try:
+        r = replay.run_tests(args.id, model, ask, platform)
+    except (LookupError, PermissionError) as e:
+        print(e, file=sys.stderr)
+        return 1
+    except OSError as e:
+        msg = _model_error(e, platform, model)
+        if msg is None:
+            raise
+        print(msg, file=sys.stderr)
+        return 1
+    print(replay.render_tests(r, start.lang()))
+    return 0 if r["passed"] == r["total"] else 1
+
+
+def cmd_shadow(args) -> int:
+    """Compare a cheaper model with the answers the person approved; `on`/`off` runs it after tasks by itself."""
+    from athos import start
+    lang = start.lang()
+    if args.action in ("on", "off"):
+        s = replay.set_shadow(args.action == "on", args.backend, args.model)
+        where = "Meta Model API" if s["backend"] == "meta" else "Ollama (local)"
+        if lang == "es":
+            print(f"comparación en segundo plano: {'activada' if s['on'] else 'desactivada'} · {where}")
+        else:
+            print(f"background shadowing {'on' if s['on'] else 'off'} · {where}")
+        return 0
+    s = replay.settings()
+    # Meta only when the person chose it, here or with `athos shadow on --backend meta`; else a local model.
+    platform, model, ask = replay.backend(args.backend or s.get("backend", "ollama"),
+                                          args.model or (s.get("model") if not args.backend else None))
+    if args.quiet and not replay.take_lock():
+        return 0                                   # another background run is at it
+    try:
+        rs = replay.run_shadow(model, ask, platform, args.limit)
+    except (LookupError, PermissionError) as e:
+        if not args.quiet:
+            print(e, file=sys.stderr)
+        return 1
+    except OSError as e:
+        msg = _model_error(e, platform, model)
+        if msg is None:
+            raise
+        if not args.quiet:
+            print(msg, file=sys.stderr)
+        return 1
+    finally:
+        if args.quiet:
+            replay.release_lock()
+    if not args.quiet:
+        print(replay.render_shadow(rs, lang))
+        for h in replay.handoffs():
+            if not h["told"]:
+                print("\n" + replay.sentence(h, lang))
     return 0
 
 
@@ -773,6 +872,20 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("ref", nargs="?", help="<piece>#<statement>")
     s.add_argument("--new", help="a step the task needed that your know-how doesn't have yet")
     s.set_defaults(fn=cmd_step)
+    s = sub.add_parser("test", help="re-check a piece against the corrections you made on it before")
+    s.add_argument("id", help="the piece")
+    s.add_argument("--backend", choices=["ollama", "meta"], default="ollama",
+                   help="where the model runs: ollama on this machine (default), or meta (Meta Model API)")
+    s.add_argument("--model", help="the model (default gemma4:12b, or muse-spark-1.3 with --backend meta)")
+    s.set_defaults(fn=cmd_test)
+    s = sub.add_parser("shadow", help="compare a cheaper model with the answers you approved; on|off after each task")
+    s.add_argument("action", nargs="?", choices=["on", "off"])
+    s.add_argument("--backend", choices=["ollama", "meta"],
+                   help="ollama on this machine (default), or meta (Meta Model API, only if you choose it)")
+    s.add_argument("--model", help="the model (default gemma4:12b, or muse-spark-1.3 with --backend meta)")
+    s.add_argument("--limit", type=int, help="at most this many approved tasks")
+    s.add_argument("--quiet", action="store_true", help=argparse.SUPPRESS)
+    s.set_defaults(fn=cmd_shadow)
     s = sub.add_parser("status")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_status)
