@@ -37,10 +37,10 @@ def write_transcript(path, origin, replies):
 class LogTestCase(TempHome):
     def work(self, sid, prompt, *, seconds=60, saving=None, verdict=None):
         """One request through the hooks: start, load, maybe save a piece, stop after `seconds`, maybe judge."""
-        began = ev.now()
+        began, hook = ev.now(), {"session_id": sid, "prompt": prompt}
         with frozen_at(began):
-            ev.task_start({"session_id": sid, "prompt": prompt, "cwd": self.home})
-        load.on_prompt({"session_id": sid, "prompt": prompt})
+            ev.task_start({**hook, "cwd": self.home})
+        load.on_prompt(hook)
         if saving:
             capture.save_text(saving, sid)
         with frozen_at(began + dt.timedelta(seconds=seconds)):
@@ -94,17 +94,16 @@ class Recording(LogTestCase):
 
 class Verdicts(LogTestCase):
     def test_bad_verdicts_and_an_empty_log_are_refused(self):
-        with self.assertRaises(LookupError):
-            ev.mark("g")
+        self.assertRaises(LookupError, ev.mark, "g")                       # nothing has ended yet
         self.work("alpha", "x")
-        with self.assertRaises(ValueError):
-            ev.mark("maybe")
+        self.assertRaises(ValueError, ev.mark, "maybe")                    # not a verdict
 
     def test_a_later_verdict_replaces_an_earlier_one(self):
         self.work("alpha", "x")
         for verdict in ("f", "g"):
             ev.mark(verdict, session_id="alpha")
-        self.assertEqual(ev.tasks()[0]["result"], "ok")
+        [only] = ev.tasks()
+        self.assertEqual(only["result"], "ok")
 
     def test_a_bare_mark_judges_the_latest_task_of_this_project(self):
         # Seen while rehearsing the demo: a mark right after a Codex task landed on the earlier Claude Code task.
@@ -145,12 +144,12 @@ class Reporting(LogTestCase):
         self.assertAlmostEqual(piece["time_saved_s"], 120)
 
     def test_idle_and_failing_pieces_are_put_up_for_review(self):
-        store.create("Old", "legacy archive cleanup", "x")
+        idle = store.create("Old", "legacy archive cleanup", "x")
         failing = store.create("Bad", "bad thing to do", "x")
         session.update("alpha", model="m")
-        for _ in range(3):
+        for attempt in range(ev.MIN_EVALUATED):                              # just enough judged failures
             self.work("alpha", "bad thing to do", verdict="f")
-        idle = store.get("old")
+        idle = store.get(idle.id)
         idle.last_used = (dt.date.today() - dt.timedelta(days=20)).isoformat()
         store._write(idle)
 
