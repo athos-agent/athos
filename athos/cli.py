@@ -40,7 +40,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from athos import capture, control, eval as ev, load, paths, session, store, trail
+from athos import capture, control, edits, eval as ev, load, paths, session, store, trail
 
 ME = Path(__file__).resolve().parents[1] / "bin" / "athos"
 STEP_SINCE = (0, 1, 46)                 # the first version with `athos step`, which the agents are asked to run
@@ -141,12 +141,21 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
             ev.task_start(event, platform)
             capture.note_request(event)
             text = load.on_prompt(event, _cmd())
+            if capture.enabled():
+                # The person's hand edits of files the agent wrote: a rule of their way of working, offered once.
+                learned = edits.on_prompt(event, _cmd())
+                text = (text + "\n" + learned) if text and learned else (text or learned)
             if text:
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                                          "additionalContext": text}}))
         elif event_name == "tool":
             capture.count_tool(event)
             trail.on_tool(event)
+            sid = event.get("session_id", "default")
+            if not session.load(sid).get("task_id") and event.get("cwd"):     # Muse Code: this folder's task
+                sid = _current_session(event["cwd"]).get("session_id") or sid
+            if capture.enabled():
+                edits.on_tool(event, sid)
         elif event_name == "stop":
             ev.task_end(event)
             sid = event.get("session_id")
@@ -536,6 +545,16 @@ def following(state: dict) -> list[dict]:
     return out
 
 
+def learned_from_edit(state: dict, lang: str = "en") -> list[dict] | None:
+    """Files the person edited after the agent wrote them, told to the model with this request ("You edited
+    report.md: a rule to keep?"), each with the start of the [Adjust] request that would keep the rule in its step."""
+    seen = state.get("learned_from_edit") or {}
+    if not seen.get("files") or seen.get("task_id") != state.get("task_id"):
+        return None
+    prefix = capture.ADJUST_PREFIX["es" if lang == "es" else "en"]
+    return [{**f, "adjust_prompt": f"{prefix} {f['piece']}#{f['statement'] or ''}: "} for f in seen["files"]]
+
+
 def status() -> dict:
     """For the plugin's status line and band: the store, this session's pieces and its last task."""
     cur = _current_session(os.getcwd())
@@ -556,6 +575,7 @@ def status() -> dict:
                        "record": ev.record(pid, tasks)}
                       for pid, words in (state.get("task_why") or {}).items()],
             "following": following(state),
+            "learned_from_edit": learned_from_edit(state, start.lang()),
             "trail": trail.view(state), "greeting": trail.greeting(start.lang()),
             # Only recent tasks wait for a mark: an old backlog reads as debt, not help.
             "to_mark": sum(1 for t in tasks if t["result"] == "unevaluated" and ev.recent(t)),
