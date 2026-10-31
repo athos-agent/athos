@@ -241,6 +241,57 @@ Without the extension, the server can also be added by hand in Settings → Deve
 { "mcpServers": { "athos": { "command": "/Users/you/.local/bin/athos", "args": ["mcp"] } } }
 ```
 
+### First use and your other agents, from Desktop's panel
+
+The panel also sets Athos up, one click at a time; nothing changes your setup without one.
+
+- **First use**: with no ways of working yet, the panel asks what you do (law, finance, journalism, science, engineering
+  on call, sports coaching, something else) in your language. A click adds that profession's example ways of working,
+  exactly as `athos start` does, says in one line what it added, and offers a first request to try.
+- **Use Athos in your other agents too**: the panel lists Codex, OpenCode and Muse Code when they are on this computer
+  (their command on PATH, or their config folder), each with **Connect**. Codex runs the same code as
+  `athos codex install` (then approve the hooks once with `/hooks` in Codex), OpenCode the same as
+  `athos opencode install` (then restart OpenCode), and Muse Code runs `muse plugins marketplace add athos
+  https://github.com/athos-agent/athos`, `muse plugins install athos@athos` and `muse plugins approve athos`.
+- **Versions**: one line when an agent runs an older Athos than the newest on this computer, with what to do.
+
+Both buttons call tools only the panel sees (`athos_start`, `athos_connect`); the model never calls them.
+
+### athos doctor
+
+```
+athos doctor [--json]
+```
+
+Which Athos each agent would run, and which are behind the newest one on this computer: Claude Code (its plugin
+cache), Claude Desktop (the extension's `manifest.json`), Codex (the `athos` its hooks run: `~/.athos/bin/athos` runs
+the newest Claude Code plugin), OpenCode (the `athos` its plugin runs), Muse Code (its plugin record, or
+`muse plugins list` with a short timeout) and the `athos` on PATH. It exits 1 when one is behind. The same line is in
+`athos status --json` (`behind`) and in Desktop's panel.
+
+### The gallery
+
+`gallery/` holds ways of working anyone can take, in English and Spanish: normal Athos pages (frontmatter with `id`,
+`title`, `when`, `profession`, `lang`; statements with **If:** and **Calls:** branches). Every example is fictional and
+leaves the professional decisions to the person. `athos gallery build [--out DIR]` writes `gallery.json` (each page,
+its steps and branches, and the pages it calls) and `index.html`, a static page that previews each entry as the panel
+draws it, filtered by profession and language. Its **Use in Athos** button copies a short request:
+
+```
+Athos · add from gallery: review-a-services-contract
+```
+
+Pasted in any agent with Athos, the prompt hook (or `athos_find` in Desktop) has the agent run the add:
+
+```
+athos add <id | raw URL> [--dry-run]       athos_add in Desktop's chat
+```
+
+It downloads only from `https://raw.githubusercontent.com/athos-agent/athos/main/gallery/` (any other host or path is
+refused), the entry and the pages it links to, and saves each one you don't have yet as version 1 with origin
+`gallery`. A page you already have is left as it is. To contribute an entry, open a pull request with its pages in
+both languages; `tests/test_gallery.py` checks that every link and branch leads to a page in the gallery.
+
 ### Inside a project, for any agent
 
 `athos project sync` writes this project's know-how into `.athos/`, as plain markdown any agent reads without Athos

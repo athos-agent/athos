@@ -32,6 +32,10 @@
     athos test <id> [--backend meta]   re-check a piece against the corrections you made on it before
     athos shadow [--limit N] | on|off  compare a cheaper model with the answers you approved (Ollama by default)
     athos status --json                what the terminal's status line and band show
+    athos doctor [--json]              which Athos each agent runs (Claude Code, Desktop, Codex, OpenCode, Muse Code,
+                                       the terminal) and which are behind the newest
+    athos gallery build [--out DIR]    gallery.json and index.html from the gallery's pages
+    athos add <id|url> [--dry-run]     add a way of working (and the pages it calls) from Athos's public gallery
     athos hook <event>                 used by the Claude Code plugin's hooks (reads the event JSON on stdin)
 """
 
@@ -145,6 +149,14 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
                     session.update(event["session_id"], offer=None)
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                                          "additionalContext": capture.SAVE_CONTEXT.format(cmd=_cmd())}}))
+                return 0
+            from athos import gallery
+            if ref := gallery.requested(event.get("prompt", "")):
+                # The person pasted [Use in Athos] from the gallery: the agent adds it, in sight, with one command.
+                print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": (
+                    f"The person asked to add {ref!r} from Athos's gallery: run `{_cmd()} add {shlex.quote(ref)}` "
+                    "now (it downloads only from the athos-agent/athos repository and never overwrites a page they "
+                    "have), then tell them in one short line, in their language, what was added.")}}))
                 return 0
             if capture.is_adjust_prompt(event.get("prompt", "")):
                 # The person pressed [Adjust] on a step of the pane and wrote the change: it improves that piece.
@@ -692,10 +704,45 @@ def status() -> dict:
             "handoff": replay.handoffs(), "shadow": bool(replay.settings().get("on")),
             "learned_from_edit": learned_from_edit(state, start.lang()),
             "trail": trail.view(state), "greeting": trail.greeting(start.lang()),
+            # One line when an agent runs an older Athos (`athos doctor`); file reads only, no command is run.
+            "behind": _behind(start.lang()),
             # Only recent tasks wait for a mark: an old backlog reads as debt, not help.
             "to_mark": sum(1 for t in tasks if t["result"] == "unevaluated" and ev.recent(t)),
             "last": {"task_id": last["task_id"], "result": last["result"], "pieces": last.get("pieces", []),
                      "saved": [x for x in saved if x not in improved], "improved": improved} if last else None}
+
+
+def _behind(lang: str) -> str:
+    from athos import connect
+    try:
+        return connect.behind_line(connect.versions(ask_muse=False), lang)
+    except Exception:  # noqa: BLE001 — the status line never fails on another agent's config
+        return ""
+
+
+def cmd_doctor(args) -> int:
+    from athos import connect, start
+    v = connect.versions()
+    print(json.dumps(v, ensure_ascii=False) if args.json else connect.report(v, start.lang()))
+    return 1 if v["behind"] else 0
+
+
+def cmd_gallery(args) -> int:
+    from athos import gallery
+    for f in gallery.build(Path(args.out) if args.out else None):
+        print(f)
+    return 0
+
+
+def cmd_add(args) -> int:
+    from athos import gallery, start
+    try:
+        r = gallery.add(args.ref, dry_run=args.dry_run)
+    except (ValueError, LookupError, OSError) as e:
+        print(f"athos add: {e}", file=sys.stderr)
+        return 1
+    print(gallery.summary(r, start.lang()))
+    return 0
 
 
 def cmd_status(args) -> int:
@@ -1034,6 +1081,17 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("status")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_status)
+    s = sub.add_parser("doctor", help="which Athos each of your agents runs, and which are behind")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_doctor)
+    s = sub.add_parser("gallery", help="build the gallery's gallery.json and index.html")
+    s.add_argument("action", choices=["build"])
+    s.add_argument("--out", help="the folder to write to (default: the gallery folder)")
+    s.set_defaults(fn=cmd_gallery)
+    s = sub.add_parser("add", help="add a way of working from Athos's public gallery")
+    s.add_argument("ref", help="the gallery id, or its raw URL in the athos-agent/athos repository")
+    s.add_argument("--dry-run", action="store_true", help="only show what would be added")
+    s.set_defaults(fn=cmd_add)
     s = sub.add_parser("hook")
     s.add_argument("event", choices=["session-start", "prompt", "tool", "stop"])
     s.add_argument("--platform", default="claude-code")

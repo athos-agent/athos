@@ -168,6 +168,44 @@ def save_choice(language: str, profile: str) -> None:
     config_file().write_text(json.dumps(c, indent=1) + "\n")
 
 
+# The professions as Desktop's panel offers them on a first use, one button each, in the person's language.
+PANEL_ORDER = ("law", "finance", "journalism", "science", "ops", "sports", "other")
+NAMES = {
+    "en": {"law": "Law", "finance": "Finance and tax", "journalism": "Journalism", "science": "Science",
+           "ops": "Engineering on call", "sports": "Sports coaching", "other": "Something else"},
+    "es": {"law": "Abogacía", "finance": "Finanzas e impuestos", "journalism": "Periodismo", "science": "Ciencia",
+           "ops": "Guardias de ingeniería", "sports": "Entrenamiento deportivo", "other": "Otra cosa"},
+}
+PANEL_TEXT = {
+    "en": {"added": "Added {n} ways of working for {who}: {names}.", "none": TEXT["en"]["none"],
+           "skipped": "You already had them: {names}."},
+    "es": {"added": "Agregué {n} formas de trabajar para {who}: {names}.", "none": TEXT["es"]["none"],
+           "skipped": "Ya las tenías: {names}."},
+}
+
+
+def professions(language: str) -> list[list[str]]:
+    return [[p, NAMES["es" if language == "es" else "en"][p]] for p in PANEL_ORDER]
+
+
+def from_panel(language: str, profile: str) -> dict:
+    """A click on a profession in Desktop's panel: the same as `athos start --lang L --profile P`, told in one line,
+    with a first request to try."""
+    if language not in LANGS or profile not in PROFILES:
+        raise ValueError(f"expected lang in {LANGS} and profile in {PROFILES}")
+    save_choice(language, profile)
+    added, skipped = install(language, profile)
+    T = PANEL_TEXT[language]
+    if added:
+        line = T["added"].format(n=len(added), who=NAMES[language][profile].lower(),
+                                 names=", ".join(f"«{p.title}»" for p in added))
+    elif skipped:
+        line = T["skipped"].format(names=", ".join(skipped))
+    else:
+        line = T["none"]
+    return {"line": line, "added": [p.id for p in added], "try": TRY[(language, profile)][0]}
+
+
 def welcome(language: str, profile: str, added: list[store.Piece], skipped: list[str]) -> str:
     T = TEXT[language]
     out = [T["lang_saved"], ""]

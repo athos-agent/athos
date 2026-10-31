@@ -84,6 +84,22 @@ TOOLS = [
          "id": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}},
          "as_id": {"type": "string", "description": "the id the colleagues' copies have, if it differs"},
          "apply": {"type": "boolean"}}, "required": ["id", "paths"]}},
+    {"name": "athos_add", "description": "Add a way of working from Athos's public gallery (only from the athos-agent/"
+     "athos repository) and the pages it calls, when the person asks for it, e.g. by pasting \"Athos · add from "
+     "gallery: <id>\". Pages they already have are left as they are. `preview: true` only shows what would be added.",
+     "inputSchema": {"type": "object", "properties": {"id": {"type": "string", "description": "the gallery id or its "
+                     "raw URL"}, "preview": {"type": "boolean"}}, "required": ["id"]}},
+    # The panel's own buttons on a first use: a profession's example ways of working, and Athos in the person's
+    # other agents. Each runs on the person's click, never on the model's.
+    {"name": "athos_start", "description": "Add a profession's example ways of working (as `athos start`). Called "
+     "by the panel only, on the person's click.",
+     "inputSchema": {"type": "object", "properties": {"profile": {"type": "string"}, "lang": {"type": "string"}},
+                     "required": ["profile"]}, "_meta": {"ui": {"visibility": ["app"]}}},
+    {"name": "athos_connect", "description": "Put Athos in another agent on this computer (codex, opencode or muse), "
+     "as `athos codex install` / `athos opencode install` / Muse's plugin commands. Called by the panel only, on the "
+     "person's click.",
+     "inputSchema": {"type": "object", "properties": {"agent": {"type": "string"}}, "required": ["agent"]},
+     "_meta": {"ui": {"visibility": ["app"]}}},
 ]
 
 
@@ -96,9 +112,35 @@ def draws_apps() -> bool:
     return UI_MIME in (ui.get("mimeTypes") or [])
 
 
+def app_only(tool: dict) -> bool:
+    return ((tool.get("_meta") or {}).get("ui") or {}).get("visibility") == ["app"]
+
+
 def tools() -> list[dict]:
-    """The tools this host gets: the panel's own one only where the panel can be drawn."""
-    return [t for t in TOOLS if t["name"] != "athos_trail" or draws_apps()]
+    """The tools this host gets: the panel's own ones only where the panel can be drawn."""
+    return [t for t in TOOLS if not app_only(t) or draws_apps()]
+
+
+# The panel asks for its state every few seconds; which agents are here and their versions change only when the
+# person installs something, so they are looked up once a minute (and again right after a click that changes them).
+SETUP_TTL = 60
+_SETUP: dict = {}
+
+
+def setup(lang: str) -> dict:
+    """What the panel offers besides the task: professions on a first use, the other agents to connect, and one
+    line when an agent runs an older Athos."""
+    import time
+    from athos import connect, start
+    if not _SETUP or time.time() - _SETUP.get("t", 0) > SETUP_TTL:
+        try:
+            _SETUP.update(t=time.time(), agents=[a for a in connect.agents() if a["found"]],
+                          versions=connect.versions(ask_muse=False))
+        except Exception as e:  # noqa: BLE001 — a broken agent config must not break the panel
+            print(f"athos mcp: setup: {e}", file=sys.stderr)
+            _SETUP.update(t=time.time(), agents=[], versions={})
+    return {"professions": start.professions(lang), "agents": _SETUP["agents"],
+            "behind": connect.behind_line(_SETUP["versions"], lang) if _SETUP["versions"] else ""}
 
 
 def panel(session_id: str = SESSION) -> dict:
@@ -111,7 +153,7 @@ def panel(session_id: str = SESSION) -> dict:
     return {"lang": lang, "greeting": trail.greeting(lang), "pieces": len(store.all_pieces()),
             "trail": trail.view(state),
             "save_prompt": capture.SAVE_PROMPT["es" if lang == "es" else "en"],
-            "adjust_prefix": capture.ADJUST_PREFIX["es" if lang == "es" else "en"]}
+            "adjust_prefix": capture.ADJUST_PREFIX["es" if lang == "es" else "en"], "setup": setup(lang)}
 
 
 def _new_task(session_id: str, request: str) -> None:
@@ -124,11 +166,17 @@ def call(name: str, args: dict, session_id: str = SESSION) -> str:
     if name == "athos_find":
         from athos import start
         start.note_language(args.get("request", ""))         # the panel speaks the language the person writes in
+        from athos import gallery
+        if ref := gallery.requested(args.get("request", "")):
+            return (f"The person asked to add {ref!r} from Athos's gallery: call athos_add with id {ref!r} now, then "
+                    "tell them in one short line, in their language, what was added.")
         _new_task(session_id, args.get("request", ""))
         found = load.relevant(args.get("request", ""), load.enabled(None))
         if not found:
+            first = (" The person has no ways of working yet: Athos's panel offers them examples for their profession, "
+                     "one click each." if not store.all_pieces() and draws_apps() else "")
             return ("No know-how for this request yet. If the task takes several steps, report each with athos_step "
-                    "`new`: they draft a new way of working.")
+                    "`new`: they draft a new way of working." + first)
         session.update(session_id, task_why={p.id: load.why(args.get("request", ""), p) for p in found})
         pages = {p.id: p for p in store.all_pieces()}
         out = []
@@ -192,6 +240,23 @@ def call(name: str, args: dict, session_id: str = SESSION) -> str:
             return out + f"\n\nSaved as {piece.id} v{piece.version}; the previous version is kept."
         return out + f"\n\nProposal in {guild.write_proposal(r)}. Nothing changed yet: ask the person, then call " \
                      "athos_merge again with apply: true."
+    if name == "athos_add":
+        from athos import gallery, start
+        try:
+            r = gallery.add(args.get("id", ""), dry_run=bool(args.get("preview")))
+        except OSError as e:
+            raise LookupError(f"couldn't reach Athos's gallery ({e}); nothing was added") from None
+        return gallery.summary(r, start.lang())
+    if name == "athos_start":
+        from athos import start
+        r = start.from_panel(args.get("lang") or start.lang(), args.get("profile", ""))
+        _SETUP.clear()
+        return json.dumps(r, ensure_ascii=False)
+    if name == "athos_connect":
+        from athos import connect, start
+        line = connect.connect(args.get("agent", ""), start.lang())
+        _SETUP.clear()
+        return line
     raise KeyError(name)
 
 
@@ -232,7 +297,7 @@ def handle(msg: dict) -> dict | None:
             # text asks of it. The panel reads _meta, and asks athos_trail (app-only) for the rest.
             if name == "athos_trail" and not err:
                 result["structuredContent"] = panel()
-            elif name in ("athos_find", "athos_step") and not err:
+            elif name in ("athos_find", "athos_step", "athos_start", "athos_connect") and not err:
                 result["_meta"] = {PANEL_META: panel()}
         elif method == "ping":
             result = {}
