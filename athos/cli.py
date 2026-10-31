@@ -647,6 +647,7 @@ def _bench_route(args) -> int:
                 idx = embed.refresh(load.enabled(), model=model, write=False)
                 meaning = lambda p, ps, idx=idx: embed.scores(p, ps, model=model, index=idx, spawn=False)
             out[r] = route.from_store(meaning)
+            out[f"{r}, per project"] = route.from_store(meaning, scoped=True)
         print(json.dumps(out, indent=1) if args.json else
               "\n\n".join(f"[{r}] {route.render_store(x)}" for r, x in out.items()))
         return 0

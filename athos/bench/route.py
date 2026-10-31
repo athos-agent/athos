@@ -256,21 +256,32 @@ def run(routers: list[str], scale: int = 0, model: str | None = None) -> list[di
     return rows
 
 
-def from_store(meaning=None) -> dict:
+def from_store(meaning=None, scoped: bool = False) -> dict:
     """The person's own tasks marked good, against their real store: the request that started each one and the
     pieces it used (those still in the store, not the ones the task itself saved). Read-only: nothing is written,
-    and only counts come out, never a request."""
-    from athos import load
+    and only counts come out, never a request. `scoped`: each task sees only its project's pieces (and another
+    project's when the request names it), the way the hooks load them by default."""
+    from athos import control, load
     pieces = load.enabled()
     have = {p.id for p in pieces}
-    out = {"tasks": 0, "hit1": 0, "any": 0, "missed": 0, "extra": 0, "none_tasks": 0, "none_loads": 0, "ms": []}
+    out = {"tasks": 0, "hit1": 0, "any": 0, "missed": 0, "extra": 0, "none_tasks": 0, "none_loads": 0, "ms": [],
+           "other_project": 0, "all_tasks": 0}
+    known = {q for p in pieces for q in p.projects}
+    byid = {p.id: p for p in pieces}
     for t in ev.tasks():
         if t.get("result") != "ok" or not t.get("request"):
             continue
         expect = (set(t.get("pieces") or []) - set(t.get("saved") or [])) & have
+        pool = control.scope_project(pieces, t.get("project") or "", t["request"]) if scoped else pieces
         t0 = time.perf_counter()
-        ids = [p.id for p in load.relevant(t["request"], pieces, meaning=meaning)]
+        ids = [p.id for p in load.relevant(t["request"], pool, meaning=meaning)]
         out["ms"].append((time.perf_counter() - t0) * 1000)
+        # A page of another project loaded for this task: the mixing per-project memory is for. The tasks' recorded
+        # pieces count every page that loaded, misloads included, so hit@1 above can't judge it on its own.
+        here = t.get("project") or ""
+        out["all_tasks"] += 1
+        out["other_project"] += here in known and any(byid[i].projects and here not in byid[i].projects
+                                                      for i in ids)
         if not expect:                           # done well with nothing loaded: does the router load something now?
             out["none_tasks"] += 1
             out["none_loads"] += bool(ids)
@@ -308,4 +319,5 @@ def render_store(r: dict) -> str:
             f"  hit@1 {_pct(r['hit1'], r['tasks'])} · any of its pieces {_pct(r['any'], r['tasks'])} · "
             f"nothing loaded {r['missed']} · loaded one it didn't use {r['extra']}\n"
             f"  {r['none_tasks']} good tasks used no piece; the router loads one for {r['none_loads']} of them.\n"
+            f"  a page of another project loaded for {r['other_project']} of {r['all_tasks']} tasks.\n"
             f"  {r['ms_mean']:.1f} ms per request. Read-only: no request is printed or written.")
