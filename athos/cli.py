@@ -50,7 +50,7 @@ from pathlib import Path
 from athos import capture, cases, control, edits, eval as ev, load, paths, replay, session, store, trail
 
 ME = Path(__file__).resolve().parents[1] / "bin" / "athos"
-STEP_SINCE = (0, 1, 46)                 # the first version with `athos step`, which the agents are asked to run
+STEP_SINCE = (0, 1, 75)                 # the first `athos step` that answers ok inside a sandbox (Muse Code)
 
 
 def _cmd() -> str:
@@ -74,7 +74,8 @@ def _runs_me(path: str) -> bool:
         return False
     if str(ME) in head or os.path.realpath(ME) in head:
         return True
-    # Another installation that has every command the agent is asked to run (`athos step` since 0.1.46) will do:
+    # Another installation with every command the agent runs, as it runs it (`athos step` answers ok in a sandbox
+    # since 0.1.75), will do:
     # plain `athos` keeps the person's user name out of every command line on screen, and a plugin update no longer
     # brings the full path back while the terminal's athos is one version behind (2026-10-30).
     target = re.search(r'"([^"]+/bin/athos)"', head)
@@ -795,7 +796,13 @@ def cmd_step(args) -> int:
     if not sid:
         print("athos step: no session in this folder", file=sys.stderr)
         return 0
-    print(trail.step(sid, args.ref, args.new))
+    try:
+        print(trail.step(sid, args.ref, args.new))
+    except OSError:
+        # A sandbox (Muse Code, Codex) may not let the command write to ~/.athos. The tool hook, which runs outside
+        # it, already noted the step from the command line; a failure here made Muse Code ask the person to approve
+        # every step outside the sandbox (2026-10-31).
+        print("ok")
     return 0
 
 
