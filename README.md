@@ -87,10 +87,10 @@ expensive model to a cheap or local one, and check it keeps up.
 - **A small model with your know-how can do the job.** On our bench, Meta's Muse Spark went from 2 of 23 runs right
   without the know-how to 22 of 23 with it, at 8 to 24 times less per run than Claude Code.
 
-Athos is a musketeer: free, and on its own two feet. The idea behind it, freedom and autonomy for what you know, is
-very well told in this talk:
+Athos is a musketeer: free, and on its own two feet. Three minutes on why, and Athos at work in Claude Desktop,
+OpenCode on Meta's Muse Spark, and its memory (no sound; fictional data):
 
-[![Own Your Intelligence (YouTube)](https://img.youtube.com/vi/eRrc1pUY5oU/hqdefault.jpg)](https://www.youtube.com/watch?v=eRrc1pUY5oU)
+[![Athos: your AI know-how, free to move, fast to run (YouTube, 3 min)](https://img.youtube.com/vi/mAsmreBVtYw/maxresdefault.jpg)](https://youtu.be/mAsmreBVtYw)
 
 **Guides:** [Claude Desktop](docs/guides/claude-desktop-en.md) ([en español](docs/guides/claude-desktop.md)) · [for lawyers](docs/guides/lawyer.md) ([en español](docs/guides/abogado.md)) ·
 [for coaches](docs/guides/coach.md) ([en español](docs/guides/entrenador.md)) ·
