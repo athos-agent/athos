@@ -109,6 +109,14 @@ chat (no folder), see every page. `athos load all` brings back one pool for ever
 Measured on one person's store (71 pages over ten projects, 252 tasks marked good; `athos bench route --from-store`):
 a page of another project loaded for 14 tasks with one pool and for none with `auto`.
 
+### The journal: what happened lately in this project
+
+Next to the ways of working (the long-term memory, which changes only when you save or approve), each session starts
+with its project's recent past: the last tasks with what they used or saved and how they went, what was corrected or
+failed in the last week, and the older tasks counted per way of working. `athos journal [--project <name>]` prints it.
+It is read from the task log Athos already keeps on your machine; nothing new is stored, and another project's past
+never shows up in this one.
+
 ### The library
 
 `athos library [--port N] [--no-open]` opens every way of working you have as one page on `127.0.0.1` (default port
