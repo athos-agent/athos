@@ -97,6 +97,18 @@ Your know-how lives in `~/.athos/know-how/`, one markdown page per piece, as a w
 kind of task starts. Walks that cross pages become subagents that improve with the pages. See [docs/WIKI.md](WIKI.md). Choose what may load with
 `/athos:load all | project <name> | pieces <id>... | none`, and copy everything out with `/athos:export <folder>`.
 
+### Learning from your own edits
+
+When the agent writes or edits a text file while following one of your pieces (a contract review, a report, code) and
+you then change that file by hand, your change is usually a rule of how you work. Athos keeps a copy of each file as
+the agent left it (`~/.athos/snapshots/<session>/`, text files up to 200 KB, only the last three tasks of the session).
+On your next request in that session it compares the copy with the file: if you changed it, the agent gets a short diff
+and is asked to propose the rule in one line, in your language, naming the step it belongs to, and to ask you before
+adding it. Say yes and it improves the piece the same way [Adjust] does; a typo or spacing change is not mentioned.
+Each edit is offered once and its copy is deleted right after; `athos status --json` shows it as `learned_from_edit`
+(file, piece, step and the `Athos · adjust <piece>#<step>:` text a panel can prefill). It works in Claude Code, Codex
+(`apply_patch`), Muse Code and OpenCode, stays on your machine, and is off with `ATHOS_CAPTURE=off`.
+
 ### In Codex
 
 Athos is also a Codex plugin, reading the same store:
