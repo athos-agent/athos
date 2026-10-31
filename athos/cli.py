@@ -412,10 +412,11 @@ def cmd_codex(args) -> int:
 def cmd_opencode(args) -> int:
     from athos.adapters import opencode
     if args.action == "install":
-        found = shutil.which("athos")
-        # The command install.sh puts on PATH outlives plugin versions; a plugin's own bin (on PATH inside a Claude
-        # Code session) is tied to that version, so the running one is used instead.
-        f = opencode.install(Path(found) if found and "/plugins/cache/" not in os.path.realpath(found) else ME)
+        from athos.adapters import codex
+        # The shim Codex's hooks use: it runs the newest Claude Code plugin at each call and falls back to this copy.
+        # Baking in the `athos` on PATH left OpenCode on install.sh's 0.1.60 while the plugin was at 0.1.73, so none of
+        # the newer features reached it (2026-10-31).
+        f = opencode.install(codex.write_shim(ME.parents[1]))
         print(f"Athos plugin written to {f}; restart OpenCode to load it.")
         return 0
     print("Athos plugin removed from OpenCode" if opencode.uninstall() else "no Athos plugin in OpenCode")
@@ -485,8 +486,7 @@ def cmd_delegate(args) -> int:
         print(e, file=sys.stderr)
         return 1
     except urllib.error.HTTPError as e:
-        print(f"Meta Model API refused the request (HTTP {e.code}): {e.read().decode(errors='ignore')[:300]}",
-              file=sys.stderr)
+        print(_model_error(e, platform, model), file=sys.stderr)
         return 1
     except urllib.error.URLError as e:
         if platform == "meta":
@@ -661,7 +661,10 @@ def learned_from_edit(state: dict, lang: str = "en") -> list[dict] | None:
     if not seen.get("files") or seen.get("task_id") != state.get("task_id"):
         return None
     prefix = capture.ADJUST_PREFIX["es" if lang == "es" else "en"]
-    return [{**f, "adjust_prompt": f"{prefix} {f['piece']}#{f['statement'] or ''}: "} for f in seen["files"]]
+    # A file written before any step was reported has no statement: the request names the piece alone ("…#: " broke
+    # the reference, 2026-10-31).
+    return [{**f, "adjust_prompt": f"{prefix} {f['piece']}" + (f"#{f['statement']}" if f["statement"] else "") + ": "}
+            for f in seen["files"]]
 
 
 def status() -> dict:
@@ -710,7 +713,11 @@ def _model_error(e: Exception, platform: str, model: str) -> str | None:
     """What to tell the person when the model could not be reached; None for any other error."""
     import urllib.error
     if isinstance(e, urllib.error.HTTPError):
-        return f"Meta Model API refused the request (HTTP {e.code}): {e.read().decode(errors='ignore')[:300]}"
+        # Ollama answers 404 for a model it hasn't pulled; this said "Meta Model API" for it (2026-10-31).
+        if platform != "meta" and e.code == 404:
+            return f"Ollama has no model {model}: `ollama pull {model}`, or choose one you have with --model."
+        who = "Meta Model API" if platform == "meta" else "Ollama"
+        return f"{who} refused the request (HTTP {e.code}): {e.read().decode(errors='ignore')[:300]}"
     if isinstance(e, urllib.error.URLError):
         if platform == "meta":
             return f"cannot reach Meta Model API ({e.reason})."

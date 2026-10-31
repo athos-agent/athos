@@ -53,6 +53,12 @@ class ComposeTest(TempHome):
         self.assertEqual([p.id for p in found], ["deal", "cross-border-tax", "house-format"])
         self.assertIn("Steps that hand over", load.inject_text(found))
 
+    def test_claude_desktop_is_told_how_to_walk_a_hand_over_too(self):
+        from athos import mcp
+        text = mcp.call("athos_find", {"request": "analyse this investment deal for a client"}, session_id="d")
+        self.assertIn("Steps that hand over", text)
+        self.assertIn("athos_show", text)
+
     def test_the_trail_shows_called_steps_under_the_step_that_calls_them(self):
         session.save("s", {"task_id": "t", "task_loaded": ["deal", "cross-border-tax"], "trail": []})
         trail.step("s", "deal#borders", None)

@@ -159,6 +159,17 @@ def relevant(prompt: str, pieces: list[store.Piece]) -> list[store.Piece]:
     return out
 
 
+def handover(pieces: list[store.Piece], show: str) -> str:
+    """How a step that hands over to another page is walked, said only when a loaded piece has one. `show` is how this
+    agent reads a page that didn't come along (a command, or Claude Desktop's athos_show tool)."""
+    if not any(s.calls for p in pieces for s in _wiki().statements(p)):
+        return ""
+    return (f"**Steps that hand over**: a step with `**Calls:** [[<page>]]` is done by following that page's "
+            f"statements (included here or {show}), then you come back to the next step; with "
+            f"`**If:** <condition> → [[<page>]]` only when the condition holds for this case, and if it "
+            f"doesn't, skip it and say why in one short clause.")
+
+
 def inject_text(pieces: list[store.Piece], cmd: str = "athos") -> str:
     if not pieces:
         return ""
@@ -171,11 +182,8 @@ def inject_text(pieces: list[store.Piece], cmd: str = "athos") -> str:
     # Muse Code wrote a whole plan in one reply and reported one step (2026-10-30): a statement whose work is only part
     # of the answer is still a step.
     # Composition: a step may hand over to another way of working, always or only in some cases (2026-10-30).
-    if any(s.calls for p in pieces for s in _wiki().statements(p)):
-        parts.append(f"**Steps that hand over**: a step with `**Calls:** [[<page>]]` is done by following that page's "
-                     f"statements (included here or `{cmd} show <page>`), then you come back to the next step; with "
-                     f"`**If:** <condition> → [[<page>]]` only when the condition holds for this case, and if it "
-                     f"doesn't, skip it and say why in one short clause.\n")
+    if hand := handover(pieces, f"`{cmd} show <page>`"):
+        parts.append(hand + "\n")
     parts.append(f"**As you go**, when you start one of these statements run `{cmd} step <piece-id>#<statement_id>` "
                  f"(once per statement, as its own command right before that statement's work, never chained with "
                  f"other steps: the person watches them tick one by one). This holds when the work is only thinking "

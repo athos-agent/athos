@@ -159,5 +159,8 @@ class EditsUnitTest(TempHome):
         keeps = [x["keep"] for x in trail.view(session.load("s1"))["edits"]]
         self.assertEqual(keeps, ["Athos · adjust p#penalties: keep the rule you proposed from my edit of report.md",
                                  "Athos · adjust p: keep the rule you proposed from my edit of memo.md"])
+        from athos.cli import learned_from_edit
+        self.assertEqual([f["adjust_prompt"] for f in learned_from_edit(session.load("s1"))],
+                         ["Athos · adjust p#penalties: ", "Athos · adjust p: "])
         edits.kept("s1", keeps[0])                       # what the prompt hook does with an adjust request
         self.assertEqual([x["name"] for x in trail.view(session.load("s1"))["edits"]], ["memo.md"])

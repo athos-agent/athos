@@ -48,7 +48,7 @@ def write_shim(root: Path) -> Path:
     shim = shim_path()
     shim.parent.mkdir(parents=True, exist_ok=True)
     shim.write_text(f'''#!/usr/bin/env python3
-"""Runs the newest installed Athos. Written by `athos codex install`."""
+"""Runs the newest installed Athos. Written by `athos codex install` and `athos opencode install`."""
 import glob, os, sys
 cands = sorted(glob.glob(os.path.expanduser("~/.claude/plugins/cache/athos/athos/*/bin/athos")),
                key=lambda p: [int(x) if x.isdigit() else x for x in p.split("/")[-3].replace("-", ".").split(".")])

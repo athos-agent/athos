@@ -159,6 +159,9 @@ adds that the others lack; when they contradict, prefer the version whose tasks 
 only, starting with the line `## #{sid}`, nothing before or after it."""
 
 
+KEEP_FIELDS = ("If", "Calls", "Model", "Links")
+
+
 def model_merge(sid: str, versions: list[tuple[str, str, dict | None]], model: str, chat_fn) -> str | None:
     """One text for a statement from several versions, by a model (`chat_fn(model, messages)`, Ollama's reply shape).
     None when the answer is not one usable statement: the caller falls back to the best-rated text."""
@@ -170,7 +173,16 @@ def model_merge(sid: str, versions: list[tuple[str, str, dict | None]], model: s
     parts = wiki.STATEMENT.split(answer)
     if len(parts) != 3 or not re.search(r"^\*\*Do:\*\*\s*\S", parts[2], re.M):
         return None
-    return parts[2].strip()
+    text = parts[2].strip()
+    # The lines that wire a statement to others are kept even when the model leaves them out: a small local model
+    # merged a step and dropped its **If:** hand-over and its links (2026-10-31). Taken from the best-rated version.
+    for field in KEEP_FIELDS:
+        if not re.search(rf"^\*\*{field}:\*\*", text, re.M):
+            line = next((m.group(0) for _, t, _ in versions
+                         for m in [re.search(rf"^\*\*{field}:\*\*.*$", t, re.M)] if m), None)
+            if line:
+                text += "\n" + line
+    return text
 
 
 def merge(piece_id: str, variants: list[Variant], model: str | None = None, chat_fn=None) -> dict:

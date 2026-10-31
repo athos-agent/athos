@@ -142,6 +142,9 @@ def call(name: str, args: dict, session_id: str = SESSION) -> str:
         ids = ", ".join(f"{p.id}#{st.id}" for p in found[:2] for st in wiki.statements(p))
         if conn:
             out.append(conn)
+        # Composition reached Desktop's chat without the rule for walking it (found in a live check, 2026-10-31).
+        if hand := load.handover(found, "athos_show"):
+            out.append(hand)
         out.append(ANSWER + "\n\nAs you apply each statement, call athos_step with `step` set to it (once per "
                    f"statement, in the order you apply them, skipping those that don't apply): {ids}. A step the "
                    "task needs that none of them has: athos_step with `new`.")

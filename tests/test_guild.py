@@ -164,6 +164,17 @@ class GuildTest(TempHome):
         self.assertIn("not one usable statement", d["rent"]["why"])
         self.assertIn("Version from Ana (1/1 good)", asked[0][1])
 
+    def test_a_model_merge_keeps_the_lines_that_wire_a_step(self):
+        versions = [("Ana", "**When:** the countries are known.\n**Do:** Note them.\n"
+                            "**If:** they differ → [[cross-border-tax]]\n**Links:** [[deal#numbers]]", None),
+                    (guild.ME, "**When:** the countries are known.\n**Do:** Note the countries.", None)]
+        fake = lambda model, messages: {"message": {"content": "## #borders\n**When:** the countries are known.\n"
+                                                               "**Do:** Note the countries of each party."}}
+        text = guild.model_merge("borders", versions, "m", fake)
+        self.assertIn("**Do:** Note the countries of each party.", text)
+        self.assertIn("**If:** they differ → [[cross-border-tax]]", text)
+        self.assertIn("**Links:** [[deal#numbers]]", text)
+
     def test_the_chat_can_merge_through_mcp(self):
         self.colleague("Ana", ANA, {"term": counts(ok=2)})
         text = mcp.call("athos_merge", {"id": "review-a-lease", "paths": [str(self.team)]})

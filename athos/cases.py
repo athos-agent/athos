@@ -21,6 +21,7 @@ import re
 from athos import paths, session, store
 
 MAX_TEXT = 20000           # an answer longer than this is cut: a case is an example, not an archive
+KEEP_DRAFTS = 5            # earlier tasks of a session that can still be marked into a case
 
 
 def root():
@@ -101,6 +102,11 @@ def on_task_end(event: dict, rec: dict | None) -> None:
     versions = {pid: p.version for pid in rec["pieces"] if (p := store.get(pid))}
     if not versions:
         return
+    # The drafts of the session's last few tasks stay too: in Codex every turn is a task, and marking the analysis
+    # after a follow-up found no draft and wrote no case (2026-10-31).
+    if old.get("task_id") and old.get("task_id") != rec["task_id"]:
+        state["earlier_cases"] = ([old] + [c for c in state.get("earlier_cases") or []
+                                           if c.get("task_id") != old["task_id"]])[:KEEP_DRAFTS]
     state["case"] = {"task_id": rec["task_id"], "request": state.get("case_request") or state.get("task_request", ""),
                      "answer": last_answer(event), "pieces": versions, "platform": state.get("platform"),
                      "model": rec.get("model"), "at": rec.get("at")}
@@ -110,14 +116,20 @@ def on_task_end(event: dict, rec: dict | None) -> None:
 def _draft(task_id: str, session_id: str | None) -> tuple[str | None, dict | None]:
     """The session holding this task's draft case: the one named first, else any (a mark from `athos watch` or from
     another folder doesn't say which session the task was in)."""
-    if session_id and (session.load(session_id).get("case") or {}).get("task_id") == task_id:
-        return session_id, session.load(session_id)["case"]
+    def drafts(state: dict) -> list[dict]:
+        return [state.get("case") or {}] + list(state.get("earlier_cases") or [])
+
+    if session_id:
+        draft = next((d for d in drafts(session.load(session_id)) if d.get("task_id") == task_id), None)
+        if draft:
+            return session_id, draft
     for f in paths.sessions().glob("*.json"):
         try:
-            draft = json.loads(f.read_text()).get("case") or {}
+            state = json.loads(f.read_text())
         except (OSError, ValueError):
             continue
-        if draft.get("task_id") == task_id:
+        draft = next((d for d in drafts(state) if d.get("task_id") == task_id), None)
+        if draft:
             return f.stem, draft
     return None, None
 
