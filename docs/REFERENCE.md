@@ -95,7 +95,19 @@ Each run gets a throwaway folder and its own Athos home, so your store and your 
 Your know-how lives in `~/.athos/know-how/`, one markdown page per piece, as a wiki: each step is a statement
 (when / do / because / links), the links follow the order things are done in a task, and `Index.md` says where each
 kind of task starts. Walks that cross pages become subagents that improve with the pages. See [docs/WIKI.md](WIKI.md). Choose what may load with
-`/athos:load all | project <name> | pieces <id>... | none`, and copy everything out with `/athos:export <folder>`.
+`/athos:load auto | all | project <name> | pieces <id>... | none`, and copy everything out with `/athos:export <folder>`.
+
+### One memory per project
+
+Each page says which projects it belongs to (`projects:` in its frontmatter; pages with none are general know-how).
+By default (`auto`), a session in a project's folder loads that project's pages and the general ones; another
+project's pages load only when the request names that project ("…like we did in heat-v2"). What a session starts
+with is an index: this project's pages, and one line per other project saying what its know-how is about (its most
+used pages, or your own words in `~/.athos/projects/<project>.md`). A folder no page belongs to, and Claude Desktop's
+chat (no folder), see every page. `athos load all` brings back one pool for everything.
+
+Measured on one person's store (71 pages over ten projects, 252 tasks marked good; `athos bench route --from-store`):
+a page of another project loaded for 14 tasks with one pool and for none with `auto`.
 
 ### The library
 

@@ -53,14 +53,42 @@ def _plain(w: str) -> str:
 
 
 # Messages the agent itself receives (a background task finishing), not requests the person typed.
-NOT_A_REQUEST = re.compile(r"^\s*<(task-notification|system-reminder)>")
+# The harness's own messages are not the person's requests: a subagent's report loaded an unrelated page (2026-10-31).
+NOT_A_REQUEST = re.compile(r"^\s*<(task-notification|system-reminder|agent-message)[\s>]")
 
 
-def enabled(cwd: str | None = None) -> list[store.Piece]:
-    return control.filter_pieces(store.all_pieces(), cwd)
+def enabled(cwd: str | None = None, prompt: str = "") -> list[store.Piece]:
+    return control.filter_pieces(store.all_pieces(), cwd, prompt)
 
 
-def index_text(pieces: list[store.Piece], cmd: str = "athos") -> str:
+def project_note(project: str, pieces: list[store.Piece]) -> str:
+    """What a project's know-how is about, in one line: the person's own words in `<home>/projects/<name>.md` when
+    they wrote some, else its most used pages."""
+    f = paths.home() / "projects" / f"{project}.md"
+    try:
+        own = next((l.strip() for l in f.read_text().splitlines() if l.strip() and not l.startswith("#")), "")
+    except OSError:
+        own = ""
+    if own:
+        return own
+    top = sorted(pieces, key=lambda p: p.last_used, reverse=True)[:3]
+    return "e.g. " + "; ".join(f"«{p.title}»" for p in top)
+
+
+def other_projects(here: list[store.Piece]) -> list[str]:
+    """The global memory is an index: one line per other project, so the model knows that know-how exists without
+    it mixing into this project's requests."""
+    ids = {p.id for p in here}
+    by: dict[str, list[store.Piece]] = {}
+    for p in store.all_pieces():
+        if p.id not in ids:
+            for q in p.projects:
+                by.setdefault(q, []).append(p)
+    return [f"- {q} ({len(ps)} way{'s' if len(ps) > 1 else ''} of working): {project_note(q, ps)}"
+            for q, ps in sorted(by.items(), key=lambda kv: -len(kv[1]))]
+
+
+def index_text(pieces: list[store.Piece], cmd: str = "athos", others: list[str] | None = None) -> str:
     if not pieces:
         return ""
     head = ("# Athos — your know-how\n\nThese pieces of the user's own know-how are available. When a request "
@@ -74,6 +102,10 @@ def index_text(pieces: list[store.Piece], cmd: str = "athos") -> str:
             break
         lines.append(line)
         size += len(line) + 1
+    if others:
+        lines.append("\nOther projects' know-how (loaded only when a request names the project; "
+                     f"`{cmd} list` shows it):")
+        lines.extend(others[:12])
     return head + "\n".join(lines)
 
 
@@ -263,7 +295,7 @@ def on_prompt(event: dict, cmd: str = "athos") -> str:
     """UserPromptSubmit: the pieces that match the request, recorded as loaded in this session, with the words that
     loaded each one (the band shows them, and [Didn't apply] remembers them)."""
     prompt = event.get("prompt", "")
-    found = relevant(prompt, enabled(event.get("cwd")))
+    found = relevant(prompt, enabled(event.get("cwd"), prompt))
     if found:
         session.update(event.get("session_id", "default"), task_why={p.id: why(prompt, p) for p in found})
     mark_loaded(event.get("session_id", "default"), [p.id for p in found])
@@ -297,7 +329,8 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
     if model:
         session.update(sid, model=str(model))
     from athos import capture
-    text = index_text(enabled(event.get("cwd")), cmd)
+    here = enabled(event.get("cwd"))
+    text = index_text(here, cmd, other_projects(here))
     if text and capture.enabled():               # with the guide given here, the Stop hook only needs one line
         text += "\n\n" + capture.guide(cmd)
         session.update(sid, guide=True)
