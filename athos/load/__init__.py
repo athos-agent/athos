@@ -144,9 +144,12 @@ def _catalogue(pieces: list[store.Piece], budget: int, cmd: str) -> list[str]:
 
 
 def index_text(pieces: list[store.Piece], cmd: str = "athos", others: list[str] | None = None) -> str:
-    """The session-start text: the catalogue of loadable pages, then a short list of other projects' know-how."""
-    if len(pieces) == 0:
-        return ""
+    """The session-start text: the catalogue of loadable pages, then a short list of other projects' know-how.
+    Empty when there is nothing to load, so the hook adds nothing."""
+    return _index_body(pieces, cmd, others) if pieces else ""
+
+
+def _index_body(pieces: list[store.Piece], cmd: str, others: list[str] | None) -> str:
     intro = "\n".join((
         "# Athos — your know-how",
         "",
@@ -300,17 +303,25 @@ def relevant(prompt: str, pieces: list[store.Piece], meaning=None) -> list[store
         meaning = embed.scores if embed.enabled() else False
     if meaning and not sure(ranked) and words(prompt) and not NOT_A_REQUEST.match(prompt):
         ranked = rerank(prompt, pieces, ranked, meaning(prompt, pieces) or {})
-    out, size = _within_budget(ranked)
-    # The pages a loaded piece's steps hand over to (**Calls:** / **If:**) come along, while they fit: the model
-    # needs them at the step that calls them, not after a search.
-    from athos import wiki
-    for p in list(out):
-        for page in dict.fromkeys(c["page"] for s in wiki.statements(p) for c in s.calls):
-            q = store.get(page)
-            if q and q not in out and size + len(store.render(q)) <= INJECT_CAP:
-                out.append(q)
-                size += len(store.render(q))
-    return out
+    chosen, used = _within_budget(ranked)
+    return chosen + _handed_over(chosen, used)
+
+
+def _handed_over(loaded: list[store.Piece], used: int) -> list[store.Piece]:
+    """The pages a loaded piece's steps hand over to (**Calls:** / **If:**), while they fit the budget: the model
+    needs them at the step that calls them, not after a search. Each one is taken at most once."""
+    extra: list[store.Piece] = []
+    for piece in loaded:
+        targets = dict.fromkeys(call["page"] for statement in _wiki().statements(piece) for call in statement.calls)
+        for target_id in targets:
+            target = store.get(target_id)
+            if not target or target in loaded or target in extra:
+                continue
+            size = len(store.render(target))
+            if used + size <= INJECT_CAP:
+                extra.append(target)
+                used += size
+    return extra
 
 
 def handover(pieces: list[store.Piece], show: str) -> str:
@@ -331,13 +342,20 @@ def _page_section(piece: store.Piece) -> str:
 
 
 def inject_text(pieces: list[store.Piece], cmd: str = "athos") -> str:
-    """The text added to a request: the matching pages, then how to report steps, how to answer, and the first line."""
-    if len(pieces) == 0:
+    """The text added to a request: the matching pages, then how to report steps, how to answer, and the first line.
+    Nothing at all when no page matched."""
+    if not pieces:
         return ""
-    first = pieces[0].title
     preface = ("# Athos — know-how that matches this request\n\nThe user's own know-how for this kind of task. "
                "Follow it unless the request says otherwise.\n")
-    parts = [preface, *map(_page_section, pieces)]
+    return "\n".join([preface, *map(_page_section, pieces), *_instructions(pieces, cmd)])
+
+
+def _instructions(pieces: list[store.Piece], cmd: str) -> list[str]:
+    """What the model is told after the pages: how hand-overs work (when there are any), how to report each step,
+    how to answer, and what the first line of the reply says."""
+    first = pieces[0].title
+    parts: list[str] = []
     # The person watches the trail in Athos's pane (Claude Code) or `athos watch`: one call per step, not per action.
     # Muse Code wrote a whole plan in one reply and reported one step (2026-10-30): a statement whose work is only part
     # of the answer is still a step.
@@ -363,7 +381,7 @@ def inject_text(pieces: list[store.Piece], cmd: str = "athos") -> str:
                  f"request, in the person's language, in this form: `Athos · «{first}»: <how it applies here, in a few "
                  f"words>` (in Spanish the same, with the explanation in Spanish). If it does not fit this request, "
                  f"say so in that line and don't follow it.\n")
-    return "\n".join(parts)
+    return parts
 
 
 def _wiki():
@@ -374,13 +392,11 @@ def _wiki():
 def mark_loaded(session_id: str, ids: list[str]) -> None:
     """Note that these pages were used in this session, whether the prompt hook added them or the model opened one
     with `athos show`: the session state, the eval log and each page's last-used time all learn it."""
-    if len(ids) == 0:
+    if not ids:
         return
-    state = session.load(session_id)
-    already = state.get("loaded", [])
-    state["loaded"] = sorted({*already, *ids})
-    session.save(session_id, state)
-    ev.note_loaded(session_id, ids)
+    already = session.load(session_id).get("loaded", [])
+    session.update(session_id, loaded=sorted({*already, *ids}))
+    ev.note_loaded(session_id, ids=list(ids))
     for piece_id in ids:
         store.touch(piece_id)
 
@@ -433,7 +449,7 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
     any cheaper-model offer, in that order."""
     sid = _session_of(event)
     model = _model_name(event)
-    if model:
+    if model is not None:
         session.update(sid, model=model)
     from athos import capture
     here = enabled(event.get("cwd"))

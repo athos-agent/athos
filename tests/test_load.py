@@ -8,14 +8,19 @@ KEY_STEPS = "Revoke first, then issue, then deploy."
 
 def three_pages() -> None:
     """A small store: releasing, a flaky test, a leaked key."""
-    store.create("Cut a release of a Python package", "preparing a release: version bump, changelog, tag",
-                 RELEASE_STEPS)
+    store.create(title="Cut a release of a Python package", body=RELEASE_STEPS,
+                 when="preparing a release: version bump, changelog, tag")
     store.create("Fix a flaky test", "a test fails only sometimes in CI", FLAKY_STEPS)
     store.create("Rotate an API key", "a credential leaked or expires", KEY_STEPS)
 
 
 def ask(prompt: str, sid: str = "s1") -> str:
     return load.on_prompt({"session_id": sid, "prompt": prompt})
+
+
+def recorded(sid: str, key: str):
+    """A value the hooks kept in the session's state, or None."""
+    return session.load(sid).get(key)
 
 
 def picked(prompt: str) -> list[str]:
@@ -28,14 +33,15 @@ class SessionStartAndPrompt(TempHome):
         catalogue = load.on_session_start({"session_id": "s1", "model": "claude-opus-5-5"})
         self.assertIn("`fix-a-flaky-test`", catalogue)
         self.assertNotIn("shared state", catalogue)
-        self.assertEqual(session.load("s1")["model"], "claude-opus-5-5")
+        self.assertEqual(recorded("s1", "model"), "claude-opus-5-5")
 
     def test_a_model_given_as_an_object_is_recorded_by_id(self):
         load.on_session_start({"session_id": "s2", "model": {"id": "muse-spark", "display_name": "Muse Spark"}})
-        self.assertEqual(session.load("s2")["model"], "muse-spark")
+        self.assertEqual(recorded("s2", "model"), "muse-spark")
 
     def test_an_empty_store_says_nothing_at_session_start(self):
-        self.assertEqual(load.on_session_start({"session_id": "s1"}), "")
+        self.assertEqual(load.on_session_start({"session_id": "empty"}), "")
+        self.assertIsNone(recorded("empty", "model"))
 
     def test_a_request_gets_only_the_page_that_fits(self):
         three_pages()
@@ -43,15 +49,15 @@ class SessionStartAndPrompt(TempHome):
         self.assertIn(FLAKY_STEPS[:16], added)
         for other in ("CHANGELOG", KEY_STEPS[:12]):
             self.assertNotIn(other, added)
-        self.assertEqual(session.load("s1")["loaded"], ["fix-a-flaky-test"])
+        self.assertEqual(recorded("s1", "loaded"), ["fix-a-flaky-test"])
 
     def test_an_unrelated_request_adds_nothing_and_records_nothing(self):
         three_pages()
         self.assertEqual(ask("write a haiku about autumn"), "")
-        self.assertNotIn("loaded", session.load("s1"))
+        self.assertIsNone(recorded("s1", "loaded"))
 
     def test_a_request_in_spanish_finds_a_spanish_page(self):
-        store.create("Preparar un release", "preparar un release: subir versión, changelog y tag", "Pasos.")
+        store.create("Preparar un release", when="preparar un release: subir versión, changelog y tag", body="Pasos.")
         self.assertIn("Preparar un release", ask("hay que preparar el release nuevo"))
 
     def test_a_second_large_page_does_not_fit_the_budget(self):
@@ -70,15 +76,15 @@ class SessionStartAndPrompt(TempHome):
 class RoutingRegressions(TempHome):
     def test_a_word_stem_is_enough_for_a_lone_page(self):
         # The first real session: one page, and a request sharing only "release" with it went without it.
-        store.create("Cut a versioned release of a small Python package", "asked to bump a version, update the "
-                     "changelog, commit and tag", "Change both version places.")
+        when = "asked to bump a version, update the changelog, commit and tag"
+        store.create("Cut a versioned release of a small Python package", when, "Change both version places.")
         self.assertIn("Change both version places.", ask("Release 0.3.0 with a new option"))
 
     def test_marking_a_page_loaded_records_it_in_the_session(self):
         page = store.create("A", "aaa", "b")
         load.mark_loaded("s1", [page.id])
         load.mark_loaded("s1", [])                                         # nothing to add: no change
-        self.assertEqual(session.load("s1")["loaded"], ["a"])
+        self.assertEqual(recorded("s1", "loaded"), [page.id])
 
     def test_words_that_only_start_alike_do_not_load(self):
         # 2026-10-29: "revisá … con mi checklist" brought a page about CI checks, and "la carga de checklist" one whose
