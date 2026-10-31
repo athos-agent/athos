@@ -22,6 +22,20 @@ A page is a list of **statements**, the smallest unit you can check:
   and, one day, retired.
 - **Links** name what applies **next or alongside**.
 
+## Steps that hand over
+
+Real work is modular. A step can hand over to another page and come back:
+
+    ## #borders
+    **When:** the facts are clear.
+    **Do:** note the countries of the investor and the asset.
+    **If:** they are not all in the same country → [[check-the-cross-border-tax-treatment]]
+
+`**Calls:** [[page]]` (or `[[page#statement]]`, to start there) always runs that page's statements as sub-steps;
+`**If:** <condition> → [[page]]` runs them only when the condition holds for this case. The called pages load with
+the piece, and the trail shows their steps under the step that called them (↳), so the method expands only where
+the case needs it. Change this step works on a sub-step too: it improves the page the sub-step belongs to.
+
 ## Links are trajectories
 
 The one rule for links: a statement links to the statement that was applied **right after it, or together with it,

@@ -107,9 +107,11 @@ at 8 to 24 times less per run than Claude Code where we compared. Small cases wr
 ## For professionals, not only programmers
 
 On first use, ask *"set up Athos for a lawyer"* (or *"para un entrenador"*): Athos adds example ways of working to
-start from, in English or Spanish: **law** (build the argument of a brief, review a contract against your checklist) and **sports coaching** (plan
-the training week, write the post-match report). They leave every professional decision to you and ask before
-touching client or athlete data. No terminal needed: Claude Desktop's Code tab runs the plugin. Start with the
+start from, in English or Spanish: **law** (build the argument of a brief, review a contract against your checklist), **sports coaching** (plan
+the training week, write the post-match report), **engineering on call** (triage a production incident),
+**journalism** (verify a lead before publishing), **science** (analyse an experiment so another lab can repeat it) and
+**finance and tax advice** (analyse an investment with your committee's rules). They leave every professional decision to you and ask before
+touching client, source or athlete data. No terminal needed: Claude Desktop's Code tab runs the plugin. Start with the
 [overview for professionals](docs/PROFESSIONALS.md) ([en español](docs/PROFESIONALES.md)) or the guides above.
 
 **Checklists are know-how.** When a task follows a checklist (you name it, paste it as a list, or the agent opens a
