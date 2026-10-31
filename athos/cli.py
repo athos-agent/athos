@@ -9,7 +9,8 @@
     athos export --codex [dir]         write each piece as a Codex skill (default ~/.agents/skills)
     athos codex install|uninstall      add or remove Athos's hooks in Codex (~/.codex/hooks.json)
     athos import codex [--include-tmp] record Codex's past tasks from its session files (report does it too)
-    athos revert <id>                  put back a piece's previous version
+    athos revert <id> [--to N]         put back a piece's previous version (or version N), as a new version
+    athos library [--port N]           every way of working at a glance, as a local page (127.0.0.1)
     athos watch                       a live panel: one bar per agent for this project's know-how (for Codex)
     athos watch --web                 the trail panel as a local page, beside Muse Code, Codex or OpenCode
     athos export --muse [<folder>]    the same skills for Muse Code; `athos import muse` records its tasks
@@ -29,9 +30,15 @@
                                        ~/.claude/agents and keeps them in step with every save
     athos bench <case|all> --agents claude,meta [--runs 5] [--without] [--max-usd 5]   the same task on each agent,
                                        checked by what it left behind; `athos bench --list`, `athos bench report`
+    athos bench route [--router lexical,hybrid] [--scale 300] [--from-store]   how well the router picks the know-how
+    athos embed [on|off] [--model M]   also load know-how by meaning (local embeddings, Ollama); off by default
     athos test <id> [--backend meta]   re-check a piece against the corrections you made on it before
     athos shadow [--limit N] | on|off  compare a cheaper model with the answers you approved (Ollama by default)
     athos status --json                what the terminal's status line and band show
+    athos doctor [--json]              which Athos each agent runs (Claude Code, Desktop, Codex, OpenCode, Muse Code,
+                                       the terminal) and which are behind the newest
+    athos gallery build [--out DIR]    gallery.json and index.html from the gallery's pages
+    athos add <id|url> [--dry-run]     add a way of working (and the pages it calls) from Athos's public gallery
     athos hook <event>                 used by the Claude Code plugin's hooks (reads the event JSON on stdin)
 """
 
@@ -45,6 +52,7 @@ import re
 import shlex
 import shutil
 import sys
+import time
 from pathlib import Path
 
 from athos import capture, cases, control, edits, eval as ev, load, paths, replay, session, store, trail
@@ -145,6 +153,14 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
                     session.update(event["session_id"], offer=None)
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                                          "additionalContext": capture.SAVE_CONTEXT.format(cmd=_cmd())}}))
+                return 0
+            from athos import gallery
+            if ref := gallery.requested(event.get("prompt", "")):
+                # The person pasted [Use in Athos] from the gallery: the agent adds it, in sight, with one command.
+                print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": (
+                    f"The person asked to add {ref!r} from Athos's gallery: run `{_cmd()} add {shlex.quote(ref)}` "
+                    "now (it downloads only from the athos-agent/athos repository and never overwrites a page they "
+                    "have), then tell them in one short line, in their language, what was added.")}}))
                 return 0
             if capture.is_adjust_prompt(event.get("prompt", "")):
                 # The person pressed [Adjust] on a step of the pane and wrote the change: it improves that piece.
@@ -460,7 +476,7 @@ def cmd_dismiss(args) -> int:
 
 def cmd_revert(args) -> int:
     try:
-        p = store.revert(args.id)
+        p = store.revert(args.id, args.to)
     except (KeyError, FileNotFoundError) as e:
         print(f"cannot revert: {e}", file=sys.stderr)
         return 1
@@ -582,6 +598,8 @@ def cmd_bench(args) -> int:
         return 0
     if args.target in ("transfer", "transfer-report"):
         return _bench_transfer(args, all_cases)
+    if args.target == "route":
+        return _bench_route(args)
     if args.target == "report":
         r = bench.report()
         print(json.dumps(r, indent=1, ensure_ascii=False) if args.json else bench.render(r))
@@ -597,6 +615,81 @@ def cmd_bench(args) -> int:
     bench.run(names, agents, args.runs, with_piece=not args.only_without, without_piece=args.without or
               args.only_without, models=models, max_usd=args.max_usd, keep=args.keep)
     print(f"\n{bench.render(bench.report([r for r in bench.load_results() if r['case'] in names]))}")
+    return 0
+
+
+def _ollama_host() -> str:
+    from athos import delegate
+    return delegate.host()
+
+
+def _bench_route(args) -> int:
+    """The router's own bench: synthetic cases on throwaway stores, or the person's good tasks (read-only)."""
+    from athos.bench import route
+    from athos.load import embed
+    routers = args.router.split(",")
+    if set(routers) - {"lexical", "hybrid"}:
+        print("--router: lexical, hybrid (comma-separated)", file=sys.stderr)
+        return 1
+    model = args.embed_model or embed.chosen_model()
+    if "hybrid" in routers:
+        try:
+            embed.ollama(["ping"], model, timeout=60)
+        except Exception as e:
+            print(f"hybrid needs {model} in Ollama at {_ollama_host()} ({e}): `ollama pull {model}`",
+                  file=sys.stderr)
+            return 1
+    if args.from_store:
+        out = {}
+        for r in routers:
+            meaning = False
+            if r == "hybrid":                    # the index in memory: nothing is written to the person's home
+                idx = embed.refresh(load.enabled(), model=model, write=False)
+                meaning = lambda p, ps, idx=idx: embed.scores(p, ps, model=model, index=idx, spawn=False)
+            out[r] = route.from_store(meaning)
+        print(json.dumps(out, indent=1) if args.json else
+              "\n\n".join(f"[{r}] {route.render_store(x)}" for r, x in out.items()))
+        return 0
+    rows = route.run(routers, scale=args.scale, model=model)
+    print(json.dumps(rows, indent=1) if args.json else route.render(rows) +
+          (f"\nhybrid: {model} through Ollama, request embedded under {embed.BUDGET_S * 1000:.0f} ms."
+           if "hybrid" in routers else ""))
+    return 0
+
+
+def cmd_embed(args) -> int:
+    """`athos embed on|off`: also load know-how by meaning, with a local embedding model (Ollama)."""
+    from athos.load import embed
+    if args.refresh:                              # the background job the prompt hook starts: quiet, then unlocked
+        try:
+            embed.refresh(load.enabled(), model=embed.chosen_model())
+        except Exception as e:
+            print(e, file=sys.stderr)
+            return 1
+        finally:
+            embed._lock().unlink(missing_ok=True)
+        return 0
+    if args.action in ("on", "off"):
+        s = embed.set_embed(args.action == "on", args.model)
+        if not s["on"]:
+            print("Loading by meaning is off: Athos loads know-how by the request's words only.")
+            return 0
+        model = embed.chosen_model()
+        try:
+            t0 = time.time()
+            embed.ollama(["hello"], model, timeout=60)   # the model answers (and is loaded) even with no piece yet
+            idx = embed.refresh(load.enabled(), model=model)
+            print(f"Loading by meaning is on ({model}, local Ollama): {len(idx)} pieces indexed in "
+                  f"{time.time() - t0:.1f} s. Nothing leaves this machine.")
+        except Exception as e:
+            print(f"Loading by meaning is on, but {model} doesn't answer at {_ollama_host()} ({e}). Until it "
+                  f"does, Athos loads by words only, as before. `ollama pull {model}` gets the model.")
+        return 0
+    s, model = embed.settings(), embed.chosen_model()
+    pieces = load.enabled()
+    fresh = len(pieces) - len(embed.stale(pieces, embed.load_index(model), model))
+    print(f"Loading by meaning: {'on' if s.get('on') else 'off'} · {model} · {fresh}/{len(pieces)} pieces indexed"
+          f" · `athos embed on|off`")
     return 0
 
 
@@ -690,12 +783,48 @@ def status() -> dict:
             "following": following(state),
             # A cheaper model that matched the person's approved answers on a piece (`athos shadow`).
             "handoff": replay.handoffs(), "shadow": bool(replay.settings().get("on")),
+            "embed": bool((start.config().get("embed") or {}).get("on")),     # loads by meaning too (`athos embed on`)
             "learned_from_edit": learned_from_edit(state, start.lang()),
             "trail": trail.view(state), "greeting": trail.greeting(start.lang()),
+            # One line when an agent runs an older Athos (`athos doctor`); file reads only, no command is run.
+            "behind": _behind(start.lang()),
             # Only recent tasks wait for a mark: an old backlog reads as debt, not help.
             "to_mark": sum(1 for t in tasks if t["result"] == "unevaluated" and ev.recent(t)),
             "last": {"task_id": last["task_id"], "result": last["result"], "pieces": last.get("pieces", []),
                      "saved": [x for x in saved if x not in improved], "improved": improved} if last else None}
+
+
+def _behind(lang: str) -> str:
+    from athos import connect
+    try:
+        return connect.behind_line(connect.versions(ask_muse=False), lang)
+    except Exception:  # noqa: BLE001 — the status line never fails on another agent's config
+        return ""
+
+
+def cmd_doctor(args) -> int:
+    from athos import connect, start
+    v = connect.versions()
+    print(json.dumps(v, ensure_ascii=False) if args.json else connect.report(v, start.lang()))
+    return 1 if v["behind"] else 0
+
+
+def cmd_gallery(args) -> int:
+    from athos import gallery
+    for f in gallery.build(Path(args.out) if args.out else None):
+        print(f)
+    return 0
+
+
+def cmd_add(args) -> int:
+    from athos import gallery, start
+    try:
+        r = gallery.add(args.ref, dry_run=args.dry_run)
+    except (ValueError, LookupError, OSError) as e:
+        print(f"athos add: {e}", file=sys.stderr)
+        return 1
+    print(gallery.summary(r, start.lang()))
+    return 0
 
 
 def cmd_status(args) -> int:
@@ -932,7 +1061,13 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=cmd_dismiss)
     s = sub.add_parser("revert")
     s.add_argument("id")
+    s.add_argument("--to", type=int, help="the version to go back to (default: the previous one)")
     s.set_defaults(fn=cmd_revert)
+    s = sub.add_parser("library", help="every way of working at a glance, as a local page on 127.0.0.1")
+    s.add_argument("--port", type=int, default=8712)
+    s.add_argument("--no-open", action="store_true", help="don't open the browser")
+    s.set_defaults(fn=lambda a: __import__("athos.library", fromlist=["serve"]).serve(port=a.port,
+                                                                                     open_browser=not a.no_open))
     s = sub.add_parser("delegate")
     s.add_argument("id", help="the piece of know-how the task follows")
     s.add_argument("request")
@@ -982,7 +1117,17 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--max-usd", type=float, help="stop once this much has been spent in this call")
     s.add_argument("--keep", action="store_true", help="keep each run's workspace to look at it")
     s.add_argument("--json", action="store_true", help="with report: the numbers as JSON")
+    s.add_argument("--router", default="lexical", help="with route: lexical, hybrid (comma-separated)")
+    s.add_argument("--scale", type=int, default=0, help="with route: also a store padded to this many pages")
+    s.add_argument("--embed-model", help="with route: the Ollama embedding model for hybrid (default your setting)")
+    s.add_argument("--from-store", action="store_true",
+                   help="with route: your tasks marked good against your store (read-only, counts only)")
     s.set_defaults(fn=cmd_bench)
+    s = sub.add_parser("embed", help="also load know-how by meaning, with a local embedding model (Ollama); on|off")
+    s.add_argument("action", nargs="?", choices=["on", "off"])
+    s.add_argument("--model", help="the Ollama embedding model (default embeddinggemma)")
+    s.add_argument("--refresh", action="store_true", help=argparse.SUPPRESS)
+    s.set_defaults(fn=cmd_embed)
     s = sub.add_parser("wiki", help="your know-how as a wiki: rebuild Index.md, check links, trajectory agents")
     s.add_argument("action", nargs="?", choices=["lint", "agents"], default="lint")
     s.add_argument("--install", action="store_true", help="with agents: put them where Claude Code finds subagents")
@@ -1034,6 +1179,17 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("status")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_status)
+    s = sub.add_parser("doctor", help="which Athos each of your agents runs, and which are behind")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_doctor)
+    s = sub.add_parser("gallery", help="build the gallery's gallery.json and index.html")
+    s.add_argument("action", choices=["build"])
+    s.add_argument("--out", help="the folder to write to (default: the gallery folder)")
+    s.set_defaults(fn=cmd_gallery)
+    s = sub.add_parser("add", help="add a way of working from Athos's public gallery")
+    s.add_argument("ref", help="the gallery id, or its raw URL in the athos-agent/athos repository")
+    s.add_argument("--dry-run", action="store_true", help="only show what would be added")
+    s.set_defaults(fn=cmd_add)
     s = sub.add_parser("hook")
     s.add_argument("event", choices=["session-start", "prompt", "tool", "stop"])
     s.add_argument("--platform", default="claude-code")

@@ -97,6 +97,74 @@ Your know-how lives in `~/.athos/know-how/`, one markdown page per piece, as a w
 kind of task starts. Walks that cross pages become subagents that improve with the pages. See [docs/WIKI.md](WIKI.md). Choose what may load with
 `/athos:load all | project <name> | pieces <id>... | none`, and copy everything out with `/athos:export <folder>`.
 
+### The library
+
+`athos library [--port N] [--no-open]` opens every way of working you have as one page on `127.0.0.1` (default port
+8712, the next free one otherwise), in English or Spanish like the rest of Athos:
+
+- **What it gave you**: one bar per agent and model (the rows of `athos report`): its tasks, how many used your
+  know-how, how many of those you marked went well, and the time and tokens of each.
+- **The list**: each way of working with what it is for, how often it was used and how it went (good, corrected,
+  failed, from your marks), in which agents and models, and its last improvement (`v3: …`). A filter narrows it by
+  words. A page that is reached through another page's `**Calls:**` or `**If:**` sits under it, marked ↳ with the
+  condition.
+- **One page**: its steps as a checklist, with the branches nested under the step that leads there (↳, as in the
+  panel); its versions with each one's note; **Go back to this version**, which asks first and then brings that version
+  back as a new one (`athos revert <id> --to N` does the same; no version is ever deleted); and **Open in editor**,
+  which opens the page's markdown file with your system's default app (only files inside `~/.athos/know-how`).
+
+Nothing leaves your machine. The page's two actions are POST requests that need a random token made for each run and
+carried only by the page itself, and the server answers only requests addressed to `127.0.0.1`/`localhost`, so another
+website open in your browser can neither call them nor read your know-how. In Claude Desktop's chat the same page opens
+as an MCP App when you ask to see your ways of working (`athos_library`, resource `ui://athos/library`); its buttons go
+through the app-only tool `athos_library_do`.
+
+### How the router picks the know-how, measured
+
+On every request Athos loads the one or two pieces whose title and "when" share the request's words (rarer words count
+more; [Didn't apply] remembers the words that loaded a piece by mistake). `athos bench route` measures that choice
+before anything changes it:
+
+```
+athos bench route                         the public cases on a throwaway store of the starters (both languages),
+                                          and each language's requests against the other language's starters only
+athos bench route --scale 300             also a store padded to 300 pages with generated pages from other trades
+athos bench route --router lexical,hybrid words only vs words + meaning (needs Ollama, see below)
+athos bench route --from-store            your own tasks marked good against your own store: read-only, counts only
+athos bench route --json
+```
+
+The cases (`athos/bench/route_cases.json`, fictional) are requests in English and Spanish for each starter (law,
+sports, ops, journalism, science, finance), worded plainly and as paraphrases with few shared words, plus requests that
+need no know-how ("what time is it", "write a haiku"). It reports hit@1 (the first piece loaded is the expected one),
+missed (nothing loaded), wrong (a piece loaded that the request didn't call for; the pages an expected piece hands over
+to don't count) and "none ok" (a request that needs nothing loaded nothing), with the time per request including
+reading the store. `--from-store` uses the request that started each task you marked good and the pieces it used, and
+prints only totals, never a request. Measured on 2026-10-31 (embeddinggemma through a local Ollama):
+
+| router | store | hit@1 | wrong | none ok | ms/request |
+|---|---|---|---|---|---|
+| words | starters, en+es (18 pages) | 47/72 | 6 | 19/24 | 1.4 |
+| words + meaning | starters, en+es | 57/72 | 6 | 19/24 | 17 |
+| words | Spanish requests, English starters | 0/36 | 0 | 12/12 | 0.7 |
+| words + meaning | Spanish requests, English starters | 9/36 | 0 | 12/12 | 24 |
+| words | English requests, Spanish starters | 0/36 | 0 | 12/12 | 0.8 |
+| words + meaning | English requests, Spanish starters | 15/36 | 0 | 12/12 | 13 |
+| words | en+es, 300 pages | 44/72 | 18 | 21/24 | 13 |
+| words + meaning | en+es, 300 pages | 54/72 | 21 | 19/24 | 33 |
+
+`athos embed on` adds meaning to the words, with a local embedding model through Ollama (default `embeddinggemma`,
+`athos embed on --model <name>` for another; `ollama pull embeddinggemma` first). It is off by default, and with it
+off, or with Ollama down, loading is exactly the words-only router. When on, each piece's title, "when" and its
+statements' `When:` lines are embedded once and kept in `~/.athos/index/` (by piece and a hash of that text, so an
+edited piece is embedded again); pieces not indexed yet are filled by a background job, never while you wait. On each
+request, when the words already found one clear piece nothing else happens; otherwise the request is embedded (under
+300 ms, else words only) and the piece closest in meaning joins when it stands clearly above its usual closeness to
+any request: this is what lets a Spanish request find an English piece. [Didn't apply] holds for these loads too.
+`athos embed` shows whether it is on and how many pieces are indexed; `athos status --json` has `embed`. Nothing leaves
+your machine. On the bench above it rescues cross-language and paraphrased requests without new wrong loads on the
+starters, but on the 300-page store it adds three wrong loads, so it stays opt-in.
+
 ### Learning from your own edits
 
 When the agent writes or edits a text file while following one of your pieces (a contract review, a report, code) and
@@ -240,6 +308,57 @@ Without the extension, the server can also be added by hand in Settings → Deve
 ```json
 { "mcpServers": { "athos": { "command": "/Users/you/.local/bin/athos", "args": ["mcp"] } } }
 ```
+
+### First use and your other agents, from Desktop's panel
+
+The panel also sets Athos up, one click at a time; nothing changes your setup without one.
+
+- **First use**: with no ways of working yet, the panel asks what you do (law, finance, journalism, science, engineering
+  on call, sports coaching, something else) in your language. A click adds that profession's example ways of working,
+  exactly as `athos start` does, says in one line what it added, and offers a first request to try.
+- **Use Athos in your other agents too**: the panel lists Codex, OpenCode and Muse Code when they are on this computer
+  (their command on PATH, or their config folder), each with **Connect**. Codex runs the same code as
+  `athos codex install` (then approve the hooks once with `/hooks` in Codex), OpenCode the same as
+  `athos opencode install` (then restart OpenCode), and Muse Code runs `muse plugins marketplace add athos
+  https://github.com/athos-agent/athos`, `muse plugins install athos@athos` and `muse plugins approve athos`.
+- **Versions**: one line when an agent runs an older Athos than the newest on this computer, with what to do.
+
+Both buttons call tools only the panel sees (`athos_start`, `athos_connect`); the model never calls them.
+
+### athos doctor
+
+```
+athos doctor [--json]
+```
+
+Which Athos each agent would run, and which are behind the newest one on this computer: Claude Code (its plugin
+cache), Claude Desktop (the extension's `manifest.json`), Codex (the `athos` its hooks run: `~/.athos/bin/athos` runs
+the newest Claude Code plugin), OpenCode (the `athos` its plugin runs), Muse Code (its plugin record, or
+`muse plugins list` with a short timeout) and the `athos` on PATH. It exits 1 when one is behind. The same line is in
+`athos status --json` (`behind`) and in Desktop's panel.
+
+### The gallery
+
+`gallery/` holds ways of working anyone can take, in English and Spanish: normal Athos pages (frontmatter with `id`,
+`title`, `when`, `profession`, `lang`; statements with **If:** and **Calls:** branches). Every example is fictional and
+leaves the professional decisions to the person. `athos gallery build [--out DIR]` writes `gallery.json` (each page,
+its steps and branches, and the pages it calls) and `index.html`, a static page that previews each entry as the panel
+draws it, filtered by profession and language. Its **Use in Athos** button copies a short request:
+
+```
+Athos · add from gallery: review-a-services-contract
+```
+
+Pasted in any agent with Athos, the prompt hook (or `athos_find` in Desktop) has the agent run the add:
+
+```
+athos add <id | raw URL> [--dry-run]       athos_add in Desktop's chat
+```
+
+It downloads only from `https://raw.githubusercontent.com/athos-agent/athos/main/gallery/` (any other host or path is
+refused), the entry and the pages it links to, and saves each one you don't have yet as version 1 with origin
+`gallery`. A page you already have is left as it is. To contribute an entry, open a pull request with its pages in
+both languages; `tests/test_gallery.py` checks that every link and branch leads to a page in the gallery.
 
 ### Inside a project, for any agent
 

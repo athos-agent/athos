@@ -73,6 +73,16 @@
   .foot { margin-top: 12px; color: var(--dim); font-size: 11px; }
   .empty { color: var(--dim); }
   .hidden, [hidden] { display: none !important; }
+  .welcome { margin: 10px 0 4px; }
+  .welcome p { margin: 0 0 8px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .others { margin-top: 12px; font-size: 13px; }
+  .others > summary { color: var(--dim); }
+  .others > summary::before { content: "▸ "; } .others[open] > summary::before { content: "▾ "; }
+  .agent { display: flex; align-items: center; gap: 8px; margin: 6px 0 0 14px; }
+  .agent .ok { color: var(--done); font-size: 12px; }
+  .notice { margin: 8px 0 0; font-size: 13px; }
+  .behind { margin-top: 8px; font-size: 12px; color: var(--new); }
 </style>
 </head>
 <body>
@@ -111,6 +121,9 @@ const WORDS = {
     see: 'See also', show: t => `Show me the way of working «${t}»`, version: v => `version ${v}`,
     foot: 'Your know-how, in ~/.athos on this computer.', waiting: 'The next task shows here.',
     pip: 'Keep beside', full: 'Full screen', for: 'For',
+    pick: 'What is your work? I\'ll add a few example ways of working for it, as plain files you can change.',
+    others: 'Use Athos in your other agents too', connect: 'Connect', connected: 'connected', tryIt: 'Try it:',
+    working: 'One moment…', failed: 'That didn\'t work:',
   },
   es: {
     thinking: 'Cómo lo estoy resolviendo',
@@ -132,9 +145,12 @@ const WORDS = {
     see: 'Ver también', show: t => `Mostrame la forma de trabajar «${t}»`, version: v => `versión ${v}`,
     foot: 'Tu know-how, en ~/.athos en esta computadora.', waiting: 'Acá se ve la próxima tarea.',
     pip: 'Fijar al costado', full: 'Pantalla completa', for: 'Para',
+    pick: '¿A qué te dedicás? Te agrego algunas formas de trabajar de ejemplo, como archivos que podés cambiar.',
+    others: 'Usá Athos también en tus otros agentes', connect: 'Conectar', connected: 'conectado', tryIt: 'Probá:',
+    working: 'Un momento…', failed: 'No funcionó:',
   },
 };
-let state = null, host = {}, nextId = 1, polls = 0, editing = null;
+let state = null, host = {}, nextId = 1, polls = 0, editing = null, notice = '', tryText = '';
 const open = new Set();
 const pending = new Map();
 const $ = id => document.getElementById(id);
@@ -223,6 +239,46 @@ function step(p, x, W) {
       : `<button class="link" data-adjust="${esc(key)}">${esc(W.adjust)}</button>`}</div></details></li>`;
 }
 
+// Besides the task: on a first use (no ways of working yet) the professions, one button each; the other agents on
+// this computer with [Connect]; one line when an agent runs an older Athos. Each button calls an app-only tool on
+// the person's click: nothing changes their setup by itself.
+function setupHtml(W, idle) {
+  const s = state.setup || {};
+  if (!host.serverTools) return '';
+  let out = '';
+  if (state.pieces === 0 && (s.professions || []).length)
+    out += `<div class="welcome"><p>${esc(W.pick)}</p><div class="chips">` +
+      s.professions.map(([id, name]) => `<button data-profile="${esc(id)}">${esc(name)}</button>`).join('') + '</div></div>';
+  if (notice) out += `<p class="notice">${md(notice)}</p>`;
+  if (tryText) out += `<div class="row"><span class="because">${esc(W.tryIt)}</span><button data-try="1">${esc(tryText)}</button></div>`;
+  const agents = s.agents || [];
+  if (agents.length) {
+    const todo = agents.some(a => !a.connected);
+    out += `<details class="others"${todo && idle ? ' open' : ''}><summary>${esc(W.others)}</summary>` +
+      agents.map(a => `<div class="agent"><span>${esc(a.name)}</span>` + (a.connected
+        ? `<span class="ok">✓ ${esc(W.connected)}</span>`
+        : `<button data-connect="${esc(a.id)}">${esc(W.connect)}</button>`) + '</div>').join('') + '</details>';
+  }
+  if (s.behind) out += `<p class="behind">⚠ ${esc(s.behind)}</p>`;
+  return out;
+}
+
+async function act(name, args) {
+  const W = w();
+  notice = W.working; draw();
+  try {
+    const r = await request('tools/call', { name, arguments: args });
+    const text = ((r && r.content && r.content[0]) || {}).text || '';
+    if (r && r.isError) { notice = `${W.failed} ${text}`; }
+    else if (name === 'athos_start') {
+      try { const o = JSON.parse(text); notice = o.line; tryText = (o.added || []).length ? o.try : ''; }
+      catch (e) { notice = text; }
+    } else notice = text;
+    take(r);
+  } catch (e) { notice = `${W.failed} ${(e && e.message) || ''}`; }
+  draw();
+}
+
 function draw() {
   if (!state) return;
   const W = w(), t = state.trail;
@@ -249,6 +305,7 @@ function draw() {
   for (const x of t.edits || [])
     html += `<div class="row"><span>✎ ${esc(W.edited(x.name))}</span><button data-keep="${esc(x.keep)}">${esc(W.keepRule)}</button></div>`;
   if (!p && !t.new.length && !state.trail.task_id) html = `<p class="empty">${esc(W.waiting)}</p>`;
+  html += setupHtml(W, !p);
   $('page').innerHTML = html;
 
   const modes = host.modes || [];
@@ -277,6 +334,9 @@ document.addEventListener('click', e => {
   else if (b.dataset.send) adjustSend(b.dataset.send);
   else if (b.dataset.show) say(w().show(b.dataset.show));
   else if (b.dataset.keep) say(b.dataset.keep);
+  else if (b.dataset.profile) act('athos_start', { profile: b.dataset.profile, lang: state.lang });
+  else if (b.dataset.connect) act('athos_connect', { agent: b.dataset.connect });
+  else if (b.dataset.try) { say(tryText); tryText = ''; draw(); }
   else if (b.id === 'save') say(state.save_prompt);
   else if (b.id === 'pip') mode('pip');
   else if (b.id === 'full') mode('fullscreen');

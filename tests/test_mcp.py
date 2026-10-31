@@ -23,7 +23,8 @@ class McpTest(TempHome):
         self.assertEqual([x["id"] for x in r], [1, 2, 3])                       # the notification gets no answer
         self.assertEqual(r[0]["result"]["serverInfo"]["name"], "athos")
         self.assertEqual({t["name"] for t in r[1]["result"]["tools"]},
-                         {"athos_find", "athos_step", "athos_show", "athos_list", "athos_save", "athos_merge"})
+                         {"athos_find", "athos_step", "athos_show", "athos_list", "athos_save", "athos_merge",
+                          "athos_add"})
         self.assertIn("git tag -a v0.3.0", r[2]["result"]["content"][0]["text"])
 
     def test_save_and_errors(self):
@@ -59,6 +60,9 @@ class McpAppTest(TempHome):
         self.assertEqual(next(t for t in tools if t["name"] == "athos_trail")["_meta"]["ui"]["visibility"], ["app"])
         plain = self.rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, apps=False)[0]["result"]["tools"]
         self.assertNotIn("athos_trail", {t["name"] for t in plain})
+        for name in ("athos_start", "athos_connect"):              # the panel's buttons, never the model's
+            self.assertEqual(next(t for t in tools if t["name"] == name)["_meta"]["ui"]["visibility"], ["app"])
+            self.assertNotIn(name, {t["name"] for t in plain})
         r = self.rpc({"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "ui://athos/trail"}})
         c = r[0]["result"]["contents"][0]
         self.assertEqual(c["mimeType"], "text/html;profile=mcp-app")
@@ -97,7 +101,7 @@ class DesktopTest(TempHome):
         self.assertTrue({"bin/athos", "athos/mcp/__init__.py", "athos/mcp/trail.html"} <= names)
         self.assertFalse(any("__pycache__" in n for n in names))
         self.assertEqual(m["server"]["mcp_config"]["args"], ["${__dirname}/bin/athos", "mcp"])
-        self.assertNotIn("athos_trail", {t["name"] for t in m["tools"]})
+        self.assertFalse({"athos_trail", "athos_start", "athos_connect"} & {t["name"] for t in m["tools"]})
 
     def test_the_panel_speaks_the_language_the_person_writes_in(self):
         from athos import mcp as m
