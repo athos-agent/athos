@@ -191,19 +191,23 @@ def update(piece_id: str, note: str, body: str | None = None, title: str | None 
     return new, diff
 
 
-def revert(piece_id: str) -> Piece:
-    """Put back the previous version. The version being replaced is archived too, so a revert can be reverted."""
+def revert(piece_id: str, to: int | None = None) -> Piece:
+    """Put back an earlier version (`to`, by default the previous one) as a new version: nothing is deleted. The
+    version being replaced is archived too, so a revert can be reverted."""
     cur = get(piece_id)
     if cur is None:
         raise KeyError(piece_id)
+    to = cur.version - 1 if to is None else int(to)
     arch = paths.history() / piece_id
-    prev = arch / f"v{cur.version - 1}.md"
-    if not prev.is_file():
-        raise FileNotFoundError(f"no earlier version of {piece_id}")
+    prev = arch / f"v{to}.md"
+    if not 1 <= to < cur.version or not prev.is_file():
+        raise FileNotFoundError(f"no version {to} of {piece_id} to go back to")
+    arch.mkdir(parents=True, exist_ok=True)
     shutil.copy2(cur.path, arch / f"v{cur.version}.md")
     old = parse(prev.read_text())
+    old.id = cur.id
     old.version = cur.version + 1
-    old.history = [f"v{old.version} {today()}: reverted to v{cur.version - 1}"] + cur.history
+    old.history = [f"v{old.version} {today()}: reverted to v{to}"] + cur.history
     _write(old)
     return old
 

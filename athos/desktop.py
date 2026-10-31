@@ -31,7 +31,7 @@ def manifest() -> dict:
         "server": {"type": "python", "entry_point": "bin/athos",
                    "mcp_config": {"command": "python3", "args": ["${__dirname}/bin/athos", "mcp"]}},
         "tools": [{"name": t["name"], "description": t["description"]} for t in mcp.TOOLS
-                  if not mcp.app_only(t)],                             # the panel's own tools, not the model's
+                  if not mcp.app_only(t) and t["name"] not in mcp.APP_ONLY],   # the pages' own tools, not the model's
         "compatibility": {"platforms": ["darwin", "linux"], "runtimes": {"python": ">=3.9"}},
     }
 

@@ -97,6 +97,28 @@ Your know-how lives in `~/.athos/know-how/`, one markdown page per piece, as a w
 kind of task starts. Walks that cross pages become subagents that improve with the pages. See [docs/WIKI.md](WIKI.md). Choose what may load with
 `/athos:load all | project <name> | pieces <id>... | none`, and copy everything out with `/athos:export <folder>`.
 
+### The library
+
+`athos library [--port N] [--no-open]` opens every way of working you have as one page on `127.0.0.1` (default port
+8712, the next free one otherwise), in English or Spanish like the rest of Athos:
+
+- **What it gave you**: one bar per agent and model (the rows of `athos report`): its tasks, how many used your
+  know-how, how many of those you marked went well, and the time and tokens of each.
+- **The list**: each way of working with what it is for, how often it was used and how it went (good, corrected,
+  failed, from your marks), in which agents and models, and its last improvement (`v3: …`). A filter narrows it by
+  words. A page that is reached through another page's `**Calls:**` or `**If:**` sits under it, marked ↳ with the
+  condition.
+- **One page**: its steps as a checklist, with the branches nested under the step that leads there (↳, as in the
+  panel); its versions with each one's note; **Go back to this version**, which asks first and then brings that version
+  back as a new one (`athos revert <id> --to N` does the same; no version is ever deleted); and **Open in editor**,
+  which opens the page's markdown file with your system's default app (only files inside `~/.athos/know-how`).
+
+Nothing leaves your machine. The page's two actions are POST requests that need a random token made for each run and
+carried only by the page itself, and the server answers only requests addressed to `127.0.0.1`/`localhost`, so another
+website open in your browser can neither call them nor read your know-how. In Claude Desktop's chat the same page opens
+as an MCP App when you ask to see your ways of working (`athos_library`, resource `ui://athos/library`); its buttons go
+through the app-only tool `athos_library_do`.
+
 ### Learning from your own edits
 
 When the agent writes or edits a text file while following one of your pieces (a contract review, a report, code) and
