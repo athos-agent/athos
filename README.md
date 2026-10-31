@@ -9,13 +9,17 @@ any AI agent works by your rules without you explaining them twice.**
 
 **Ask as you always do. Claude follows *your* way of working, and you watch it, step by step.**
 
-![Claude Desktop (not the Code tab). A coach asked for next week's training plan for an athlete, without mentioning Athos. Athos's panel says how Claude is going about it in plain sentences, then shows the coach's own way of working as a page, with its steps ticked as they are done.](demo/athos-desktop-en.png)
+![Claude Desktop (not the Code tab). An advisor pastes a fictional fund prospectus and asks to analyse the investment for a client, with no word about Athos. Athos's panel shows the advisor's own way of working as a page with nine steps. Because the investor, the asset and the vehicle are in three countries, the step "Note in which countries…" hands over to another way of working, the cross-border tax check, whose three steps appear nested under it. All nine tick in order as Claude works, and the answer ends by leaving the recommendation to the advisor.](demo/desktop-finance-en.gif)
 
-*Claude Desktop, not the Code tab (fictional data; [en español](demo/athos-desktop-es.png)). A coach pastes an
-athlete's last four weeks and asks for next week's plan, with no word about Athos. Claude picks up the coach's own way of working, "Plan the training week
-with my rules". Athos's panel says how it is going about it, in plain sentences, then shows that way of working as a
-page: what it is for, and its steps as a task list, ticked as Claude does them, each opening to when, what and why.
-The answer is just the plan, with the coach's rules, and the decisions left to the coach.*
+*Claude Desktop, not the Code tab (fictional prospectus). An advisor asks to analyse an investment for a client, with
+no word about Athos. Claude picks up the advisor's own way of working, "Analyse an investment with my committee's
+rules", and Athos's panel shows it as a page with its steps ticked as Claude does them. One step hands over to
+another way of working only when the case needs it: the investor is in Argentina, the warehouses in Texas and the fund
+in Luxembourg, so the cross-border tax check runs right there, as nested steps (↳), and the walk comes back to the
+numbers. The recommendation is left to the advisor. Waits are hidden, not sped up.
+[A coach's week in the same panel](demo/athos-desktop-en.png) ([en español](demo/athos-desktop-es.png)).*
+
+![The same way of working, with its branch, checked in Claude Desktop, Codex, Muse Code and OpenCode: the same nine steps in order in all four, a hand edit of the answer makes the agent propose the rule, and one click keeps it in that step.](docs/athos-results.jpg)
 
 - **Your way, not a generic one.** Ask a lawyer's "review this lease" and the answer comes back with *their*
   five-line summary and *their* table: clause, problem, proposed wording, priority. Without it, the same request got
