@@ -142,9 +142,16 @@ def task_start(event: dict, platform: str = "claude-code") -> str:
                  # session's own state, replaced by the next request.
                  case_request=str(event.get("prompt") or ""))
     session.save(sid, state)
-    append({"type": "task_start", "task_id": tid, "session_id": sid, "platform": platform, "model": model,
-            "project": paths.project_of(event.get("cwd")), "at": started, **request_fields(event.get("prompt"))})
+    start = {"type": "task_start", "task_id": tid, "session_id": sid, "platform": platform, "model": model,
+             "project": paths.project_of(event.get("cwd")), "at": started, **request_fields(event.get("prompt"))}
+    # A task in a temporary or demo folder is a test or a rehearsal, not the person's work: curating leaves it out.
+    if str(event.get("cwd") or "").startswith(SCRATCH_PREFIXES):
+        start["scratch"] = True
+    append(start)
     return tid
+
+
+SCRATCH_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/", "/Users/Shared/athos-demo")
 
 
 def task_end(event: dict) -> dict | None:
@@ -292,7 +299,7 @@ def tasks() -> list[dict]:
         if e["type"] == "task_start":
             t.update(started=e.get("at"), platform=e.get("platform", "unknown"), model=e.get("model", "unknown"),
                      project=e.get("project"), request=e.get("request", ""),
-                     request_chars=e.get("request_chars"))
+                     request_chars=e.get("request_chars"), scratch=bool(e.get("scratch")))
         elif e["type"] == "task_end":
             # Time and tokens stop at the first end: later ends of the same task are the capture Athos asked for,
             # which must not inflate a baseline. Pieces loaded and saved accumulate over all ends.

@@ -954,22 +954,38 @@ def cmd_curate(args) -> int:
             print(f"athos curate restore <id>: {e}", file=sys.stderr)
             return 1
         return 0
+    if args.action == "ignore":
+        for project in args.which:
+            curate.ignore(project)
+            print(f"{project}: a test or a rehearsal from now on; it proposes nothing")
+        return 0
     props = curate.proposals()
-    if args.action == "apply":
+    if args.action in ("apply", "dismiss"):
         for n in args.which:
             try:
-                print(f"{n}. " + curate.apply(props[int(n) - 1]))
+                p = props[int(n) - 1]
+                if args.action == "dismiss":
+                    curate.dismiss(p)
+                    print(f"{n}. dismissed: it won't be proposed again")
+                else:
+                    print(f"{n}. " + curate.apply(p))
             except (ValueError, IndexError, KeyError) as e:
                 print(f"{n}. {e}", file=sys.stderr)
         return 0
     if not props:
         print("Nothing to tidy.")
+        curate.mark_pass([])
         return 0
-    marks = {"tag": "tag", "archive": "archive", "similar": "look alike", "link": "broken link", "new": "no page yet"}
+    marks = {"tag": "tag", "rule": "rule from corrections", "review": "review", "archive": "archive",
+             "similar": "look alike", "link": "broken link", "new": "no page yet"}
     for i, p in enumerate(props, 1):
-        print(f"{i:>3}. [{marks[p['kind']]}] {p['why']}")
-    print("\n`athos curate apply <n>...` tags or archives (a new version, or a move you can undo); the others are "
-          "for you to act on.")
+        print(f"{i:>3}. [{marks[p['kind']]}]{' (new)' if p.get('new') else ''} {p['why']}")
+        if p.get("request"):
+            print(f"       to do it, send: {p['request']}")
+    curate.mark_pass(props)
+    print("\n`athos curate apply <n>...` tags or archives (a new version, or a move you can undo); "
+          "`athos curate dismiss <n>...` hides a proposal for good; `athos curate ignore <project>` for a test or "
+          "demo folder. The others are for you to act on.")
     return 0
 
 
@@ -1059,8 +1075,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("save").set_defaults(fn=cmd_save)
     s = sub.add_parser("curate", help="tidy your ways of working: tag pages with the projects they are used in, "
                        "archive unused ones, spot near-duplicates, broken links and work with no page yet")
-    s.add_argument("action", nargs="?", choices=["list", "apply", "restore"], default="list")
-    s.add_argument("which", nargs="*", help="apply: proposal numbers; restore: a page id")
+    s.add_argument("action", nargs="?", choices=["list", "apply", "dismiss", "ignore", "restore"], default="list")
+    s.add_argument("which", nargs="*", help="apply/dismiss: proposal numbers; ignore: a project; restore: a page id")
     s.set_defaults(fn=cmd_curate)
     s = sub.add_parser("journal", help="what happened lately in this project: its last tasks, what they followed "
                        "or saved, how they went, and what is open")
