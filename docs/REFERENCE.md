@@ -160,7 +160,8 @@ through the app-only tool `athos_library_do`.
 ### How the router picks the know-how, measured
 
 On every request Athos loads the one or two pieces whose title and "when" share the request's words (rarer words count
-more; [Didn't apply] remembers the words that loaded a piece by mistake). `athos bench route` measures that choice
+more, and a word counts with its endings: publish, published, publishing; publicar, publicado; [Didn't apply]
+remembers the words that loaded a piece by mistake). `athos bench route` measures that choice
 before anything changes it:
 
 ```
@@ -369,7 +370,9 @@ Both buttons call tools only the panel sees (`athos_start`, `athos_connect`); th
 athos doctor [--json]
 ```
 
-Which Athos each agent would run, and which are behind the newest one on this computer: Claude Code (its plugin
+Which Athos each agent would run, and which are behind the newest one released or installed (the newest version the
+marketplaces on this computer last fetched, or the newest an agent runs; never the copy running the command, which
+may be a checkout ahead of the release): Claude Code (its plugin
 cache), Claude Desktop (the extension's `manifest.json`), Codex (the `athos` its hooks run: `~/.athos/bin/athos` runs
 the newest Claude Code plugin), OpenCode (the `athos` its plugin runs), Muse Code (its plugin record, or
 `muse plugins list` with a short timeout) and the `athos` on PATH. It exits 1 when one is behind. The same line is in

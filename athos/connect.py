@@ -213,6 +213,21 @@ def _desktop_version() -> str | None:
     return max(vs, key=parse_version, default=None)
 
 
+def _released() -> list[str]:
+    """The Athos versions the marketplaces on this computer last fetched (Claude Code's and Muse Code's copies of the
+    repository): the newest release the person could install, read without the network."""
+    out = []
+    claude = Path.home() / ".claude" / "plugins" / "marketplaces" / "athos" / ".claude-plugin" / "marketplace.json"
+    try:
+        out += [p.get("version") for p in json.loads(claude.read_text()).get("plugins", []) if p.get("name") == "athos"]
+    except (OSError, ValueError, AttributeError):
+        pass
+    gens = sorted(glob.glob(str(_data_home() / "muse" / "plugins" / "marketplaces" / "athos" / "generations" / "*")))
+    if gens:
+        out.append(_root_version(Path(gens[-1]) / "source"))
+    return [v for v in out if v]
+
+
 def versions(run=subprocess.run, ask_muse: bool = True) -> dict:
     """Which Athos each agent would run, the newest one on this computer, and the agents behind it. `ask_muse`
     runs `muse plugins list` (short timeout) when Muse's own record of its plugins can't be read."""
@@ -222,7 +237,9 @@ def versions(run=subprocess.run, ask_muse: bool = True) -> dict:
             "path": command_version(path) if path else None}
     rows = {k: v for k, v in rows.items() if v}
     mine = _root_version(ROOT)
-    newest = max([*rows.values(), *([mine] if mine else [])], key=parse_version, default=None)
+    # The bar is the newest Athos released (what the marketplaces last fetched) or installed, never this copy: run
+    # from a checkout ahead of the release, doctor marked every agent behind (2026-10-31).
+    newest = max([*rows.values(), *_released()], key=parse_version, default=None)
     behind = [k for k, v in rows.items() if newest and parse_version(v) < parse_version(newest)]
     return {"this": mine, "newest": newest, "agents": rows, "behind": behind}
 

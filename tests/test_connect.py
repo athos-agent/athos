@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from unittest import mock
 
 from athos import connect, mcp, start, store
 from tests.helpers import TempHome
@@ -141,3 +142,16 @@ class PanelFirstUseTest(FakeAgents):
         self.command("codex")
         self.assertIn("/hooks", mcp.call("athos_connect", {"agent": "codex"}))
         self.assertTrue(next(a for a in mcp.panel()["setup"]["agents"] if a["id"] == "codex")["connected"])
+
+    def test_the_bar_is_the_newest_release_not_this_copy(self):
+        cache = self.fake_home / ".claude" / "plugins" / "cache" / "athos" / "athos"
+        self.athos_root(cache / "0.1.80", "0.1.80")
+        dev = self.athos_root(Path(self.home) / "checkout", "9.9.9")             # a checkout ahead of the release
+        with mock.patch.object(connect, "ROOT", dev):
+            v = connect.versions(run=lambda *a, **k: self.fail("asked muse"))
+            self.assertEqual((v["this"], v["newest"], v["behind"]), ("9.9.9", "0.1.80", []))
+            mk = self.fake_home / ".claude" / "plugins" / "marketplaces" / "athos" / ".claude-plugin"
+            mk.mkdir(parents=True)
+            (mk / "marketplace.json").write_text(json.dumps({"plugins": [{"name": "athos", "version": "0.1.81"}]}))
+            v = connect.versions(run=lambda *a, **k: self.fail("asked muse"))
+            self.assertEqual((v["newest"], v["behind"]), ("0.1.81", ["claude-code"]))    # released, not updated

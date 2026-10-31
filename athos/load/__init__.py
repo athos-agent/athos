@@ -48,11 +48,18 @@ def tokens(text: str) -> list[str]:
     return [w[:STEM] for w in re.findall(r"[a-záéíóúñü0-9_.-]{3,}", text.lower()) if w not in STOP]
 
 
+# Endings that only inflect a word (publish / published / publishing; publicar / publicado): "the same word" for the
+# rule in rank(). "We got a tip … can we publish it?" missed the page "…before it is published" (2026-10-31).
+ENDINGS = ("ings", "ing", "ed", "es", "s", "ados", "adas", "ado", "ada", "ar", "er", "ir")
+
+
 def _plain(w: str) -> str:
-    return w[:-1] if len(w) > 4 and w.endswith("s") else w
+    for e in ENDINGS:
+        if w.endswith(e) and len(w) - len(e) >= 4:
+            return w[:-len(e)]
+    return w
 
 
-# Messages the agent itself receives (a background task finishing), not requests the person typed.
 # The harness's own messages are not the person's requests: a subagent's report loaded an unrelated page (2026-10-31).
 NOT_A_REQUEST = re.compile(r"^\s*<(task-notification|system-reminder|agent-message)[\s>]")
 
