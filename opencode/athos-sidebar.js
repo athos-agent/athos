@@ -79,7 +79,7 @@ export const tui = async api => {
       placeholder: es ? "por ejemplo: además, comparar con el índice ICL" : "e.g. also compare against the CPI",
       onConfirm: value => {
         api.ui.dialog.clear();
-        if (value.trim()) say(`${es ? "Athos · ajustar" : "Athos · adjust"} ${piece.id}#${step.id}: ${value.trim()}`);
+        if (value.trim()) say(`${es ? "Athos · ajustar" : "Athos · adjust"} ${step.piece || piece.id}#${step.id}: ${value.trim()}`);
       },
       onCancel: () => api.ui.dialog.clear()
     }));
