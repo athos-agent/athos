@@ -412,10 +412,11 @@ def cmd_codex(args) -> int:
 def cmd_opencode(args) -> int:
     from athos.adapters import opencode
     if args.action == "install":
-        found = shutil.which("athos")
-        # The command install.sh puts on PATH outlives plugin versions; a plugin's own bin (on PATH inside a Claude
-        # Code session) is tied to that version, so the running one is used instead.
-        f = opencode.install(Path(found) if found and "/plugins/cache/" not in os.path.realpath(found) else ME)
+        from athos.adapters import codex
+        # The shim Codex's hooks use: it runs the newest Claude Code plugin at each call and falls back to this copy.
+        # Baking in the `athos` on PATH left OpenCode on install.sh's 0.1.60 while the plugin was at 0.1.73, so none of
+        # the newer features reached it (2026-10-31).
+        f = opencode.install(codex.write_shim(ME.parents[1]))
         print(f"Athos plugin written to {f}; restart OpenCode to load it.")
         return 0
     print("Athos plugin removed from OpenCode" if opencode.uninstall() else "no Athos plugin in OpenCode")
@@ -661,7 +662,10 @@ def learned_from_edit(state: dict, lang: str = "en") -> list[dict] | None:
     if not seen.get("files") or seen.get("task_id") != state.get("task_id"):
         return None
     prefix = capture.ADJUST_PREFIX["es" if lang == "es" else "en"]
-    return [{**f, "adjust_prompt": f"{prefix} {f['piece']}#{f['statement'] or ''}: "} for f in seen["files"]]
+    # A file written before any step was reported has no statement: the request names the piece alone ("…#: " broke
+    # the reference, 2026-10-31).
+    return [{**f, "adjust_prompt": f"{prefix} {f['piece']}" + (f"#{f['statement']}" if f["statement"] else "") + ": "}
+            for f in seen["files"]]
 
 
 def status() -> dict:

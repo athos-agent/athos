@@ -211,7 +211,7 @@ records past tasks from Muse's session logs.
 Athos is an OpenCode plugin. Install it once:
 
 ```
-athos opencode install       writes ~/.config/opencode/plugins/athos.js; restart OpenCode
+athos opencode install       writes ~/.config/opencode/plugins/athos.js (it runs ~/.athos/bin/athos, the newest installed Athos); restart OpenCode
 ```
 
 With any model OpenCode runs, the pieces that match each message go into its system prompt, every task is recorded

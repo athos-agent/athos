@@ -34,6 +34,15 @@ class OpenCodeTest(TempHome):
             self.assertEqual(json.loads(tui.read_text())["plugin"], ["file:///theirs"])
             self.assertFalse(opencode.uninstall())
 
+    def test_the_command_installs_the_shim_that_runs_the_newest_athos(self):
+        from athos import cli, paths
+        with tempfile.TemporaryDirectory() as cfg, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": cfg}):
+            self.assertEqual(cli.main(["opencode", "install"]), 0)
+            shim = paths.home() / "bin" / "athos"
+            self.assertIn("plugins/cache/athos/athos", shim.read_text())
+            text = (Path(cfg) / "opencode" / "plugins" / "athos.js").read_text()
+            self.assertIn(f'"{shim}"', text)
+
     def test_a_task_takes_the_tokens_and_model_the_platform_sends(self):
         ev.task_start({"session_id": "s1", "prompt": "review the lease", "cwd": self.home}, "opencode")
         rec = ev.task_end({"session_id": "s1", "model": "meta/muse-spark-1.3",
