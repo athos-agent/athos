@@ -96,6 +96,7 @@ from what was built during the event.
 - [#79](https://github.com/athos-agent/athos/pull/79) **Keep this rule**: when you edit by hand a file the agent wrote, the panels offer a button that saves the rule the agent proposed (Claude Code's pane, the Desktop panel, OpenCode's palette and sidebar; `athos watch --trail` in Codex and Muse Code) (0.1.73)
 - [#80](https://github.com/athos-agent/athos/pull/80) Fixes from an end-to-end check of the new features in Claude Desktop, Codex, Muse Code and OpenCode: Desktop is told how to walk a step that hands over (**If:** / **Calls:**), OpenCode runs the newest installed Athos instead of an old one on PATH, the adjust request from a hand edit no longer ends in an empty `#`, a guild merge by a model keeps the If/Calls/Model/Links lines, an earlier task of a session can still be marked into a case, and a missing Ollama model says so (0.1.74)
 - [#81](https://github.com/athos-agent/athos/pull/81) Muse Code no longer asks the person to approve every step: `athos step` answers ok when a sandbox keeps it from writing to ~/.athos (the tool hook, outside the sandbox, already noted the step), and an older `athos` on PATH is only used from 0.1.75 (0.1.75)
+- [#82](https://github.com/athos-agent/athos/pull/82) README: Claude Desktop walking an advisor's way of working with a branch (the cross-border tax check, only because the case needs it), the same case in Muse Code, Codex and OpenCode, and an image of the four-agent results (0.1.76)
 
 ## Meta models used
 
