@@ -331,6 +331,12 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
     from athos import capture
     here = enabled(event.get("cwd"))
     text = index_text(here, cmd, other_projects(here))
+    # Short-term memory: the project's recent tasks, next to its ways of working (the long-term memory).
+    if event.get("cwd"):
+        from athos import journal
+        recent = journal.text(paths.project_of(event["cwd"]))
+        if recent:
+            text = (text + "\n\n" if text else "") + recent
     if text and capture.enabled():               # with the guide given here, the Stop hook only needs one line
         text += "\n\n" + capture.guide(cmd)
         session.update(sid, guide=True)

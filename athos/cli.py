@@ -936,6 +936,14 @@ def cmd_step(args) -> int:
     return 0
 
 
+def cmd_journal(args) -> int:
+    """What happened lately in this project (or another one): the short-term memory a session starts with."""
+    from athos import journal
+    project = args.project or paths.project_of(os.getcwd())
+    print(journal.text(project) or f"Nothing yet in {project}.")
+    return 0
+
+
 def cmd_connector(args) -> int:
     """Connectors a way of working can ask for ([[connector:<name>]]): list them, add one from a template, check it,
     or print how to wire an agent through it. Athos never starts a service: the person runs it."""
@@ -1020,6 +1028,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("id")
     s.set_defaults(fn=cmd_show)
     sub.add_parser("save").set_defaults(fn=cmd_save)
+    s = sub.add_parser("journal", help="what happened lately in this project: its last tasks, what they followed "
+                       "or saved, how they went, and what is open")
+    s.add_argument("--project", help="another project, by its folder name")
+    s.set_defaults(fn=cmd_journal)
     s = sub.add_parser("load")
     s.add_argument("what", nargs="*")
     s.set_defaults(fn=cmd_load)
