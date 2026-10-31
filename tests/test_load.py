@@ -104,3 +104,15 @@ class Misfires(TempHome):
                      piece_id="muse-logs")
         load.on_prompt({"session_id": "s1", "prompt": "read the muse session logs"})
         self.assertEqual(session.load("s1")["task_why"], {"muse-logs": ["logs", "muse", "read", "session"]})
+
+    def test_inflected_words_count_as_the_same_word(self):
+        store.create("Verify a source before publishing", "a source gives information for a story (a document, a "
+                     "quote, a tip) and it must be checked before it is published", "x", piece_id="verify")
+        store.create("Review a contract against your checklist", "reviewing a contract or lease", "y",
+                     piece_id="contract")
+        ids = [p.id for p in load.relevant("We got a tip about the water plant contract. Can we publish it?",
+                                           store.all_pieces())]
+        self.assertEqual(ids[0], "verify")
+        self.assertEqual(load._plain("published"), "publish")
+        self.assertEqual(load._plain("publicado"), "public")
+        self.assertEqual(load._plain("tip"), "tip")
