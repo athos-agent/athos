@@ -344,11 +344,10 @@ def _page_section(piece: store.Piece) -> str:
 def inject_text(pieces: list[store.Piece], cmd: str = "athos") -> str:
     """The text added to a request: the matching pages, then how to report steps, how to answer, and the first line.
     Nothing at all when no page matched."""
-    if not pieces:
-        return ""
     preface = ("# Athos — know-how that matches this request\n\nThe user's own know-how for this kind of task. "
                "Follow it unless the request says otherwise.\n")
-    return "\n".join([preface, *map(_page_section, pieces), *_instructions(pieces, cmd)])
+    sections = [preface, *map(_page_section, pieces), *_instructions(pieces, cmd)] if pieces else []
+    return "\n".join(sections)
 
 
 def _instructions(pieces: list[store.Piece], cmd: str) -> list[str]:
