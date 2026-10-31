@@ -32,7 +32,8 @@ const WORDS = {
     firstTime: 'first time',
     ready_: (n: number) => `${n} way${n === 1 ? '' : 's'} of working ready`, trail: 'Trail', show: 'Show trail',
     progress: (d: number, n: number) => `${d}/${n} steps`, loadedBy: 'matched', opened: 'opened by the agent',
-    newStep: 'new', agents: 'Subagents', skills: 'Skills', adjust: 'Adjust step', saveNew: 'Save new steps',
+    newStep: 'new', agents: 'Subagents', skills: 'Skills', adjust: 'Adjust step', saveNew: 'Save new steps', keepRule: (n: string) => `Keep the rule from ${n}`,
+    edited: (n: string) => `You edited ${n} after the agent wrote it: a rule to keep?`,
     adjustPrefix: 'Athos · adjust', drafting: 'No know-how for this task yet: its steps draft a new one.',
     waiting: 'The trail of the next task shows here.',
     guarded: (n: string) => `personal data goes through ${n}`, unguarded: (n: string) => `${n} is not running: no client data`,
@@ -53,7 +54,8 @@ const WORDS = {
     ready_: (n: number) => `${n} forma${n === 1 ? '' : 's'} de trabajar lista${n === 1 ? '' : 's'}`,
     trail: 'Trayectoria', show: 'Ver trayectoria', progress: (d: number, n: number) => `${d}/${n} pasos`,
     loadedBy: 'coincidió', opened: 'abierta por el agente', newStep: 'nuevo', agents: 'Subagentes',
-    skills: 'Skills', adjust: 'Ajustar paso', saveNew: 'Guardar pasos nuevos', adjustPrefix: 'Athos · ajustar',
+    skills: 'Skills', adjust: 'Ajustar paso', saveNew: 'Guardar pasos nuevos', keepRule: (n: string) => `Guardar la regla de ${n}`,
+    edited: (n: string) => `Editaste ${n} después del agente: ¿guardo la regla?`, adjustPrefix: 'Athos · ajustar',
     drafting: 'Todavía no hay know-how para esta tarea: sus pasos arman uno nuevo.',
     waiting: 'Acá se ve la trayectoria de la próxima tarea.',
     guarded: (n: string) => `los datos personales pasan por ${n}`, unguarded: (n: string) => `${n} no está activo: sin datos de clientes`,
@@ -143,6 +145,7 @@ export function trailRows(t: Trail | undefined, w: ReturnType<typeof words>): Tr
     rows.push({ mark: c.active ? '🔒' : '⚠', text: c.active ? w.guarded(c.name) : w.unguarded(c.name), tone: c.active ? 'note' : 'new' })
   if (t?.new.length && !t.pieces.length) rows.push({ mark: '', text: w.drafting, tone: 'note' })
   for (const n of t?.new ?? []) rows.push({ mark: '+', text: `${w.newStep}: ${n}`, tone: 'new' })
+  for (const x of t?.edits ?? []) rows.push({ mark: '✎', text: w.edited(x.name), tone: 'new' })
   const agents = (t?.beside ?? []).flatMap(b => (b.kind === 'agent' ? [b.why ? `${b.name} (${b.why})` : b.name] : []))
   const skills = (t?.beside ?? []).flatMap(b => (b.kind === 'skill' ? [b.name] : []))
   if (agents.length) rows.push({ mark: '', text: `${w.agents}: ${agents.join(' · ')}`, tone: 'note' })
@@ -262,10 +265,14 @@ export const register: Register = on => {
             {r.mark ? `  ${r.mark} ${r.text}` : r.text}
           </Text>
         ))}
-        {now || t?.new.length ? (
+        {now || t?.new.length || t?.edits?.length ? (
           <Box>
             {now ? <Button key="a" label={w.adjust} onPress={adjust} /> : null}
             {t?.new.length ? <Button key="s" label={w.saveNew} onPress={keep} /> : null}
+            {(t?.edits ?? []).map(x => (
+              <Button key={`k${x.file}`} label={w.keepRule(x.name)}
+                      onPress={() => $.prompt.submit({ text: x.keep, asUser: true })} />
+            ))}
           </Box>
         ) : null}
       </Box>

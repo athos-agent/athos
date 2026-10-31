@@ -231,3 +231,13 @@ def on_prompt(event: dict, cmd: str = "athos") -> str:
     for n in notes:
         ev.append({"type": "learned_from_edit", "session_id": sid, "task_id": task_id, "at": ev._iso(ev.now()), **n})
     return model_text(found, cmd)
+
+
+def kept(session_id: str, prompt: str) -> None:
+    """An adjust request that names an edited file ([Keep this rule], or the person's own words): that edit is dealt
+    with, so the panels stop offering it."""
+    state = session.load(session_id)
+    learned = state.get("learned_from_edit") or {}
+    files = [f for f in learned.get("files") or [] if f.get("name") not in prompt]
+    if len(files) != len(learned.get("files") or []):
+        session.update(session_id, learned_from_edit={**learned, "files": files})

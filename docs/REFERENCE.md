@@ -106,7 +106,9 @@ On your next request in that session it compares the copy with the file: if you 
 and is asked to propose the rule in one line, in your language, naming the step it belongs to, and to ask you before
 adding it. Say yes and it improves the piece the same way [Adjust] does; a typo or spacing change is not mentioned.
 Each edit is offered once and its copy is deleted right after; `athos status --json` shows it as `learned_from_edit`
-(file, piece, step and the `Athos · adjust <piece>#<step>:` text a panel can prefill). It works in Claude Code, Codex
+(file, piece, step and the `Athos · adjust <piece>#<step>:` text a panel can prefill). The panels offer it as a
+button, **Keep this rule** (Claude Code's pane, the Desktop panel, OpenCode's palette: *Athos: keep the rule from my
+edit*); in Codex and Muse Code, `athos watch --trail` shows the edit and a plain "yes" to the agent keeps it. It works in Claude Code, Codex
 (`apply_patch`), Muse Code and OpenCode, stays on your machine, and is off with `ATHOS_CAPTURE=off`.
 
 ### Per-step models

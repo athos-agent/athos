@@ -64,6 +64,8 @@ export type Trail = {
   connectors?: { name: string; what: string; active: boolean; set_up: boolean; start: string }[]
   /** Steps the task needed that the know-how doesn't have yet. */
   new: string[]
+  /** Files the person edited after the agent wrote them; `keep` is the request [Keep this rule] sends. */
+  edits?: { file: string; name: string; piece: string; title: string; statement: string | null; keep: string }[]
   busy: boolean
 }
 
