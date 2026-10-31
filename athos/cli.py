@@ -1066,7 +1066,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("start", help="first run: your language, your profession, example ways of working")
     s.add_argument("--lang", choices=["es", "en"])
-    s.add_argument("--profile", choices=["law", "sports", "ops", "journalism", "science", "finance", "other"])
+    s.add_argument("--profile", choices=["law", "ops", "journalism", "science", "finance", "other"])
     s.set_defaults(fn=cmd_start)
     sub.add_parser("list").set_defaults(fn=cmd_list)
     s = sub.add_parser("show")

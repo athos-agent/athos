@@ -1,4 +1,4 @@
-# Athos for professionals (law, sports coaching and any other trade)
+# Athos for professionals (law, finance, journalism and any other trade)
 
 No programming needed. If you can explain to a new colleague how you do your work, you can use Athos.
 
@@ -17,7 +17,7 @@ and gives them to the AI next time, so you never repeat them.
    /plugin install athos --marketplace athos-agent/athos
    ```
    and restart Claude Desktop when it asks.
-4. Ask Claude, in your own words: *"Run `athos start --lang en --profile law`"* (or `--profile sports`, `ops`, `journalism`, `science`, `finance`, or `other`).
+4. Ask Claude, in your own words: *"Run `athos start --lang en --profile law`"* (or `--profile ops`, `journalism`, `science`, `finance`, or `other`).
    It adds example ways of working for your profession and tells you what to do next.
 
 Athos needs Python 3; on a Mac it installs itself the first time something asks for it (accept the command line tools).
@@ -34,13 +34,13 @@ athos start
 `athos start` asks your language and profession. For Muse Code and OpenCode, also install their plugin (commands in
 the [README](../README.md#install)). Then open the tool in your documents' folder: Athos works the same in all four.
 
-**Step-by-step guides:** [for lawyers](guides/lawyer.md) · [for coaches](guides/coach.md) ·
+**Step-by-step guides:** [for lawyers](guides/lawyer.md) ·
 [your checklist is know-how](guides/checklist-en.md).
 
 ## Day to day
 
-- **Ask as you would ask a colleague.** *"Review this contract against my checklist"*, *"Plan this athlete's week with my
-  rules"*. If Athos has a way of working for it, the AI follows it on its own.
+- **Ask as you would ask a colleague.** *"Review this contract against my checklist"*, *"Check this lead before I
+  publish it"*. If Athos has a way of working for it, the AI follows it on its own.
 - **The first time, explain.** When a task has no way of working yet, explain to the AI how you do it. At the end,
   Athos asks whether it is worth keeping, and it is there next time. If you worked from a checklist it always asks:
   a checklist is valuable know-how.
@@ -61,8 +61,6 @@ you and ask the AI to ask instead of deciding.
 |---|---|
 | Law | Build the argument of a brief for its audience (whom to convince, agreed premises, techniques, objections, order) |
 | Law | Review a contract against your checklist (clause by clause, a table of comments) |
-| Sports coaching | Plan the training week with your rules (loads computed with code, target, hard days, easy day after the long run) |
-| Sports coaching | Write the post-match report in your format (numbers with their source, three things that went well and three to fix) |
 | Engineering on call | Triage a production incident where the traps usually are (contain first, what changed, evidence, smallest fix, blameless postmortem) |
 | Journalism | Verify a lead before publishing it (protect the source, checkable claims, two independent sources, dates and links, right of reply) |
 | Science | Analyse an experiment's data so another lab can repeat it (raw data untouched, cleaning rules written first, one script, rerun from scratch) |

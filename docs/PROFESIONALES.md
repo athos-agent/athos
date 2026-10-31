@@ -1,4 +1,4 @@
-# Athos para profesionales (abogacía, entrenamiento deportivo y cualquier oficio)
+# Athos para profesionales (abogacía, finanzas, periodismo y cualquier oficio)
 
 No hace falta programar. Si sabés explicarle a un colega nuevo cómo hacés tu trabajo, ya sabés usar Athos.
 
@@ -18,7 +18,7 @@ computadora, y se las da a la IA la próxima vez, para que no tengas que repetir
    /plugin install athos --marketplace athos-agent/athos
    ```
    y reiniciá Claude Desktop cuando te lo pida.
-4. Pedile a Claude, con tus palabras: *«Corré `athos start --lang es --profile law`»* (o `--profile sports`, `ops`, `journalism`, `science`, `finance`, u
+4. Pedile a Claude, con tus palabras: *«Corré `athos start --lang es --profile law`»* (o `--profile ops`, `journalism`, `science`, `finance`, u
    `other` para otra profesión). Eso agrega formas de trabajar de ejemplo de tu profesión y te dice cómo seguir.
 
 Athos necesita Python 3, que en una Mac se instala solo la primera vez que algo lo pide (aceptá la instalación de las
@@ -37,13 +37,13 @@ athos start
 están en el [README](../README.md#install)). Después abrí la herramienta en la carpeta de tus documentos: Athos
 funciona igual en las cuatro.
 
-**Guías paso a paso:** [para abogados](guides/abogado.md) · [para entrenadores](guides/entrenador.md) ·
+**Guías paso a paso:** [para abogados](guides/abogado.md) ·
 [tu checklist es know-how](guides/checklist.md).
 
 ## El día a día
 
-- **Pedí como le pedirías a un colega.** *«Revisá este contrato con mi checklist»*, *«Planificá la semana de este
-  atleta con mis reglas»*. Si Athos tiene una forma de trabajar para eso, la IA la sigue sola.
+- **Pedí como le pedirías a un colega.** *«Revisá este contrato con mi checklist»*, *«Verificá esta pista antes
+  de que la publique»*. Si Athos tiene una forma de trabajar para eso, la IA la sigue sola.
 - **La primera vez, explicá.** Cuando una tarea no tiene todavía su forma de trabajar, explicale a la IA cómo la
   hacés. Al terminar, Athos le pregunta si vale la pena guardarla, y queda para la próxima. Si trabajaste con un
   checklist, pregunta siempre: un checklist es know-how valioso.
@@ -64,8 +64,6 @@ profesionales en tus manos y le piden a la IA que pregunte en vez de decidir.
 |---|---|
 | Abogacía | Armar el argumento de un escrito según el auditorio (a quién convencer, premisas acordadas, técnicas, objeciones, orden) |
 | Abogacía | Revisar un contrato con tu checklist (cláusula por cláusula, tabla de observaciones) |
-| Entrenamiento | Planificar la semana de entrenamiento con tus reglas (cargas calculadas con código, objetivo, días duros, descanso después de la tirada larga) |
-| Entrenamiento | Escribir el informe post partido en tu formato (números con su fuente, tres cosas bien y tres a corregir) |
 | Guardias de ingeniería | Atender un incidente en producción donde suelen estar las trampas (contener primero, qué cambió, evidencia, arreglo mínimo, postmortem sin culpas) |
 | Periodismo | Verificar una pista antes de publicarla (proteger la fuente, afirmaciones verificables, doble fuente independiente, fechas y vínculos, derecho a réplica) |
 | Ciencia | Analizar los datos de un experimento para que otro laboratorio pueda repetirlo (crudos intactos, reglas de limpieza escritas antes, un solo script, volver a correrlo desde cero) |

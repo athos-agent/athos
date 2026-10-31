@@ -17,14 +17,14 @@ from athos import paths, store
 
 STARTERS = Path(__file__).resolve().parents[1] / "starters"
 LANGS = ("es", "en")
-PROFILES = ("law", "sports", "ops", "journalism", "science", "finance", "other")
+PROFILES = ("law", "ops", "journalism", "science", "finance", "other")
 
 # The words the person sees. Model-facing text stays in English; what a person reads follows their language.
 TEXT = {
     "en": {
         "ask_lang": "Language / Idioma:  1) Español  2) English  [2] ",
-        "ask_profile": "What is your work?  1) Law  2) Sports coaching  3) Engineering on call  4) Journalism  "
-                       "5) Science  6) Finance and tax advice  7) Something else  [7] ",
+        "ask_profile": "What is your work?  1) Law  2) Engineering on call  3) Journalism  4) Science  "
+                       "5) Finance and tax advice  6) Something else  [6] ",
         "installed": "Added {n} example ways of working for your profession:",
         "skipped": "(already there: {names})",
         "none": "No examples for this profession yet: Athos learns your ways of working as you use it.",
@@ -45,8 +45,8 @@ TEXT = {
     },
     "es": {
         "ask_lang": "Language / Idioma:  1) Español  2) English  [1] ",
-        "ask_profile": "¿A qué te dedicás?  1) Abogacía  2) Entrenamiento deportivo  3) Guardias de ingeniería  "
-                       "4) Periodismo  5) Ciencia  6) Finanzas y asesoría impositiva  7) Otra cosa  [7] ",
+        "ask_profile": "¿A qué te dedicás?  1) Abogacía  2) Guardias de ingeniería  3) Periodismo  4) Ciencia  "
+                       "5) Finanzas y asesoría impositiva  6) Otra cosa  [6] ",
         "installed": "Agregué {n} formas de trabajar de ejemplo para tu profesión:",
         "skipped": "(ya estaban: {names})",
         "none": "Todavía no hay ejemplos para esta profesión: Athos aprende tus formas de trabajar mientras lo usás.",
@@ -72,10 +72,6 @@ TRY = {
                     "Revisá este contrato de locación con mi checklist y devolveme las observaciones."],
     ("en", "law"): ["Help me build the argument of this answer to the complaint (the other side's filing is attached).",
                     "Review this lease against my checklist and give me the comments."],
-    ("es", "sports"): ["Planificá la semana que viene de este atleta con mis reglas (adjunto su registro de sesiones).",
-                       "Escribí el informe post partido con estas estadísticas."],
-    ("en", "sports"): ["Plan next week for this athlete with my rules (their session log is attached).",
-                       "Write the post-match report from these stats."],
     ("es", "ops"): ["Se cayó el checkout desde las 14:05, ayudame a encontrar qué pasó (adjunto el log)."],
     ("en", "ops"): ["Checkout has been failing since 14:05, help me find what happened (the log is attached)."],
     ("es", "journalism"): ["Verificá esta pista sobre la licitación del puente antes de que la publique."],
@@ -169,12 +165,12 @@ def save_choice(language: str, profile: str) -> None:
 
 
 # The professions as Desktop's panel offers them on a first use, one button each, in the person's language.
-PANEL_ORDER = ("law", "finance", "journalism", "science", "ops", "sports", "other")
+PANEL_ORDER = ("law", "finance", "journalism", "science", "ops", "other")
 NAMES = {
     "en": {"law": "Law", "finance": "Finance and tax", "journalism": "Journalism", "science": "Science",
-           "ops": "Engineering on call", "sports": "Sports coaching", "other": "Something else"},
+           "ops": "Engineering on call", "other": "Something else"},
     "es": {"law": "Abogacía", "finance": "Finanzas e impuestos", "journalism": "Periodismo", "science": "Ciencia",
-           "ops": "Guardias de ingeniería", "sports": "Entrenamiento deportivo", "other": "Otra cosa"},
+           "ops": "Guardias de ingeniería", "other": "Otra cosa"},
 }
 PANEL_TEXT = {
     "en": {"added": "Added {n} ways of working for {who}: {names}.", "none": TEXT["en"]["none"],
