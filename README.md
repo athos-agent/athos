@@ -29,20 +29,16 @@ numbers. The recommendation is left to the advisor. Waits are hidden, not sped u
 - **It stays yours.** Plain markdown files in `~/.athos`, on your computer, that you can read and edit. The same know-how
   runs in Claude Code, Codex, Meta's Muse Code and OpenCode.
 
-**In Codex, Muse Code and OpenCode too** (in OpenCode, in its own sidebar). The same way of working, followed in Codex from a one-line request, with
-Athos's trail beside it ticking the steps as Codex reports them:
+**In Codex, Muse Code and OpenCode too** (in OpenCode, in its own sidebar). The same advisor's way of working, with its
+branch, followed in Meta's Muse Code on Muse Spark from a one-line request, with Athos's trail beside it ticking the
+nine steps as Muse reports them:
 
-![Codex reviews a lease for the tenant from a one-line request; beside it, Athos's trail says it follows the lawyer's own checklist and ticks its four steps as Codex works, ending with the checklist's table of clause, issue, proposed wording and priority.](demo/codex-lawyer-en.gif)
+![Muse Code on Muse Spark analyses a fictional fund prospectus from a one-line request; beside it, Athos's trail says it follows the advisor's committee rules and ticks the nine steps, the three cross-border tax steps nested under "Note in which countries…", ending with the scenarios, the risk table and what an opinion would rest on.](demo/muse-finance-en.gif)
 
-*Codex (fictional lease). No word about Athos in the request: Codex opens with the way of working it follows, reports
-each step, and answers with the checklist's own table. Waits are hidden, not sped up.*
-
-And in Meta's Muse Code on Muse Spark, a coach's rules for planning an athlete's week:
-
-![Muse Code plans a runner's next week from her last four weeks; beside it, Athos's trail says it follows the coach's own rules and ticks its five steps: the loads computed with code, the target from the coach's ratio rule, the sessions adding up to it, and the open decisions left to the coach.](demo/muse-coach-en.gif)
-
-*Muse Code on Muse Spark (fictional athlete). In OpenCode the same trail sits in its sidebar, and **Athos: change this
-step** and **Athos: save as a way of working** are in its command palette (ctrl+p).*
+*Muse Code on Muse Spark (fictional prospectus). Waits are hidden, not sped up. The same case in
+[Codex](demo/codex-finance-en.gif) and in [OpenCode's sidebar](demo/opencode-finance-en.gif); other professions:
+[a lawyer in Codex](demo/codex-lawyer-en.gif), [a coach in Muse Code](demo/muse-coach-en.gif). In OpenCode, **Athos:
+change this step** and **Athos: save as a way of working** are in its command palette (ctrl+p).*
 
 **Connectors: when a way of working needs a service.** A step of your way of working can need a service, and Athos
 checks it on every request and shows it in the panel. The first one is [pii-guard](https://github.com/watt-mind/pii-guard),
