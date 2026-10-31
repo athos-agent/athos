@@ -136,3 +136,18 @@ class TrailTest(TempHome):
         self.run_athos("step", "cut-a-release#bump")
         self.run_athos("step", "--new", "announce it")
         self.assertIsNotNone(self.hook("stop", ev))
+
+
+class SandboxedStepTest(TempHome):
+    def test_a_step_the_sandbox_cannot_write_still_answers_ok(self):
+        # Muse Code asked the person to approve every `athos step` outside its sandbox when the command failed.
+        import argparse
+        import io
+        from contextlib import redirect_stdout
+        from unittest import mock
+        from athos import cli
+        out = io.StringIO()
+        with mock.patch.object(cli, "_current_session", return_value={"session_id": "s"}), \
+                mock.patch.object(cli.trail, "step", side_effect=PermissionError("sandbox")), redirect_stdout(out):
+            rc = cli.cmd_step(argparse.Namespace(ref="deal#facts", new=None))
+        self.assertEqual((rc, out.getvalue().strip()), (0, "ok"))
