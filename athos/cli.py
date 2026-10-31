@@ -30,6 +30,8 @@
                                        ~/.claude/agents and keeps them in step with every save
     athos bench <case|all> --agents claude,meta [--runs 5] [--without] [--max-usd 5]   the same task on each agent,
                                        checked by what it left behind; `athos bench --list`, `athos bench report`
+    athos bench route [--router lexical,hybrid] [--scale 300] [--from-store]   how well the router picks the know-how
+    athos embed [on|off] [--model M]   also load know-how by meaning (local embeddings, Ollama); off by default
     athos test <id> [--backend meta]   re-check a piece against the corrections you made on it before
     athos shadow [--limit N] | on|off  compare a cheaper model with the answers you approved (Ollama by default)
     athos status --json                what the terminal's status line and band show
@@ -50,6 +52,7 @@ import re
 import shlex
 import shutil
 import sys
+import time
 from pathlib import Path
 
 from athos import capture, cases, control, edits, eval as ev, load, paths, replay, session, store, trail
@@ -595,6 +598,8 @@ def cmd_bench(args) -> int:
         return 0
     if args.target in ("transfer", "transfer-report"):
         return _bench_transfer(args, all_cases)
+    if args.target == "route":
+        return _bench_route(args)
     if args.target == "report":
         r = bench.report()
         print(json.dumps(r, indent=1, ensure_ascii=False) if args.json else bench.render(r))
@@ -610,6 +615,81 @@ def cmd_bench(args) -> int:
     bench.run(names, agents, args.runs, with_piece=not args.only_without, without_piece=args.without or
               args.only_without, models=models, max_usd=args.max_usd, keep=args.keep)
     print(f"\n{bench.render(bench.report([r for r in bench.load_results() if r['case'] in names]))}")
+    return 0
+
+
+def _ollama_host() -> str:
+    from athos import delegate
+    return delegate.host()
+
+
+def _bench_route(args) -> int:
+    """The router's own bench: synthetic cases on throwaway stores, or the person's good tasks (read-only)."""
+    from athos.bench import route
+    from athos.load import embed
+    routers = args.router.split(",")
+    if set(routers) - {"lexical", "hybrid"}:
+        print("--router: lexical, hybrid (comma-separated)", file=sys.stderr)
+        return 1
+    model = args.embed_model or embed.chosen_model()
+    if "hybrid" in routers:
+        try:
+            embed.ollama(["ping"], model, timeout=60)
+        except Exception as e:
+            print(f"hybrid needs {model} in Ollama at {_ollama_host()} ({e}): `ollama pull {model}`",
+                  file=sys.stderr)
+            return 1
+    if args.from_store:
+        out = {}
+        for r in routers:
+            meaning = False
+            if r == "hybrid":                    # the index in memory: nothing is written to the person's home
+                idx = embed.refresh(load.enabled(), model=model, write=False)
+                meaning = lambda p, ps, idx=idx: embed.scores(p, ps, model=model, index=idx, spawn=False)
+            out[r] = route.from_store(meaning)
+        print(json.dumps(out, indent=1) if args.json else
+              "\n\n".join(f"[{r}] {route.render_store(x)}" for r, x in out.items()))
+        return 0
+    rows = route.run(routers, scale=args.scale, model=model)
+    print(json.dumps(rows, indent=1) if args.json else route.render(rows) +
+          (f"\nhybrid: {model} through Ollama, request embedded under {embed.BUDGET_S * 1000:.0f} ms."
+           if "hybrid" in routers else ""))
+    return 0
+
+
+def cmd_embed(args) -> int:
+    """`athos embed on|off`: also load know-how by meaning, with a local embedding model (Ollama)."""
+    from athos.load import embed
+    if args.refresh:                              # the background job the prompt hook starts: quiet, then unlocked
+        try:
+            embed.refresh(load.enabled(), model=embed.chosen_model())
+        except Exception as e:
+            print(e, file=sys.stderr)
+            return 1
+        finally:
+            embed._lock().unlink(missing_ok=True)
+        return 0
+    if args.action in ("on", "off"):
+        s = embed.set_embed(args.action == "on", args.model)
+        if not s["on"]:
+            print("Loading by meaning is off: Athos loads know-how by the request's words only.")
+            return 0
+        model = embed.chosen_model()
+        try:
+            t0 = time.time()
+            embed.ollama(["hello"], model, timeout=60)   # the model answers (and is loaded) even with no piece yet
+            idx = embed.refresh(load.enabled(), model=model)
+            print(f"Loading by meaning is on ({model}, local Ollama): {len(idx)} pieces indexed in "
+                  f"{time.time() - t0:.1f} s. Nothing leaves this machine.")
+        except Exception as e:
+            print(f"Loading by meaning is on, but {model} doesn't answer at {_ollama_host()} ({e}). Until it "
+                  f"does, Athos loads by words only, as before. `ollama pull {model}` gets the model.")
+        return 0
+    s, model = embed.settings(), embed.chosen_model()
+    pieces = load.enabled()
+    fresh = len(pieces) - len(embed.stale(pieces, embed.load_index(model), model))
+    print(f"Loading by meaning: {'on' if s.get('on') else 'off'} · {model} · {fresh}/{len(pieces)} pieces indexed"
+          f" · `athos embed on|off`")
     return 0
 
 
@@ -703,6 +783,7 @@ def status() -> dict:
             "following": following(state),
             # A cheaper model that matched the person's approved answers on a piece (`athos shadow`).
             "handoff": replay.handoffs(), "shadow": bool(replay.settings().get("on")),
+            "embed": bool((start.config().get("embed") or {}).get("on")),     # loads by meaning too (`athos embed on`)
             "learned_from_edit": learned_from_edit(state, start.lang()),
             "trail": trail.view(state), "greeting": trail.greeting(start.lang()),
             # One line when an agent runs an older Athos (`athos doctor`); file reads only, no command is run.
@@ -1036,7 +1117,17 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--max-usd", type=float, help="stop once this much has been spent in this call")
     s.add_argument("--keep", action="store_true", help="keep each run's workspace to look at it")
     s.add_argument("--json", action="store_true", help="with report: the numbers as JSON")
+    s.add_argument("--router", default="lexical", help="with route: lexical, hybrid (comma-separated)")
+    s.add_argument("--scale", type=int, default=0, help="with route: also a store padded to this many pages")
+    s.add_argument("--embed-model", help="with route: the Ollama embedding model for hybrid (default your setting)")
+    s.add_argument("--from-store", action="store_true",
+                   help="with route: your tasks marked good against your store (read-only, counts only)")
     s.set_defaults(fn=cmd_bench)
+    s = sub.add_parser("embed", help="also load know-how by meaning, with a local embedding model (Ollama); on|off")
+    s.add_argument("action", nargs="?", choices=["on", "off"])
+    s.add_argument("--model", help="the Ollama embedding model (default embeddinggemma)")
+    s.add_argument("--refresh", action="store_true", help=argparse.SUPPRESS)
+    s.set_defaults(fn=cmd_embed)
     s = sub.add_parser("wiki", help="your know-how as a wiki: rebuild Index.md, check links, trajectory agents")
     s.add_argument("action", nargs="?", choices=["lint", "agents"], default="lint")
     s.add_argument("--install", action="store_true", help="with agents: put them where Claude Code finds subagents")

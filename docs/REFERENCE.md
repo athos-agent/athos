@@ -119,6 +119,52 @@ website open in your browser can neither call them nor read your know-how. In Cl
 as an MCP App when you ask to see your ways of working (`athos_library`, resource `ui://athos/library`); its buttons go
 through the app-only tool `athos_library_do`.
 
+### How the router picks the know-how, measured
+
+On every request Athos loads the one or two pieces whose title and "when" share the request's words (rarer words count
+more; [Didn't apply] remembers the words that loaded a piece by mistake). `athos bench route` measures that choice
+before anything changes it:
+
+```
+athos bench route                         the public cases on a throwaway store of the starters (both languages),
+                                          and each language's requests against the other language's starters only
+athos bench route --scale 300             also a store padded to 300 pages with generated pages from other trades
+athos bench route --router lexical,hybrid words only vs words + meaning (needs Ollama, see below)
+athos bench route --from-store            your own tasks marked good against your own store: read-only, counts only
+athos bench route --json
+```
+
+The cases (`athos/bench/route_cases.json`, fictional) are requests in English and Spanish for each starter (law,
+sports, ops, journalism, science, finance), worded plainly and as paraphrases with few shared words, plus requests that
+need no know-how ("what time is it", "write a haiku"). It reports hit@1 (the first piece loaded is the expected one),
+missed (nothing loaded), wrong (a piece loaded that the request didn't call for; the pages an expected piece hands over
+to don't count) and "none ok" (a request that needs nothing loaded nothing), with the time per request including
+reading the store. `--from-store` uses the request that started each task you marked good and the pieces it used, and
+prints only totals, never a request. Measured on 2026-10-31 (embeddinggemma through a local Ollama):
+
+| router | store | hit@1 | wrong | none ok | ms/request |
+|---|---|---|---|---|---|
+| words | starters, en+es (18 pages) | 47/72 | 6 | 19/24 | 1.4 |
+| words + meaning | starters, en+es | 57/72 | 6 | 19/24 | 17 |
+| words | Spanish requests, English starters | 0/36 | 0 | 12/12 | 0.7 |
+| words + meaning | Spanish requests, English starters | 9/36 | 0 | 12/12 | 24 |
+| words | English requests, Spanish starters | 0/36 | 0 | 12/12 | 0.8 |
+| words + meaning | English requests, Spanish starters | 15/36 | 0 | 12/12 | 13 |
+| words | en+es, 300 pages | 44/72 | 18 | 21/24 | 13 |
+| words + meaning | en+es, 300 pages | 54/72 | 21 | 19/24 | 33 |
+
+`athos embed on` adds meaning to the words, with a local embedding model through Ollama (default `embeddinggemma`,
+`athos embed on --model <name>` for another; `ollama pull embeddinggemma` first). It is off by default, and with it
+off, or with Ollama down, loading is exactly the words-only router. When on, each piece's title, "when" and its
+statements' `When:` lines are embedded once and kept in `~/.athos/index/` (by piece and a hash of that text, so an
+edited piece is embedded again); pieces not indexed yet are filled by a background job, never while you wait. On each
+request, when the words already found one clear piece nothing else happens; otherwise the request is embedded (under
+300 ms, else words only) and the piece closest in meaning joins when it stands clearly above its usual closeness to
+any request: this is what lets a Spanish request find an English piece. [Didn't apply] holds for these loads too.
+`athos embed` shows whether it is on and how many pieces are indexed; `athos status --json` has `embed`. Nothing leaves
+your machine. On the bench above it rescues cross-language and paraphrased requests without new wrong loads on the
+starters, but on the 300-page store it adds three wrong loads, so it stays opt-in.
+
 ### Learning from your own edits
 
 When the agent writes or edits a text file while following one of your pieces (a contract review, a report, code) and
