@@ -180,14 +180,14 @@ class CommandNameTest(TempHome):
             self.assertEqual(cli._cmd(), "athos")
         with mock.patch("shutil.which", return_value=str(other)):
             self.assertEqual(cli._cmd(), shlex.quote(str(cli.ME)))           # no version: can't tell it has `step`
-        # An installation one version behind, with `athos step`, is fine: no full path with the user name.
+        # An installation whose `athos step` works in a sandbox (0.1.75+) is fine: no full path with the user name.
         app = Path(self.home) / "app"
         (app / ".claude-plugin").mkdir(parents=True)
-        (app / ".claude-plugin" / "plugin.json").write_text('{"version": "0.1.50"}')
+        (app / ".claude-plugin" / "plugin.json").write_text('{"version": "0.1.75"}')
         behind = Path(self.home) / "behind"
         behind.write_text(f'#!/bin/sh\nexec python3 "{app}/bin/athos" "$@"\n')
         with mock.patch("shutil.which", return_value=str(behind)):
             self.assertEqual(cli._cmd(), "athos")
-        (app / ".claude-plugin" / "plugin.json").write_text('{"version": "0.1.40"}')
+        (app / ".claude-plugin" / "plugin.json").write_text('{"version": "0.1.60"}')
         with mock.patch("shutil.which", return_value=str(behind)):
-            self.assertEqual(cli._cmd(), shlex.quote(str(cli.ME)))           # older than `step`
+            self.assertEqual(cli._cmd(), shlex.quote(str(cli.ME)))           # its step fails in a sandbox
