@@ -1,7 +1,8 @@
-"""Load: only the know-how that matters for the request reaches the model.
+"""The router: deciding which of the person's ways of working reach the model, and when.
 
-At session start, a short index of the enabled pieces (id, title, when it applies). On every prompt, the full text
-of the one or two pieces whose title and "when" match the request best, under a character cap. Never the whole store.
+Two moments matter. When a session opens, the model gets a compact catalogue of the pages it may use (id, title and
+the "when" line), never their bodies. When the person sends a request, the page or two that fit it best are added in
+full, within a size budget. The store as a whole is never pasted in.
 """
 
 from __future__ import annotations
@@ -13,39 +14,57 @@ import unicodedata
 
 from athos import control, eval as ev, paths, session, store
 
-INDEX_CAP = 4000
-INJECT_CAP = 8000
-TOP_K = 2
+# Size budgets, in characters.
+INDEX_CAP = 4000         # the session-start catalogue
+INJECT_CAP = 8000        # the pages added to one request (the best page is exempt: it always comes whole)
+
+# Lexical ranking.
+TOP_K = 2                # at most this many pages are picked by score
 RUNNER_UP = 0.5      # a second piece loads only with at least half the best piece's score (one shared word is noise)
-MIN_SCORE = 1.2
-STEM = 5               # words match on their first letters, so "release" finds "releasing" and "releases"
+MIN_SCORE = 1.2          # below this a page is not worth adding
+STEM = 5                 # tokens are cut to this length, so "release", "releases" and "releasing" all meet
 ONE_WORD_DF = 1        # one shared word is enough only if no other piece's title has it
 # The meaning (`athos embed on`, load/embed.py), set with `athos bench route`:
 SURE_SCORE = 8.0       # a lexical first piece this strong, alone at the top, needs no second opinion
 MEANING_MIN = 0.20     # a piece found by meaning alone: the closest one, this far above its closeness to any request
 MEANING_WEIGHT = 0.9   # its score, as a share of the words' best piece: it comes after what the words found
 
-STOP = set("""a an the and or but if then else for to of in on at by with from into over this that these those it its
-is are was were be been being do does did done have has had can could should would will shall may might must not no
-yes you your we our i me my he she they them their there here what which who whom when where why how all any each
-some such than too very just also only own same so as about after before again more most other up down out off
-el la los las un una unos unas y o pero si entonces para por de del en con sin sobre este esta estos estas ese esa
-eso es son fue ser hay que qué cual cuál cuando cuándo donde dónde como cómo porque muy más menos ya lo le les se su
-sus mi mis tu tus al me te nos""".split())
+_ENGLISH_STOPWORDS = """
+    a about after again all also an and any are as at be been before being but by can could did do does done down each
+    else for from had has have he here how i if in into is it its just may me might more most must my no not of off on
+    only or other our out over own same shall she should so some such than that the their them then there these they
+    this those to too up very was we were what when where which who whom why will with would yes you your
+"""
+_SPANISH_STOPWORDS = """
+    al como cómo con cual cuál cuando cuándo de del donde dónde el en entonces es esa ese eso esta este estas estos fue
+    hay la las le les lo los me mis mi más menos muy nos o para pero por porque que qué se ser si sin sobre son su sus
+    te tu tus un una unas unos y ya
+"""
+STOP = set(_ENGLISH_STOPWORDS.split()) | set(_SPANISH_STOPWORDS.split())
+
+
+def _fold(text: str) -> str:
+    """Lowercase-free accent folding: "locación" becomes "locacion"; characters with no ASCII form are dropped."""
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
 
 
 def words(text: str) -> set[str]:
     """Whole words, for the exact match: file names and punctuation split ("contrato-servicios.md" is "contrato" and
     "servicios"), accents dropped ("locación" is "locacion")."""
-    plain = unicodedata.normalize("NFKD", text.lower()).encode("ascii", "ignore").decode()
+    plain = _fold(text.lower())
     return {w for w in re.findall(r"[a-z0-9]{3,}", plain) if w not in STOP_PLAIN}
 
 
-STOP_PLAIN = {unicodedata.normalize("NFKD", w).encode("ascii", "ignore").decode() for w in STOP}
+STOP_PLAIN = {_fold(w) for w in STOP}
+
+_TOKEN = re.compile(r"[a-záéíóúñü0-9_.-]{3,}")
 
 
 def tokens(text: str) -> list[str]:
-    return [w[:STEM] for w in re.findall(r"[a-záéíóúñü0-9_.-]{3,}", text.lower()) if w not in STOP]
+    """Stemmed tokens for scoring: each run of three or more word characters (dots, dashes and underscores kept, so
+    file names stay whole), stopwords dropped, then cut to its first STEM letters."""
+    found = _TOKEN.findall(text.lower())
+    return [token[:STEM] for token in found if token not in STOP]
 
 
 # Endings that only inflect a word (publish / published / publishing; publicar / publicado): "the same word" for the
@@ -58,6 +77,16 @@ def _plain(w: str) -> str:
         if w.endswith(e) and len(w) - len(e) >= 4:
             return w[:-len(e)]
     return w
+
+
+def _base_words(text: str) -> set[str]:
+    """`words`, each reduced to its uninflected form."""
+    return {_plain(w) for w in words(text)}
+
+
+def _head(piece: store.Piece) -> str:
+    """The part of a page that says what it is for: its title and its "when"."""
+    return piece.title + " " + piece.when
 
 
 # The harness's own messages are not the person's requests: a subagent's report loaded an unrelated page (2026-10-31).
@@ -95,25 +124,43 @@ def other_projects(here: list[store.Piece]) -> list[str]:
             for q, ps in sorted(by.items(), key=lambda kv: -len(kv[1]))]
 
 
-def index_text(pieces: list[store.Piece], cmd: str = "athos", others: list[str] | None = None) -> str:
-    if not pieces:
-        return ""
-    head = ("# Athos — your know-how\n\nThese pieces of the user's own know-how are available. When a request "
-            "matches a piece's \"when\", follow it; the matching piece is usually added to the request "
-            f"automatically, and `{cmd} show <id>` prints any of them.\n")
-    lines, size = [], len(head)
-    for p in sorted(pieces, key=lambda p: p.last_used, reverse=True):
-        line = f"- `{p.id}` — {p.title}. When: {p.when}"
-        if size + len(line) + 1 > INDEX_CAP:
-            lines.append(f"- … and {len(pieces) - len(lines)} more (`{cmd} list`)")
+def _most_recent_first(pieces: list[store.Piece]) -> list[store.Piece]:
+    return sorted(pieces, key=lambda piece: piece.last_used, reverse=True)
+
+
+def _catalogue(pieces: list[store.Piece], budget: int, cmd: str) -> list[str]:
+    """One line per page, most recently used first, until `budget` characters are spent; then a single line says
+    how many were left out and where to see them."""
+    entries: list[str] = []
+    for piece in _most_recent_first(pieces):
+        entry = f"- `{piece.id}` — {piece.title}. When: {piece.when}"
+        cost = len(entry) + 1
+        if cost > budget:
+            entries.append(f"- … and {len(pieces) - len(entries)} more (`{cmd} list`)")
             break
-        lines.append(line)
-        size += len(line) + 1
+        entries.append(entry)
+        budget -= cost
+    return entries
+
+
+def index_text(pieces: list[store.Piece], cmd: str = "athos", others: list[str] | None = None) -> str:
+    """The session-start text: the catalogue of loadable pages, then a short list of other projects' know-how."""
+    if len(pieces) == 0:
+        return ""
+    intro = "\n".join((
+        "# Athos — your know-how",
+        "",
+        "These pieces of the user's own know-how are available. When a request matches a piece's \"when\", follow "
+        "it; the matching piece is usually added to the request automatically, and "
+        f"`{cmd} show <id>` prints any of them.",
+        "",
+    ))
+    body = _catalogue(pieces, INDEX_CAP - len(intro), cmd)
     if others:
-        lines.append("\nOther projects' know-how (loaded only when a request names the project; "
-                     f"`{cmd} list` shows it):")
-        lines.extend(others[:12])
-    return head + "\n".join(lines)
+        body.append("\nOther projects' know-how (loaded only when a request names the project; "
+                    f"`{cmd} list` shows it):")
+        body += others[:12]
+    return intro + "\n".join(body)
 
 
 def misfires_file():
@@ -130,7 +177,7 @@ def misfires() -> dict[str, list[list[str]]]:
 
 def why(prompt: str, piece: store.Piece) -> list[str]:
     """The request's words found in the piece's title and "when": what made it load, as the person can read it."""
-    return sorted({_plain(w) for w in words(prompt)} & {_plain(w) for w in words(piece.title + " " + piece.when)})
+    return sorted(_base_words(prompt) & _base_words(_head(piece)))
 
 
 def dismiss(piece_id: str, shared: list[str]) -> None:
@@ -143,40 +190,67 @@ def dismiss(piece_id: str, shared: list[str]) -> None:
     misfires_file().write_text(json.dumps(data, indent=1, ensure_ascii=False))
 
 
-def rank(prompt: str, pieces: list[store.Piece]) -> list[tuple[float, store.Piece]]:
-    """Score each piece by the request's words found in its title and "when" (weighted by how rare the word is
-    among the pieces), plus a little for words found in its body."""
-    q = set(tokens(prompt))
-    if not q or not pieces or NOT_A_REQUEST.match(prompt):
-        return []
-    qwords = {_plain(w) for w in words(prompt)}
-    heads = [set(tokens(p.title + " " + p.when)) for p in pieces]
-    head_words = [{_plain(w) for w in words(p.title + " " + p.when)} for p in pieces]
-    title_words = [{_plain(w) for w in words(p.title)} for p in pieces]
-    bodies = [set(tokens(p.body)) for p in pieces]
-    n = len(pieces)
+def _dismissed(request_words: set[str], head_words: set[str], earlier: list[list[str]]) -> bool:
+    """Whether the words this request shares with a page were all part of a load the person turned down before."""
+    overlap = request_words & head_words
+    return any(overlap <= set(turned_down) for turned_down in earlier)
 
-    def idf(w):
-        df = sum(1 for h, b in zip(heads, bodies) if w in h or w in b)
-        return math.log(1 + n / (1 + df)) + 1
 
-    def enough(hw, tw):
+def _by_score(scored: list[tuple[float, store.Piece]]) -> list[tuple[float, store.Piece]]:
+    """Best first; ties broken by page id so the order never depends on the store's."""
+    return sorted(scored, key=lambda pair: (-pair[0], pair[1].id))
+
+
+class _Pool:
+    """What the ranking needs to know about every candidate page, computed once per request."""
+
+    def __init__(self, pieces: list[store.Piece]):
+        self.pieces = pieces
+        self.head_tokens = [set(tokens(_head(piece))) for piece in pieces]
+        self.body_tokens = [set(tokens(piece.body)) for piece in pieces]
+        self.head_words = [_base_words(_head(piece)) for piece in pieces]
+        self.title_words = [_base_words(piece.title) for piece in pieces]
+
+    def weight(self, token: str) -> float:
+        """Rarer tokens weigh more: a smoothed inverse document frequency over heads and bodies."""
+        holders = sum(1 for head, body in zip(self.head_tokens, self.body_tokens) if token in head or token in body)
+        return math.log(1 + len(self.pieces) / (1 + holders)) + 1
+
+    def titles_with(self, word: str) -> int:
+        return sum(1 for title in self.title_words if word in title)
+
+    def same_words_enough(self, request_words: set[str], i: int) -> bool:
         # Shared prefixes only add to the score ("checklist" starts like "check", "contrato" like "controls"): a
         # piece needs the very same words: two of them, or one of five letters or more that only its title has.
-        same = qwords & hw
-        return len(same) >= 2 or any(len(w) >= 5 and sum(1 for o in title_words if w in o) <= ONE_WORD_DF
-                                     for w in same & tw)
-    wrong = misfires()
-    scored = []
-    for p, h, hw, tw, b in zip(pieces, heads, head_words, title_words, bodies):
-        shared = q & h
-        s = sum(idf(w) for w in shared) + 0.25 * sum(idf(w) for w in (q & b) - h)
-        # Words the person already said were not enough for this piece don't load it again.
-        if any(set(qwords & hw) <= set(m) for m in wrong.get(p.id, [])):
+        same = request_words & self.head_words[i]
+        if len(same) >= 2:
+            return True
+        return any(len(w) >= 5 and self.titles_with(w) <= ONE_WORD_DF for w in same & self.title_words[i])
+
+
+def rank(prompt: str, pieces: list[store.Piece]) -> list[tuple[float, store.Piece]]:
+    """Every page that clears the bar, scored and best first.
+
+    A page earns the weight of each request token found in its title or "when", and a quarter of that for tokens
+    found only in its body. It is kept when it shares at least one head token, scores MIN_SCORE or more, shares
+    real words (not just prefixes) with the request, and the person has not turned the same match down before."""
+    asked = set(tokens(prompt))
+    if not asked or not pieces or NOT_A_REQUEST.match(prompt):
+        return []
+    pool = _Pool(pieces)
+    request_words = _base_words(prompt)
+    turned_down = misfires()
+    kept: list[tuple[float, store.Piece]] = []
+    for i, piece in enumerate(pieces):
+        head, body = pool.head_tokens[i], pool.body_tokens[i]
+        in_head = asked & head
+        only_in_body = (asked & body) - head
+        score = sum(pool.weight(t) for t in in_head) + 0.25 * sum(pool.weight(t) for t in only_in_body)
+        if _dismissed(request_words, pool.head_words[i], turned_down.get(piece.id, [])):
             continue
-        if shared and s >= MIN_SCORE and enough(hw, tw):
-            scored.append((s, p))
-    return sorted(scored, key=lambda t: (-t[0], t[1].id))
+        if in_head and score >= MIN_SCORE and pool.same_words_enough(request_words, i):
+            kept.append((score, piece))
+    return _by_score(kept)
 
 
 def sure(ranked: list[tuple[float, store.Piece]]) -> bool:
@@ -195,33 +269,38 @@ def rerank(prompt: str, pieces: list[store.Piece], ranked: list[tuple[float, sto
     p = next((p for p in pieces if p.id == pid), None)
     if p is None or best < MEANING_MIN or any(q.id == pid for _, q in ranked):
         return ranked
-    qwords = {_plain(w) for w in words(prompt)}
-    hw = {_plain(w) for w in words(p.title + " " + p.when)}
-    if any(set(qwords & hw) <= set(m) for m in misfires().get(pid, [])):    # [Didn't apply] holds here too
+    if _dismissed(_base_words(prompt), _base_words(_head(p)), misfires().get(pid, [])):  # [Didn't apply] holds here too
         return ranked
     score = ranked[0][0] * MEANING_WEIGHT if ranked else MIN_SCORE
-    return sorted(ranked + [(score, p)], key=lambda t: (-t[0], t[1].id))
+    return _by_score(ranked + [(score, p)])
+
+
+def _within_budget(ranked: list[tuple[float, store.Piece]]) -> tuple[list[store.Piece], int]:
+    """From the top of the ranking: the best page always, whatever its size; a runner-up only when it scores close
+    to the best and still fits INJECT_CAP. Returns the pages and the characters they take."""
+    chosen: list[store.Piece] = []
+    used = 0
+    for score, piece in ranked[:TOP_K]:
+        if chosen and score < RUNNER_UP * ranked[0][0]:
+            break
+        size = len(store.render(piece))
+        if chosen and used + size > INJECT_CAP:
+            break
+        chosen.append(piece)
+        used += size
+    return chosen, used
 
 
 def relevant(prompt: str, pieces: list[store.Piece], meaning=None) -> list[store.Piece]:
     """The pieces to load for this request. `meaning(prompt, pieces) -> {id: closeness} | None` is the optional second
     opinion (`athos embed on`); None follows the person's setting, False is words only."""
-    out, size = [], 0
     ranked = rank(prompt, pieces)
     if meaning is None:
         from athos.load import embed
         meaning = embed.scores if embed.enabled() else False
     if meaning and not sure(ranked) and words(prompt) and not NOT_A_REQUEST.match(prompt):
         ranked = rerank(prompt, pieces, ranked, meaning(prompt, pieces) or {})
-    ranked = ranked[:TOP_K]
-    for score, p in ranked:
-        if out and score < RUNNER_UP * ranked[0][0]:  # a second piece only when it matches nearly as well
-            break
-        text = store.render(p)
-        if out and size + len(text) > INJECT_CAP:  # the best piece always loads whole; the cap limits a second one
-            break
-        out.append(p)
-        size += len(text)
+    out, size = _within_budget(ranked)
     # The pages a loaded piece's steps hand over to (**Calls:** / **If:**) come along, while they fit: the model
     # needs them at the step that calls them, not after a search.
     from athos import wiki
@@ -245,14 +324,20 @@ def handover(pieces: list[store.Piece], show: str) -> str:
             f"doesn't, skip it and say why in one short clause.")
 
 
+def _page_section(piece: store.Piece) -> str:
+    """A loaded page as the model reads it: heading with id and version, its "when", then the body."""
+    heading = f"## {piece.title} (`{piece.id}`, v{piece.version})"
+    return "\n".join((heading, f"When: {piece.when}", "", piece.body, ""))
+
+
 def inject_text(pieces: list[store.Piece], cmd: str = "athos") -> str:
-    if not pieces:
+    """The text added to a request: the matching pages, then how to report steps, how to answer, and the first line."""
+    if len(pieces) == 0:
         return ""
     first = pieces[0].title
-    parts = ["# Athos — know-how that matches this request\n\nThe user's own know-how for this kind of task. "
-             "Follow it unless the request says otherwise.\n"]
-    for p in pieces:
-        parts.append(f"## {p.title} (`{p.id}`, v{p.version})\nWhen: {p.when}\n\n{p.body}\n")
+    preface = ("# Athos — know-how that matches this request\n\nThe user's own know-how for this kind of task. "
+               "Follow it unless the request says otherwise.\n")
+    parts = [preface, *map(_page_section, pieces)]
     # The person watches the trail in Athos's pane (Claude Code) or `athos watch`: one call per step, not per action.
     # Muse Code wrote a whole plan in one reply and reported one step (2026-10-30): a statement whose work is only part
     # of the answer is still a step.
@@ -287,27 +372,34 @@ def _wiki():
 
 
 def mark_loaded(session_id: str, ids: list[str]) -> None:
-    """Record pieces as used in a session: by automatic injection, or when Claude reads one with `athos show`."""
-    if not ids:
+    """Note that these pages were used in this session, whether the prompt hook added them or the model opened one
+    with `athos show`: the session state, the eval log and each page's last-used time all learn it."""
+    if len(ids) == 0:
         return
     state = session.load(session_id)
-    state["loaded"] = sorted(set(state.get("loaded", [])) | set(ids))
+    already = state.get("loaded", [])
+    state["loaded"] = sorted({*already, *ids})
     session.save(session_id, state)
     ev.note_loaded(session_id, ids)
-    for pid in ids:
-        store.touch(pid)
+    for piece_id in ids:
+        store.touch(piece_id)
+
+
+def _session_of(event: dict) -> str:
+    return event.get("session_id", "default")
 
 
 def on_prompt(event: dict, cmd: str = "athos") -> str:
     """UserPromptSubmit: the pieces that match the request, recorded as loaded in this session, with the words that
     loaded each one (the band shows them, and [Didn't apply] remembers them)."""
     prompt = event.get("prompt", "")
+    sid = _session_of(event)
     found = relevant(prompt, enabled(event.get("cwd"), prompt))
     if found:
-        session.update(event.get("session_id", "default"), task_why={p.id: why(prompt, p) for p in found})
-    mark_loaded(event.get("session_id", "default"), [p.id for p in found])
+        session.update(sid, task_why={p.id: why(prompt, p) for p in found})
+    mark_loaded(sid, [piece.id for piece in found])
     text = inject_text(found, cmd)
-    conn = note_connectors(event.get("session_id", "default"), found, cmd)
+    conn = note_connectors(sid, found, cmd)
     text += "\n" + conn + "\n" if conn else ""
     if found:                                    # a cheaper model proven on this piece: the person hears it once
         from athos import replay
@@ -328,13 +420,21 @@ def note_connectors(session_id: str, pieces: list[store.Piece], cmd: str = "atho
     return connectors.model_text(states, cmd)
 
 
+def _model_name(event: dict) -> str | None:
+    """The model the agent reports at session start: a plain string, or an object with an id or a display name."""
+    reported = event.get("model")
+    if isinstance(reported, dict):
+        reported = reported.get("id") or reported.get("display_name")
+    return str(reported) if reported else None
+
+
 def on_session_start(event: dict, cmd: str = "athos") -> str:
-    sid = event.get("session_id", "default")
-    model = event.get("model")
-    if isinstance(model, dict):
-        model = model.get("id") or model.get("display_name")
+    """SessionStart: remember the model, then give the catalogue, the project's recent tasks, the capture guide and
+    any cheaper-model offer, in that order."""
+    sid = _session_of(event)
+    model = _model_name(event)
     if model:
-        session.update(sid, model=str(model))
+        session.update(sid, model=model)
     from athos import capture
     here = enabled(event.get("cwd"))
     text = index_text(here, cmd, other_projects(here))

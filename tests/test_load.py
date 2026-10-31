@@ -1,91 +1,112 @@
 from athos import load, session, store
 from tests.helpers import TempHome
 
+RELEASE_STEPS = "1. Bump version in pyproject.\n2. Update CHANGELOG.\n3. Tag and push."
+FLAKY_STEPS = "Run it 20 times; look for shared state."
+KEY_STEPS = "Revoke first, then issue, then deploy."
 
-def seed():
+
+def three_pages() -> None:
+    """A small store: releasing, a flaky test, a leaked key."""
     store.create("Cut a release of a Python package", "preparing a release: version bump, changelog, tag",
-                 "1. Bump version in pyproject.\n2. Update CHANGELOG.\n3. Tag and push.")
-    store.create("Fix a flaky test", "a test fails only sometimes in CI", "Run it 20 times; look for shared state.")
-    store.create("Rotate an API key", "a credential leaked or expires", "Revoke first, then issue, then deploy.")
+                 RELEASE_STEPS)
+    store.create("Fix a flaky test", "a test fails only sometimes in CI", FLAKY_STEPS)
+    store.create("Rotate an API key", "a credential leaked or expires", KEY_STEPS)
 
 
-class LoadTest(TempHome):
-    def test_index_lists_every_enabled_piece_briefly(self):
-        seed()
-        text = load.on_session_start({"session_id": "s1", "model": "claude-opus-5-5"})
-        self.assertIn("`fix-a-flaky-test`", text)
-        self.assertNotIn("shared state", text)                       # bodies are not in the index
+def ask(prompt: str, sid: str = "s1") -> str:
+    return load.on_prompt({"session_id": sid, "prompt": prompt})
+
+
+def picked(prompt: str) -> list[str]:
+    return [piece.id for piece in load.relevant(prompt, store.all_pieces())]
+
+
+class SessionStartAndPrompt(TempHome):
+    def test_the_catalogue_names_each_page_but_not_its_body(self):
+        three_pages()
+        catalogue = load.on_session_start({"session_id": "s1", "model": "claude-opus-5-5"})
+        self.assertIn("`fix-a-flaky-test`", catalogue)
+        self.assertNotIn("shared state", catalogue)
         self.assertEqual(session.load("s1")["model"], "claude-opus-5-5")
 
-    def test_index_is_empty_without_pieces(self):
+    def test_a_model_given_as_an_object_is_recorded_by_id(self):
+        load.on_session_start({"session_id": "s2", "model": {"id": "muse-spark", "display_name": "Muse Spark"}})
+        self.assertEqual(session.load("s2")["model"], "muse-spark")
+
+    def test_an_empty_store_says_nothing_at_session_start(self):
         self.assertEqual(load.on_session_start({"session_id": "s1"}), "")
 
-    def test_only_the_matching_piece_is_injected(self):
-        seed()
-        text = load.on_prompt({"session_id": "s1", "prompt": "the CI test is flaky again, it fails sometimes"})
-        self.assertIn("Run it 20 times", text)
-        self.assertNotIn("CHANGELOG", text)
-        self.assertNotIn("Revoke first", text)
+    def test_a_request_gets_only_the_page_that_fits(self):
+        three_pages()
+        added = ask("the CI test is flaky again, it fails sometimes")
+        self.assertIn(FLAKY_STEPS[:16], added)
+        for other in ("CHANGELOG", KEY_STEPS[:12]):
+            self.assertNotIn(other, added)
         self.assertEqual(session.load("s1")["loaded"], ["fix-a-flaky-test"])
 
-    def test_unrelated_request_injects_nothing(self):
-        seed()
-        self.assertEqual(load.on_prompt({"session_id": "s1", "prompt": "write a haiku about autumn"}), "")
+    def test_an_unrelated_request_adds_nothing_and_records_nothing(self):
+        three_pages()
+        self.assertEqual(ask("write a haiku about autumn"), "")
         self.assertNotIn("loaded", session.load("s1"))
 
-    def test_spanish_request_matches(self):
+    def test_a_request_in_spanish_finds_a_spanish_page(self):
         store.create("Preparar un release", "preparar un release: subir versión, changelog y tag", "Pasos.")
-        self.assertIn("Preparar un release", load.on_prompt({"session_id": "s1",
-                                                             "prompt": "hay que preparar el release nuevo"}))
+        self.assertIn("Preparar un release", ask("hay que preparar el release nuevo"))
 
-    def test_injection_respects_the_cap(self):
-        for i in range(5):
-            store.create(f"Deploy service {i}", "deploy the service to production", "x" * 6000)
-        found = load.relevant("deploy the service to production", store.all_pieces())
-        self.assertEqual(len(found), 1)
+    def test_a_second_large_page_does_not_fit_the_budget(self):
+        for n in range(5):
+            store.create(f"Deploy service {n}", "deploy the service to production", "x" * 6000)
+        self.assertEqual(len(picked("deploy the service to production")), 1)
+
+    def test_the_catalogue_stops_at_its_cap_and_says_how_many_are_left(self):
+        for n in range(80):
+            store.create(f"Page number {n} with a fairly long title", "when something long enough happens " * 3, "x")
+        catalogue = load.index_text(store.all_pieces())
+        self.assertLessEqual(len(catalogue), load.INDEX_CAP + 60)
+        self.assertRegex(catalogue, r"- … and \d+ more \(`athos list`\)$")
 
 
-class LoadRegressionTest(TempHome):
-    def test_one_piece_matches_on_a_word_stem(self):
-        # The first real session: one piece, a request sharing only "release" with it, which was not injected.
+class RoutingRegressions(TempHome):
+    def test_a_word_stem_is_enough_for_a_lone_page(self):
+        # The first real session: one page, and a request sharing only "release" with it went without it.
         store.create("Cut a versioned release of a small Python package", "asked to bump a version, update the "
                      "changelog, commit and tag", "Change both version places.")
-        text = load.on_prompt({"session_id": "s1", "prompt": "Release 0.3.0 with a new option"})
-        self.assertIn("Change both version places.", text)
+        self.assertIn("Change both version places.", ask("Release 0.3.0 with a new option"))
 
-    def test_mark_loaded_records_and_touches(self):
-        p = store.create("A", "aaa", "b")
-        load.mark_loaded("s1", [p.id])
+    def test_marking_a_page_loaded_records_it_in_the_session(self):
+        page = store.create("A", "aaa", "b")
+        load.mark_loaded("s1", [page.id])
+        load.mark_loaded("s1", [])                                         # nothing to add: no change
         self.assertEqual(session.load("s1")["loaded"], ["a"])
 
-    def test_a_shared_prefix_alone_does_not_load(self):
-        # 2026-10-29: "revisá … con mi checklist" loaded a piece about CI checks, and "la carga de checklist" one whose
-        # "when" quoted «Cargando tus casos»: words that only start alike.
+    def test_words_that_only_start_alike_do_not_load(self):
+        # 2026-10-29: "revisá … con mi checklist" brought a page about CI checks, and "la carga de checklist" one whose
+        # "when" quoted «Cargando tus casos».
         store.create("Check CI of the PRs, including stacked ones", "asked to review the CI checks of a PR",
                      "gh pr checks.")
         store.create("Audit the register of the texts", "a label sounds colloquial («Cargando tus casos»)", "x")
         for prompt in ("Revisá el contrato con mi checklist", "arregla lo de la carga de checklist"):
-            self.assertEqual(load.relevant(prompt, store.all_pieces()), [], prompt)
+            with self.subTest(prompt=prompt):
+                self.assertEqual(picked(prompt), [])
 
-    def test_one_generic_word_does_not_load(self):
+    def test_a_single_common_word_does_not_load(self):
         store.create("Plan the outreach in the Discord", "posting in the hackathon Discord", "x")
         store.create("Ship the feature PR", "a feature is ready to merge", "y")
-        self.assertEqual(load.relevant("Plan the tiling for the room", store.all_pieces()), [])
+        self.assertEqual(picked("Plan the tiling for the room"), [])
 
-    def test_the_best_piece_loads_even_over_the_cap(self):
+    def test_the_best_page_comes_whole_even_past_the_budget(self):
         store.create("Rehearse the demo and time it", "rehearsing the demo", "z" * (load.INJECT_CAP + 2000))
-        self.assertEqual(len(load.relevant("rehearse the demo and time it", store.all_pieces())), 1)
+        self.assertEqual(len(picked("rehearse the demo and time it")), 1)
 
-    def test_a_background_task_notice_loads_nothing(self):
+    def test_harness_notices_are_not_requests(self):
         store.create("Change a function output", "change what a SQL function returns", "x")
-        notice = "<task-notification>\n<task-id>b1</task-id>\n<summary>output changed</summary>"
-        self.assertEqual(load.relevant(notice, store.all_pieces()), [])
+        self.assertEqual(picked("<task-notification>\n<task-id>b1</task-id>\n<summary>output changed</summary>"), [])
 
-    def test_file_names_and_punctuation_split_into_words(self):
-        # 2026-10-29: "Revisá contrato-servicios.md, represento al Proveedor." loaded nothing: the file name was one word.
+    def test_file_names_and_punctuation_break_into_words(self):
+        # 2026-10-29: "Revisá contrato-servicios.md, represento al Proveedor." found nothing: the file name was one word.
         store.create("Revisar un contrato con tu checklist", "revisar un contrato de servicios o de locación", "x")
-        self.assertEqual(len(load.relevant("Revisá contrato-servicios.md, represento al Proveedor.",
-                                           store.all_pieces())), 1)
+        self.assertEqual(len(picked("Revisá contrato-servicios.md, represento al Proveedor.")), 1)
 
 
 class Misfires(TempHome):
