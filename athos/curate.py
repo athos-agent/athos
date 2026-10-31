@@ -173,15 +173,28 @@ def _all_proposals(play: set[str]) -> list[dict]:
     return out
 
 
+def _owners() -> dict[str, str]:
+    """The page each task mostly walked: the one with the most steps reported. A correction belongs to it, not to
+    every page that loaded with it (a correction of an incident triage was proposed for the postmortem page too,
+    which the task never opened, 2026-10-31). Tasks with no steps reported have no owner and keep every page."""
+    steps: dict[str, Counter] = defaultdict(Counter)
+    for e in ev.events():
+        if e.get("type") == "trail" and e.get("kind") == "step" and e.get("piece") and e.get("task_id"):
+            steps[e["task_id"]][e["piece"]] += 1
+    return {tid: c.most_common(1)[0][0] for tid, c in steps.items()}
+
+
 def _rules(pieces: list[store.Piece]) -> list[dict]:
     """Failures teach "don't" rules: corrections the person made after a task that followed a page, newer than the
     page's last version, proposed as a step for it, with the request that does it ready to paste."""
     from athos import capture, start
     prefix = capture.ADJUST_PREFIX["es" if start.lang() == "es" else "en"]
+    owner = _owners()
     out = []
     for p in pieces:
         since = (p.history[0].split()[1] if p.history and len(p.history[0].split()) > 1 else p.created) or ""
-        fixes = [" ".join(c["correction"].split())[:120] for c in cases.tests(p.id) if (c.get("at") or "")[:10] >= since]
+        fixes = [" ".join(c["correction"].split())[:120] for c in cases.tests(p.id)
+                 if (c.get("at") or "")[:10] >= since and owner.get(c.get("task_id"), p.id) == p.id]
         if fixes:
             quoted = "; ".join(f"«{f}»" for f in fixes[:3])
             out.append({"kind": "rule", "id": p.id,
