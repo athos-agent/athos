@@ -24,6 +24,9 @@ class ControlTest(TempHome):
         path.mkdir(exist_ok=True)
         return str(path)
 
+    def choose(self, mode: str, *values: str) -> dict:
+        return control.set_selection(mode, list(values))
+
     def loaded(self, cwd: str | None = None, prompt: str = "") -> list[str]:
         return sorted(piece.id for piece in load.enabled(cwd, prompt))
 
@@ -43,7 +46,7 @@ class ControlTest(TempHome):
         self.assertEqual(len(self.loaded(self.folder("elsewhere"))), 3)
 
     def test_project_mode_keeps_that_project_and_the_general_pages(self):
-        control.set_selection("project", ["athos"])
+        self.choose("project", "athos")
         self.assertEqual(self.loaded(), [ATHOS_PAGE, GENERAL_PAGE])
 
     def test_pieces_mode_offers_only_the_listed_pages(self):
@@ -65,12 +68,14 @@ class ControlTest(TempHome):
             control.set_selection("everything")
 
     def test_none_mode_makes_session_start_silent(self):
-        control.set_selection("none")
-        self.assertEqual(load.on_session_start({"session_id": "s"}), "")
+        self.choose("none")
+        self.assertEqual(load.on_session_start({"session_id": "quiet"}), "")
+        self.assertEqual(self.loaded(), [])
 
     def test_the_choice_is_saved_and_described(self):
-        control.set_selection("project", ["site"])
-        self.assertEqual(control.describe(), "project site")
+        saved = self.choose("project", "site")
+        self.assertEqual(saved, control.get())
+        self.assertEqual(control.describe(), f"project {saved['project']}")  # read back from disk
         self.assertEqual(control.describe({"mode": "pieces", "pieces": ["a", "b"]}), "pieces a, b")
         self.assertEqual(control.describe({"mode": "all"}), "all")
 

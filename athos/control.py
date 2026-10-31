@@ -28,14 +28,20 @@ def _fallback() -> dict:
     return {"mode": _DEFAULT_MODE}
 
 
+def _read_saved() -> object:
+    """Whatever JSON the selection file holds, or None when it is absent or not readable as JSON."""
+    try:
+        return json.loads(paths.selection_file().read_text())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+
+
 def get() -> dict:
     """The saved selection, or the default when the file is missing, unreadable or names an unknown mode."""
-    try:
-        saved = json.loads(paths.selection_file().read_text())
-        valid = saved.get("mode") in MODES
-    except (OSError, ValueError, AttributeError):
-        return _fallback()
-    return saved if valid else _fallback()
+    saved = _read_saved()
+    if isinstance(saved, dict) and saved.get("mode") in MODES:
+        return saved
+    return _fallback()
 
 
 def _validated_piece_ids(requested: list[str] | None) -> list[str]:
@@ -55,16 +61,23 @@ def _save(selection: dict) -> None:
     target.write_text(json.dumps(selection))
 
 
+def _mode_options(mode: str, values: list[str] | None) -> dict:
+    """The extra keys a mode stores next to `mode`: the piece list, or the pinned project when one was given."""
+    if mode == "pieces":
+        return {"pieces": _validated_piece_ids(values)}
+    if mode == "project" and values:
+        return {"project": values[0]}
+    return {}
+
+
 def set_selection(mode: str, values: list[str] | None = None) -> dict:
     """Validate and persist a new loading mode; returns what was saved. Raises ValueError and saves nothing on bad
     input, so the previous choice survives a typo."""
-    if mode not in MODES:
-        raise ValueError(f"mode must be one of {', '.join(MODES)}")
+    unrecognised = mode not in MODES
+    if unrecognised:
+        raise ValueError(f"unknown loading mode {mode!r}; pick one of: {', '.join(MODES)}")
     selection: dict = {"mode": mode}
-    if mode == "pieces":
-        selection["pieces"] = _validated_piece_ids(values)
-    elif mode == "project" and values:
-        selection["project"] = values[0]
+    selection.update(_mode_options(mode, values))
     _save(selection)
     return selection
 
@@ -125,4 +138,4 @@ def filter_pieces(pieces: list[store.Piece], cwd: str | None = None, prompt: str
     if mode == "pieces":
         wanted = set(selection.get("pieces", []))
         return [piece for piece in pieces if piece.id in wanted]
-    return pieces
+    return list(pieces)                                          # "all": nothing is held back
