@@ -20,7 +20,7 @@ Set WaitTimeout 300s
 Hide
 Type "cd /Users/Shared/athos-demo-finance/desk && export PATH=$HOME/athos/athos/bin:$PATH && clear" Enter
 Sleep 1s
-Type `tmux new-session -s fin \; set -g status off \; split-window -h -l 64 "athos watch --trail" \; select-pane -L` Enter
+Type `tmux new-session -s fin \; set -g status off \; split-window -h -l 64 "GIT_CONFIG_GLOBAL=/dev/null athos watch --trail" \; select-pane -L` Enter
 Sleep 3s
 Type "PROMPT='%1~ %# ' && clear && codex" Enter
 Wait+Screen@60s /Trust this folder|Ask Codex to do anything/
