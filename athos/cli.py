@@ -944,6 +944,35 @@ def cmd_journal(args) -> int:
     return 0
 
 
+def cmd_curate(args) -> int:
+    """Tidy the memory as it grows: proposals, applied only when the person names them."""
+    from athos import curate
+    if args.action == "restore":
+        try:
+            print(curate.restore(args.which[0]))
+        except (IndexError, KeyError, FileExistsError) as e:
+            print(f"athos curate restore <id>: {e}", file=sys.stderr)
+            return 1
+        return 0
+    props = curate.proposals()
+    if args.action == "apply":
+        for n in args.which:
+            try:
+                print(f"{n}. " + curate.apply(props[int(n) - 1]))
+            except (ValueError, IndexError, KeyError) as e:
+                print(f"{n}. {e}", file=sys.stderr)
+        return 0
+    if not props:
+        print("Nothing to tidy.")
+        return 0
+    marks = {"tag": "tag", "archive": "archive", "similar": "look alike", "link": "broken link", "new": "no page yet"}
+    for i, p in enumerate(props, 1):
+        print(f"{i:>3}. [{marks[p['kind']]}] {p['why']}")
+    print("\n`athos curate apply <n>...` tags or archives (a new version, or a move you can undo); the others are "
+          "for you to act on.")
+    return 0
+
+
 def cmd_connector(args) -> int:
     """Connectors a way of working can ask for ([[connector:<name>]]): list them, add one from a template, check it,
     or print how to wire an agent through it. Athos never starts a service: the person runs it."""
@@ -1028,6 +1057,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("id")
     s.set_defaults(fn=cmd_show)
     sub.add_parser("save").set_defaults(fn=cmd_save)
+    s = sub.add_parser("curate", help="tidy your ways of working: tag pages with the projects they are used in, "
+                       "archive unused ones, spot near-duplicates, broken links and work with no page yet")
+    s.add_argument("action", nargs="?", choices=["list", "apply", "restore"], default="list")
+    s.add_argument("which", nargs="*", help="apply: proposal numbers; restore: a page id")
+    s.set_defaults(fn=cmd_curate)
     s = sub.add_parser("journal", help="what happened lately in this project: its last tasks, what they followed "
                        "or saved, how they went, and what is open")
     s.add_argument("--project", help="another project, by its folder name")
