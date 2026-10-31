@@ -59,6 +59,13 @@ class CasesTest(WithPiece):
         self.assertEqual((c["request"], c["answer"], c["mark"], c["version"]), (REQUEST, "Clause 3 is fine.", "ok", 1))
         self.assertEqual(ev.tasks()[0]["request"], REQUEST[:120])   # the event log still keeps only the start
 
+    def test_an_earlier_task_of_the_session_can_still_be_marked(self):
+        first = self.task("s1")
+        self.task("s1", answer="Here is the email.")                # a follow-up turn is a task of its own (Codex)
+        ev.mark("g", first)
+        c = json.loads((Path(self.home) / "cases" / self.piece.id / f"{first}.json").read_text())
+        self.assertEqual((c["answer"], c["mark"]), ("Clause 3 is fine.", "ok"))
+
     def test_a_task_without_a_piece_is_never_kept(self):
         ev.task_start({"session_id": "s1", "prompt": "what time is it", "cwd": self.home})
         rec = ev.task_end({"session_id": "s1", "last_assistant_message": "noon"})

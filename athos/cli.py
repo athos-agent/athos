@@ -486,8 +486,7 @@ def cmd_delegate(args) -> int:
         print(e, file=sys.stderr)
         return 1
     except urllib.error.HTTPError as e:
-        print(f"Meta Model API refused the request (HTTP {e.code}): {e.read().decode(errors='ignore')[:300]}",
-              file=sys.stderr)
+        print(_model_error(e, platform, model), file=sys.stderr)
         return 1
     except urllib.error.URLError as e:
         if platform == "meta":
@@ -714,7 +713,11 @@ def _model_error(e: Exception, platform: str, model: str) -> str | None:
     """What to tell the person when the model could not be reached; None for any other error."""
     import urllib.error
     if isinstance(e, urllib.error.HTTPError):
-        return f"Meta Model API refused the request (HTTP {e.code}): {e.read().decode(errors='ignore')[:300]}"
+        # Ollama answers 404 for a model it hasn't pulled; this said "Meta Model API" for it (2026-10-31).
+        if platform != "meta" and e.code == 404:
+            return f"Ollama has no model {model}: `ollama pull {model}`, or choose one you have with --model."
+        who = "Meta Model API" if platform == "meta" else "Ollama"
+        return f"{who} refused the request (HTTP {e.code}): {e.read().decode(errors='ignore')[:300]}"
     if isinstance(e, urllib.error.URLError):
         if platform == "meta":
             return f"cannot reach Meta Model API ({e.reason})."
