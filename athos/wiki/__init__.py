@@ -7,10 +7,18 @@ A piece is a page. Its body is a list of **statements**, the smallest unit you c
     **Do:** run `python3 tools/guard.py .` and stop on any finding.
     **Because:** a private name reached a public PR once.
     **Links:** [[bump-the-plugin-version#bump]] · [[land-a-change#open_pr]]
+    **Model:** local
+
+`**Model:**` is optional: the model that step runs on in `athos delegate --by-step` (`local`, `meta`,
+`ollama:<model>` or `meta:<model>`). A statement without it runs on the task's model.
 
 Links are trajectories, not topics: a statement links to what applies **next or alongside** it in a real task, so a
 task is done by walking: the index → the entry statement → its links, while they apply. `[[page]]` and
 `[[page#statement]]` are the same links Obsidian reads, so `~/.athos/know-how` opens as a wiki there.
+
+A step can hand over to another page, the way work is modular: `**Calls:** [[page]]` runs that page's statements
+as sub-steps and comes back; `**If:** <condition> → [[page]]` does it only when the condition holds (a contract over
+$50k → the deep guarantee audit). The trail shows the sub-steps under the step that called them.
 
 Older pieces (numbered steps, no statements) still load and walk as one block; the lint lists them to convert.
 
@@ -29,7 +37,7 @@ from athos import paths, store
 
 INDEX = "Index.md"
 STATEMENT = re.compile(r"^## #([a-z0-9][a-z0-9_-]*)\s*$", re.M)
-FIELD = re.compile(r"^\*\*(When|Do|Because|Links):\*\*\s*(.*)$", re.M)
+FIELD = re.compile(r"^\*\*(When|Do|Because|Links|Calls|If|Model):\*\*\s*(.*)$", re.M)
 LINK = re.compile(r"\[\[([a-z0-9][a-z0-9-]*)(?:#([a-z0-9][a-z0-9_-]*))?(?:\|[^\]]*)?\]\]")
 AGENT_PREFIX = "athos-"
 OVERLAP = 0.4          # share of the words two **When** lines have in common to call them the same moment
@@ -46,6 +54,8 @@ class Statement:
     do: str = ""
     because: str = ""
     links: list[tuple[str, str | None]] = field(default_factory=list)
+    calls: list[dict] = field(default_factory=list)   # [{"page", "statement", "if"}]: the sub-routines of this step
+    model: str = ""                     # `**Model:**`, the model this step asks for; "" = the task's model
 
     @property
     def ref(self) -> str:
@@ -60,7 +70,19 @@ def statements(p: store.Piece) -> list[Statement]:
     out = []
     for sid, text in zip(parts[1::2], parts[2::2]):
         f = {k.lower(): v.strip() for k, v in FIELD.findall(text)}
-        out.append(Statement(p.id, sid, f.get("when", ""), f.get("do", ""), f.get("because", ""), LINK.findall(text)))
+        out.append(Statement(p.id, sid, f.get("when", ""), f.get("do", ""), f.get("because", ""), LINK.findall(text),
+                             calls_of(f.get("calls", ""), f.get("if", "")), f.get("model", "")))
+    return out
+
+
+def calls_of(calls: str, cond: str) -> list[dict]:
+    """The pages a step hands over to: every link of `**Calls:**`, and those after the arrow of `**If:**`, with the
+    condition that sends the task there."""
+    out = [{"page": pg, "statement": st or None, "if": ""} for pg, st in LINK.findall(calls)]
+    if cond:
+        head, _, tail = re.split(r"\s*(→|->|=>)\s*", cond, maxsplit=1) if re.search(r"→|->|=>", cond) else ("", "", cond)
+        why = LINK.sub("", head).strip().rstrip(":,")
+        out += [{"page": pg, "statement": st or None, "if": why} for pg, st in LINK.findall(tail)]
     return out
 
 

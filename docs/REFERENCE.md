@@ -97,6 +97,53 @@ Your know-how lives in `~/.athos/know-how/`, one markdown page per piece, as a w
 kind of task starts. Walks that cross pages become subagents that improve with the pages. See [docs/WIKI.md](WIKI.md). Choose what may load with
 `/athos:load all | project <name> | pieces <id>... | none`, and copy everything out with `/athos:export <folder>`.
 
+### Learning from your own edits
+
+When the agent writes or edits a text file while following one of your pieces (a contract review, a report, code) and
+you then change that file by hand, your change is usually a rule of how you work. Athos keeps a copy of each file as
+the agent left it (`~/.athos/snapshots/<session>/`, text files up to 200 KB, only the last three tasks of the session).
+On your next request in that session it compares the copy with the file: if you changed it, the agent gets a short diff
+and is asked to propose the rule in one line, in your language, naming the step it belongs to, and to ask you before
+adding it. Say yes and it improves the piece the same way [Adjust] does; a typo or spacing change is not mentioned.
+Each edit is offered once and its copy is deleted right after; `athos status --json` shows it as `learned_from_edit`
+(file, piece, step and the `Athos · adjust <piece>#<step>:` text a panel can prefill). It works in Claude Code, Codex
+(`apply_patch`), Muse Code and OpenCode, stays on your machine, and is off with `ATHOS_CAPTURE=off`.
+
+### Per-step models
+
+For `athos delegate`: within one way of working, most steps are mechanical (extract the data, run a script, format a table) and one or two
+need real reasoning. A statement can name the model it needs with an optional line:
+
+```
+## #judge
+**When:** the totals are extracted.
+**Do:** decide which invoices look wrong, and why.
+**Model:** meta
+```
+
+The value is `local` (the default Ollama model), `meta` (muse-spark-1.3), `ollama:<model>` or `meta:<model>`. A
+statement without it runs on the task's model (`--model` / `--backend`, else the default), and pieces without any
+`**Model:**` line behave as before. An unknown value stops the run before anything starts.
+
+```
+athos delegate <piece> "<request>" --by-step                 each statement in turn, on its own model
+athos delegate <piece> "<request>" --by-step --allow-meta    also let the steps marked meta run on Meta Model API
+athos route <piece>                                          per step: which models ran it and how those tasks ended
+athos route <piece> --apply                                  write the suggested **Model:** lines (a new version)
+```
+
+`--by-step` runs the piece statement by statement in one conversation: for each one the model is told "Now do only
+this step: #id — <Do>" and works with the same tools and confirmations as a plain delegation. Each step is reported
+to the trail, so `athos watch` ticks it as it goes, and the task's record keeps, per step, the model, the time and the
+tokens. A step on Meta's hosted model sends the request and the files it reads off your machine, so it only runs with
+`--allow-meta` (or `--backend meta`).
+
+`athos route` reads your past by-step delegations of a piece and your marks on them, and suggests for each step the
+cheapest model (local before hosted, a smaller local model before a larger one) that had at least three good marked
+runs there and never ended in a corrected or failed task; otherwise it says why it has no suggestion. A mark is for
+the whole task, so every step shares its task's mark, and unmarked runs prove nothing. `--apply` saves the suggestions
+as a new version noted "routed by results"; `athos revert <piece>` undoes it.
+
 ### Your corrections as tests, your approved answers as references
 
 When you mark a task that followed one of your pieces, Athos keeps it as a **case**, on your machine only, in
@@ -210,3 +257,33 @@ Each agent finds it where it already looks: `.claude/skills` and `CLAUDE.md` (Cl
 pieces this project used or is tagged with (`--piece ID` or `--all` to choose), and adds itself to `.gitignore`: your
 know-how stays yours even in someone else's repository, unless you share it with `--commit`. `athos project remove`
 takes it all out again.
+
+### Guilds: one way of working for the team
+
+When several people in a firm or a team improve their own copy of the same piece ("Review a lease"), Athos can merge
+the best of each into one team version. Each colleague exports theirs:
+
+```
+athos export --guild <folder> --as Ana [--piece review-a-lease]
+```
+
+This writes each piece file and a `<id>.stats.json` beside it: per statement, how many of that person's tasks walked
+it (the steps the agent reported) and how those tasks were marked (ok, corrected, failed). Only counts: no request, no
+client, nothing about the work itself. Then, with their folders (or files) on your machine:
+
+```
+athos merge review-a-lease ./team                 a dry run: what it would keep, take from whom, drop, and why
+athos merge review-a-lease ./team --apply         save it as a new version of your piece (the old one stays in history)
+athos merge review-a-lease ana/lease-review.md --as-id lease-review     their copy has another id
+athos merge review-a-lease ./team --model qwen3.5:9b                    let a local model merge differing texts
+```
+
+Statements are lined up by id, or by a **When** for the same moment when the ids differ (your id is kept, so links
+still resolve). A statement only one copy has is kept if its tasks went well or nobody marked them, and dropped (and
+listed) when most of its marked tasks were corrected or failed. Where the copies say different things, the text with
+the best record wins; nobody's marks at all keeps yours. With `--model` (Ollama on this machine) or `--backend meta`
+(sends those statements to Meta Model API), a model merges the differing texts into one, keeping your conventions, and
+any answer that is not one clean statement falls back to the best record. The dry run writes the proposal to
+`~/.athos/guild/<id>.merged.md` (`--out` to choose); `--apply` saves it with a history note naming the sources, and
+`athos revert <id>` undoes it. In Claude Desktop's chat the same merge is the `athos_merge` tool ("merge my lease
+review with Ana's version in this folder"): it proposes first and applies only when asked.

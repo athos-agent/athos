@@ -147,6 +147,15 @@ def relevant(prompt: str, pieces: list[store.Piece]) -> list[store.Piece]:
             break
         out.append(p)
         size += len(text)
+    # The pages a loaded piece's steps hand over to (**Calls:** / **If:**) come along, while they fit: the model
+    # needs them at the step that calls them, not after a search.
+    from athos import wiki
+    for p in list(out):
+        for page in dict.fromkeys(c["page"] for s in wiki.statements(p) for c in s.calls):
+            q = store.get(page)
+            if q and q not in out and size + len(store.render(q)) <= INJECT_CAP:
+                out.append(q)
+                size += len(store.render(q))
     return out
 
 
@@ -161,6 +170,12 @@ def inject_text(pieces: list[store.Piece], cmd: str = "athos") -> str:
     # The person watches the trail in Athos's pane (Claude Code) or `athos watch`: one call per step, not per action.
     # Muse Code wrote a whole plan in one reply and reported one step (2026-10-30): a statement whose work is only part
     # of the answer is still a step.
+    # Composition: a step may hand over to another way of working, always or only in some cases (2026-10-30).
+    if any(s.calls for p in pieces for s in _wiki().statements(p)):
+        parts.append(f"**Steps that hand over**: a step with `**Calls:** [[<page>]]` is done by following that page's "
+                     f"statements (included here or `{cmd} show <page>`), then you come back to the next step; with "
+                     f"`**If:** <condition> → [[<page>]]` only when the condition holds for this case, and if it "
+                     f"doesn't, skip it and say why in one short clause.\n")
     parts.append(f"**As you go**, when you start one of these statements run `{cmd} step <piece-id>#<statement_id>` "
                  f"(once per statement, as its own command right before that statement's work, never chained with "
                  f"other steps: the person watches them tick one by one). This holds when the work is only thinking "
@@ -181,6 +196,11 @@ def inject_text(pieces: list[store.Piece], cmd: str = "athos") -> str:
                  f"words>` (in Spanish the same, with the explanation in Spanish). If it does not fit this request, "
                  f"say so in that line and don't follow it.\n")
     return "\n".join(parts)
+
+
+def _wiki():
+    from athos import wiki
+    return wiki
 
 
 def mark_loaded(session_id: str, ids: list[str]) -> None:

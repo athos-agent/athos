@@ -210,7 +210,7 @@ function thinking(t, W) {
 }
 
 function step(p, x, W) {
-  const key = p.id + '#' + x.id;
+  const key = (x.piece || p.id) + '#' + x.id;   // a sub-step belongs to the page it came from
   const isOpen = open.has(key) || x.state === 'now';
   const mark = x.state === 'done' ? '✓' : x.state === 'now' ? '▸' : '';
   return `<li class="${x.state}"><details data-key="${esc(key)}"${isOpen ? ' open' : ''}>

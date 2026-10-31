@@ -17,7 +17,7 @@ and gives them to the AI next time, so you never repeat them.
    /plugin install athos --marketplace athos-agent/athos
    ```
    and restart Claude Desktop when it asks.
-4. Ask Claude, in your own words: *"Run `athos start --lang en --profile law`"* (or `--profile sports`, or `other`).
+4. Ask Claude, in your own words: *"Run `athos start --lang en --profile law`"* (or `--profile sports`, `ops`, `journalism`, `science`, `finance`, or `other`).
    It adds example ways of working for your profession and tells you what to do next.
 
 Athos needs Python 3; on a Mac it installs itself the first time something asks for it (accept the command line tools).
@@ -63,6 +63,10 @@ you and ask the AI to ask instead of deciding.
 | Law | Review a contract against your checklist (clause by clause, a table of comments) |
 | Sports coaching | Plan the training week with your rules (loads computed with code, target, hard days, easy day after the long run) |
 | Sports coaching | Write the post-match report in your format (numbers with their source, three things that went well and three to fix) |
+| Engineering on call | Triage a production incident where the traps usually are (contain first, what changed, evidence, smallest fix, blameless postmortem) |
+| Journalism | Verify a lead before publishing it (protect the source, checkable claims, two independent sources, dates and links, right of reply) |
+| Science | Analyse an experiment's data so another lab can repeat it (raw data untouched, cleaning rules written first, one script, rerun from scratch) |
+| Finance and tax advice | Analyse an investment with your committee's rules; when it crosses borders, its step hands over to *Check the cross-border tax treatment* |
 
 Replace them with yours: the best way of working is the one you already use.
 

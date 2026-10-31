@@ -247,7 +247,7 @@ export const register: Register = on => {
     const { Box, Button, Text } = $.ui.resolve(e)
     const t = s?.trail
     const rows = trailRows(t, w)
-    const now = t?.pieces.flatMap(p => p.steps.filter(x => x.state === 'now').map(x => ({ piece: p.id, step: x.id })))[0]
+    const now = t?.pieces.flatMap(p => p.steps.filter(x => x.state === 'now').map(x => ({ piece: x.piece ?? p.id, step: x.id })))[0]
     const adjust = async () => {
       if (now) await $.prompt.fill({ text: `${w.adjustPrefix} ${now.piece}#${now.step}: ` })
     }
