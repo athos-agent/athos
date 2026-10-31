@@ -116,3 +116,17 @@ class CurateTest(TempHome):
             self.task(f"b{i}", "release a package now", self.shop)
             ev.mark("c", session_id=f"b{i}")
         self.assertEqual([x["id"] for x in curate.proposals() if x["kind"] == "review"], ["release"])
+
+    def test_a_correction_belongs_to_the_page_the_task_walked(self):
+        store.create("Triage", "triage an incident", BODY + "\n## #b\n**When:** later.\n**Do:** more.\n",
+                     piece_id="triage")
+        store.create("Postmortem", "write the postmortem", BODY, piece_id="postmortem")
+        self.task("s1", "triage the checkout incident", self.shop, ["triage#a", "triage#b"])
+        tid = ev.tasks()[-1]["task_id"]
+        for pid in ("triage", "postmortem"):                    # a case is kept for every page that loaded
+            d = paths.home() / "cases" / pid
+            d.mkdir(parents=True)
+            (d / f"{tid}.json").write_text(json.dumps({"task_id": tid, "piece": pid, "mark": "corrected",
+                                                       "request": "triage", "correction": "check migrations first",
+                                                       "at": "2099-01-01T00:00:00"}))
+        self.assertEqual([x["id"] for x in curate.proposals() if x["kind"] == "rule"], ["triage"])
