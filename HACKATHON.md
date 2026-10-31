@@ -102,6 +102,7 @@ from what was built during the event.
 - [#85](https://github.com/athos-agent/athos/pull/85) Short-term memory per project: each session starts with its project's journal (the last tasks, what they used or saved, how they went, what is open), next to its ways of working; `athos journal` prints it (0.1.79)
 - [#86](https://github.com/athos-agent/athos/pull/86) `athos curate`: tidy the memory as it grows, with the person's yes: tag pages with the projects they are really used in, archive unused ones (restorable), spot look-alikes, broken links and work with no page yet (0.1.80)
 - [#87](https://github.com/athos-agent/athos/pull/87) Curating learns from what went wrong: your corrections become a proposed «don't» step for the page you followed, pages that keep going wrong are flagged, each pass is logged (new proposals marked, dismissed ones gone), and tests or demo folders propose nothing (0.1.81)
+- [#88](https://github.com/athos-agent/athos/pull/88) The gallery goes public: a GitHub Pages site built from `gallery/` on every change, how to add your way of working (en/es), a pull-request template and an issue form to propose one, linked from the README and the gallery page (0.1.82)
 
 ## Meta models used
 

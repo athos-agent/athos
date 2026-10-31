@@ -78,6 +78,8 @@ const WORDS = {
     copyFail: 'Copy this and paste it in your agent:', calls: 'Calls', ifw: 'If',
     foot: 'Every example is fictional and leaves the professional decisions to the person. Added pages live in ' +
       '~/.athos on your computer; nothing is sent anywhere.',
+    get: 'Get Athos', contribute: 'Add your own way of working',
+    contributeUrl: 'https://github.com/athos-agent/athos/blob/main/gallery/CONTRIBUTING.md',
     prof: { law: 'Law', finance: 'Finance', journalism: 'Journalism', science: 'Science', ops: 'Operations',
             sports: 'Sports', other: 'Other' },
   },
@@ -90,6 +92,8 @@ const WORDS = {
     copyFail: 'Copiá esto y pegalo en tu agente:', calls: 'Llama a', ifw: 'Si',
     foot: 'Todos los ejemplos son ficticios y dejan las decisiones profesionales a la persona. Las páginas que ' +
       'agregues quedan en ~/.athos en tu computadora; no se envía nada a ningún lado.',
+    get: 'Instalar Athos', contribute: 'Sumá tu forma de trabajar',
+    contributeUrl: 'https://github.com/athos-agent/athos/blob/main/gallery/CONTRIBUIR.md',
     prof: { law: 'Derecho', finance: 'Finanzas', journalism: 'Periodismo', science: 'Ciencia', ops: 'Operaciones',
             sports: 'Deportes', other: 'Otras' },
   },
@@ -125,7 +129,8 @@ function draw() {
   document.documentElement.lang = lang;
   document.getElementById('title').textContent = W.title;
   document.getElementById('lede').textContent = W.lede;
-  document.getElementById('foot').textContent = W.foot;
+  document.getElementById('foot').innerHTML = esc(W.foot) +
+    ` <a href="https://github.com/athos-agent/athos">${esc(W.get)}</a> · <a href="${W.contributeUrl}">${esc(W.contribute)}</a>`;
   const shown = DATA.entries.filter(e => e.lang === lang && e.entry);
   const profs = [...new Set(DATA.entries.filter(e => e.lang === lang && e.entry).map(e => e.profession))];
   document.getElementById('filters').innerHTML =

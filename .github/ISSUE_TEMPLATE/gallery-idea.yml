@@ -1,0 +1,41 @@
+name: A way of working for the gallery
+description: Propose a way of working from your field for Athos's gallery, in your own words.
+title: "Gallery: "
+labels: ["gallery"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe how you do one task in your field, step by step. We'll help turn it into a gallery page
+        ([how pages look](https://github.com/athos-agent/athos/blob/main/gallery/CONTRIBUTING.md)).
+        Keep it fictional: no real clients, people, companies or data. Medical or health topics aren't accepted for now.
+  - type: dropdown
+    id: profession
+    attributes:
+      label: Profession
+      options: [Law, Finance, Journalism, Science, Operations / engineering on call, Sports coaching, Other]
+    validations:
+      required: true
+  - type: input
+    id: when
+    attributes:
+      label: When do you use it?
+      placeholder: "e.g. a client brings a lease to review before signing"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: The steps, in the order you follow them
+      description: For each step, what you do and why. Mark the ones that only apply in some cases ("only if…").
+      placeholder: |
+        1. ...
+        2. Only if the contract has personal data: ...
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: lang
+    attributes:
+      label: Language
+      options: [English, Español, Both / ambos]
