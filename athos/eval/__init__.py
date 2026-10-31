@@ -166,15 +166,22 @@ def task_end(event: dict) -> dict | None:
     return rec
 
 
+def new_task_id() -> str:
+    return uuid.uuid4().hex[:12]
+
+
 def record_external(platform: str, model: str, pieces: list[str], duration_s: float, tokens: dict | None,
-                    result: str | None = None, request: str = "", project: str | None = None) -> str:
-    """One whole task run outside Claude Code (another platform, or a local model)."""
-    tid = uuid.uuid4().hex[:12]
+                    result: str | None = None, request: str = "", project: str | None = None,
+                    task_id: str | None = None, steps: list[dict] | None = None) -> str:
+    """One whole task run outside Claude Code (another platform, or a local model). `steps`, for a delegation run
+    step by step, lists each statement with the model it ran on, its time and tokens (`athos route` reads them)."""
+    tid = task_id or new_task_id()
     t = _iso(now())
     append({"type": "task_start", "task_id": tid, "session_id": f"{platform}-{tid}", "platform": platform,
             "model": model, "project": project, "at": t, **request_fields(request)})
-    append({"type": "task_end", "task_id": tid, "at": t, "duration_s": round(duration_s, 1), "tokens": tokens,
-            "model": model, "pieces": pieces, "saved": []})
+    end = {"type": "task_end", "task_id": tid, "at": t, "duration_s": round(duration_s, 1), "tokens": tokens,
+           "model": model, "pieces": pieces, "saved": []}
+    append({**end, "steps": steps} if steps else end)
     if result:
         mark(result, tid)
     return tid
@@ -273,6 +280,8 @@ def tasks() -> list[dict]:
             # which must not inflate a baseline. Pieces loaded and saved accumulate over all ends.
             if "ended" not in t:
                 t.update(duration_s=e.get("duration_s"), tokens=e.get("tokens"))
+                if e.get("steps"):
+                    t["steps"] = e["steps"]
             t.update(ended=e.get("at"), pieces=sorted(set(t["pieces"]) | set(e.get("pieces", []))),
                      saved=sorted(set(t["saved"]) | set(e.get("saved", []))))
             if e.get("model") and e["model"] != "unknown":

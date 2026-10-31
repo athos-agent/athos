@@ -15,6 +15,9 @@
     athos export --muse [<folder>]    the same skills for Muse Code; `athos import muse` records its tasks
     athos delegate <id> "<request>"    run a task you have mastered on a small local model (Ollama), recorded as `local`
     athos delegate <id> "<request>" --backend meta   the same on Meta Model API (muse-spark-1.3), recorded as `meta`
+    athos delegate <id> "<request>" --by-step   statement by statement, each on its `**Model:**` (local, meta, …)
+    athos route <id> [--apply]         per step, which models ran it and how those tasks ended; --apply writes the
+                                       cheapest one that never ended corrected or failed
     athos mark g|c|f [task]            your verdict on the last task: good, corrected or failed
     athos report [--json]              what each piece and each model brings to your work
     athos mcp                          your know-how as an MCP server (stdio), for Claude Desktop's chat
@@ -448,9 +451,13 @@ def cmd_delegate(args) -> int:
     else:
         model, platform, chat_fn = args.model or delegate.DEFAULT_MODEL, "local", delegate.chat
     try:
-        r = delegate.delegate(args.id, args.request, model, yes=args.yes, max_steps=args.max_steps,
-                              chat_fn=chat_fn, platform=platform)
-    except (LookupError, PermissionError) as e:
+        if args.by_step:
+            r = delegate.by_step(args.id, args.request, (platform, model), yes=args.yes, max_steps=args.max_steps,
+                                 allow_hosted=platform == "meta" or args.allow_meta)
+        else:
+            r = delegate.delegate(args.id, args.request, model, yes=args.yes, max_steps=args.max_steps,
+                                  chat_fn=chat_fn, platform=platform)
+    except (LookupError, PermissionError, ValueError) as e:
         print(e, file=sys.stderr)
         return 1
     except urllib.error.HTTPError as e:
@@ -464,8 +471,34 @@ def cmd_delegate(args) -> int:
             print(f"cannot reach Ollama at {delegate.host()} ({e.reason}). Start it (`ollama serve`) and pull the "
                   f"model (`ollama pull {model}`).", file=sys.stderr)
         return 1
+    if args.by_step:
+        steps = "\n".join(f"  #{d['id']:24} {d['platform']} / {d['model']}: {d['duration_s']} s, "
+                          f"{d['tokens']['total']:,} tokens" for d in r["steps"])
+        print(f"\n{r['summary'].strip()}\n\n{steps}\n{r['duration_s']} s, {r['tokens']['total']:,} tokens · task "
+              f"{r['task_id']}. Mark it with `athos mark g|c|f`; `athos route {args.id}` learns from the marks.")
+        return 0
     print(f"\n{r['summary'].strip()}\n\n{platform} / {model}: {r['duration_s']} s, {r['steps']} step(s), "
           f"{r['tokens']['total']:,} tokens · task {r['task_id']}. Mark it with `athos mark g|c|f`.")
+    return 0
+
+
+def cmd_route(args) -> int:
+    from athos.delegate import route
+    try:
+        if args.apply:
+            p, r = route.apply(args.id)
+        else:
+            p, r = None, route.table(args.id)
+    except LookupError as e:
+        print(e, file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(r, indent=2))
+    else:
+        print(route.render(r))
+    if args.apply:
+        print(f"\nwrote the suggested models into {p.id} (now v{p.version}; `athos revert {p.id}` undoes it)" if p
+              else "\nnothing to write: no suggestion differs from the piece.")
     return 0
 
 
@@ -793,7 +826,16 @@ def main(argv: list[str] | None = None) -> int:
                                    "muse-spark-1.3 (default) or muse-wonder-1.0")
     s.add_argument("--yes", action="store_true", help="run the model's commands without asking for each")
     s.add_argument("--max-steps", type=int, default=20)
+    s.add_argument("--by-step", action="store_true",
+                   help="statement by statement, each on the model its **Model:** line names (else this one)")
+    s.add_argument("--allow-meta", action="store_true",
+                   help="with --by-step: let steps whose **Model:** is meta run on Meta Model API")
     s.set_defaults(fn=cmd_delegate)
+    s = sub.add_parser("route", help="which model each step of a piece needs, from your marks on by-step delegations")
+    s.add_argument("id")
+    s.add_argument("--apply", action="store_true", help="write the suggested **Model:** lines (a new version)")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_route)
     s = sub.add_parser("mark")
     s.add_argument("result", help="g (good), c (corrected) or f (failed)")
     s.add_argument("task", nargs="?")

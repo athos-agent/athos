@@ -91,6 +91,7 @@ from what was built during the event.
 - [#74](https://github.com/athos-agent/athos/pull/74) Steps that hand over: `**Calls:** [[page]]` and `**If:** <condition> → [[page]]` run another way of working as sub-steps, loaded with the piece and shown under the step that calls them (↳); new example ways of working for engineering on call, journalism, science, and finance and tax advice, in English and Spanish (0.1.68)
 - [#75](https://github.com/athos-agent/athos/pull/75) Learning from your own edits: when you change by hand a file the agent wrote while following your way of working, the next request shows the agent the diff and it proposes the rule in one line, saved only on your yes (0.1.69)
 - [#76](https://github.com/athos-agent/athos/pull/76) Guilds: `athos export --guild` shares a way of working with per-step counts of how its tasks went (no request text), and `athos merge` (or `athos_merge` in Claude Desktop) merges colleagues' versions into one team version: the best-rated text of each step, steps that led to corrections dropped, a dry run first (0.1.70)
+- [#77](https://github.com/athos-agent/athos/pull/77) Per-step models: a step can say `**Model:** local | meta | ollama:<m> | meta:<m>`; `athos delegate --by-step` runs each step on its model and ticks it on the trail, and `athos route` suggests the cheapest model that never led to a correction at each step, from your own marks (0.1.71)
 
 ## Meta models used
 

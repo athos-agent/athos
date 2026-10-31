@@ -1,6 +1,7 @@
 """Delegation: run a task you have mastered on a small model on your own machine, through Ollama.
 
     athos delegate <piece> "<request>"     the piece is the know-how; the model does the work in the current folder
+    athos delegate <piece> "<request>" --by-step    statement by statement, each on the model its `**Model:**` names
 
 The model gets the piece and four tools (run a shell command, read, edit and write a file), all inside the current
 folder. Every command and write is shown and asked for before it runs, unless `--yes`. Nothing is ever delegated
@@ -123,18 +124,11 @@ def _ask(what: str) -> bool:
     return input(f"  allow {what}? [y/N] ").strip().lower() in ("y", "yes")
 
 
-def delegate(piece_id: str, request: str, model: str = DEFAULT_MODEL, cwd: Path | None = None, yes: bool = False,
-             max_steps: int = MAX_STEPS, out=print, chat_fn=chat, platform: str = "local") -> dict:
-    """Run the task and record it. Returns the task id, the model's last message, the steps, the time and the tokens."""
-    piece = store.get(piece_id)
-    if piece is None:
-        raise LookupError(f"no piece {piece_id}")
-    cwd = (cwd or Path.cwd()).resolve()
-    confirm = (lambda _w: True) if yes else _ask
-    messages = [{"role": "system", "content": SYSTEM.format(cwd=cwd, today=_dt.date.today().isoformat(), title=piece.title, body=piece.body)},
-                {"role": "user", "content": request}]
-    tokens = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
-    t0, final, steps, last, same = time.monotonic(), "", 0, None, 0
+def _loop(chat_fn, model: str, messages: list[dict], cwd: Path, confirm, max_steps: int, out) -> tuple[str, int, dict]:
+    """The tool loop on one model, appending to `messages`: until the model answers without a tool call. Returns its
+    last message, the turns it took and the tokens."""
+    tokens = {"input": 0, "output": 0}
+    final, steps, last, same = "", 0, None, 0
     while steps < max_steps:
         steps += 1
         r = chat_fn(model, messages)
@@ -152,6 +146,8 @@ def delegate(piece_id: str, request: str, model: str = DEFAULT_MODEL, cwd: Path 
         last = key
         if same >= REPEATS:
             final = f"(stopped: the model repeated the same step {REPEATS} times)"
+            # Calls left unanswered would break the next turn of a shared conversation (--by-step).
+            messages[-1] = {"role": "assistant", "content": final}
             break
         for c in calls:
             fn = c.get("function") or {}
@@ -166,9 +162,112 @@ def delegate(piece_id: str, request: str, model: str = DEFAULT_MODEL, cwd: Path 
                              "content": call_tool(fn.get("name", ""), args, cwd, confirm)})
     else:
         final = f"(stopped after {max_steps} steps)"
-    tokens["total"] = tokens["input"] + tokens["output"]
+    return final, steps, tokens
+
+
+def _system(piece: store.Piece, cwd: Path) -> dict:
+    return {"role": "system", "content": SYSTEM.format(cwd=cwd, today=_dt.date.today().isoformat(), title=piece.title,
+                                                       body=piece.body)}
+
+
+def delegate(piece_id: str, request: str, model: str = DEFAULT_MODEL, cwd: Path | None = None, yes: bool = False,
+             max_steps: int = MAX_STEPS, out=print, chat_fn=chat, platform: str = "local") -> dict:
+    """Run the task and record it. Returns the task id, the model's last message, the steps, the time and the tokens."""
+    piece = store.get(piece_id)
+    if piece is None:
+        raise LookupError(f"no piece {piece_id}")
+    cwd = (cwd or Path.cwd()).resolve()
+    confirm = (lambda _w: True) if yes else _ask
+    messages = [_system(piece, cwd), {"role": "user", "content": request}]
+    t0 = time.monotonic()
+    final, steps, tokens = _loop(chat_fn, model, messages, cwd, confirm, max_steps, out)
+    tokens.update(cache_read=0, cache_write=0, total=tokens["input"] + tokens["output"])
     duration = time.monotonic() - t0
     store.touch(piece.id)
     tid = ev.record_external(platform, model, [piece.id], duration, tokens, request=request,
                              project=paths.project_of(cwd))
     return {"task_id": tid, "summary": final, "steps": steps, "duration_s": round(duration, 1), "tokens": tokens}
+
+
+# ------------------------------------------------------------------------------------------------ one model per step
+def parse_spec(spec: str) -> tuple[str, str] | None:
+    """A `**Model:**` line as (platform, model): `local`, `meta`, `ollama:<model>`, `meta:<model>`. None when it is
+    none of these, so a typo never sends a step somewhere unexpected."""
+    from athos.adapters import meta
+    spec = spec.strip().strip("`")
+    if spec == "local":
+        return "local", DEFAULT_MODEL
+    if spec == "meta":
+        return "meta", meta.DEFAULT_MODEL
+    backend, _, model = spec.partition(":")
+    if model and backend in ("ollama", "local"):
+        return "local", model
+    if model and backend == "meta":
+        return "meta", model
+    return None
+
+
+def spec_of(platform: str, model: str) -> str:
+    """The `**Model:**` line for a (platform, model), short when it is the default one."""
+    from athos.adapters import meta
+    if platform == "meta":
+        return "meta" if model == meta.DEFAULT_MODEL else f"meta:{model}"
+    return "local" if model == DEFAULT_MODEL else f"ollama:{model}"
+
+
+def plan(piece: store.Piece, default: tuple[str, str]) -> list[tuple[object, str, str]]:
+    """Each statement with the (platform, model) it runs on: its own `**Model:**`, else the task's."""
+    from athos import wiki
+    out = []
+    for s in wiki.statements(piece):
+        if s.model and parse_spec(s.model) is None:
+            raise ValueError(f"#{s.id}: unknown model {s.model!r} (use local, meta, ollama:<model> or meta:<model>)")
+        out.append((s, *(parse_spec(s.model) if s.model else default)))
+    return out
+
+
+def by_step(piece_id: str, request: str, default: tuple[str, str] = ("local", DEFAULT_MODEL),
+            chat_fns: dict | None = None, cwd: Path | None = None, yes: bool = False, max_steps: int = MAX_STEPS,
+            out=print, allow_hosted: bool = False) -> dict:
+    """Run the piece statement by statement in one conversation, each step on the model its `**Model:**` line names
+    (else `default`). `chat_fns` maps a platform (`local`, `meta`) to its chat function. A step on Meta's hosted model
+    runs only with `allow_hosted`: the request and the files it reads leave the machine (the privacy rule). Each step
+    is reported to the trail, so `athos watch` ticks it, and recorded with its model, time and tokens."""
+    from athos import cli, session, trail
+    from athos.adapters import meta
+    piece = store.get(piece_id)
+    if piece is None:
+        raise LookupError(f"no piece {piece_id}")
+    steps = plan(piece, default)
+    hosted = [f"#{s.id}" for s, platform, _ in steps if platform == "meta"]
+    if hosted and not allow_hosted:
+        raise PermissionError(f"{', '.join(hosted)} would run on Meta Model API, which sends the request and the files "
+                              f"it reads off this machine. Add --allow-meta to allow that.")
+    chat_fns = {"local": chat, "meta": meta.chat, **(chat_fns or {})}
+    cwd = (cwd or Path.cwd()).resolve()
+    confirm = (lambda _w: True) if yes else _ask
+    # The task's own session, pointed at by this folder, so the trail panels (`athos watch`) follow it step by step.
+    tid = ev.new_task_id()
+    sid = f"delegate-{tid}"
+    session.save(sid, {"task_id": tid, "task_loaded": [piece.id], "task_request": request[:300]})
+    cli._remember_session({"cwd": str(cwd), "session_id": sid})
+    messages = [_system(piece, cwd), {"role": "user", "content": request}]
+    t0, done, final = time.monotonic(), [], ""
+    for s, platform, model in steps:
+        trail.step(sid, f"{piece.id}#{s.id}", None)
+        out(f"▶ #{s.id} on {platform} / {model}")
+        messages.append({"role": "user", "content": f"Now do only this step: #{s.id} — {s.do or s.when}"})
+        t1 = time.monotonic()
+        final, turns, tok = _loop(chat_fns[platform], model, messages, cwd, confirm, max_steps, out)
+        done.append({"id": s.id, "platform": platform, "model": model, "duration_s": round(time.monotonic() - t1, 1),
+                     "turns": turns, "tokens": {**tok, "total": tok["input"] + tok["output"]}})
+    trail.finish(sid)
+    tokens = {k: sum(d["tokens"][k] for d in done) for k in ("input", "output")}
+    tokens.update(cache_read=0, cache_write=0, total=tokens["input"] + tokens["output"])
+    duration = time.monotonic() - t0
+    platforms = {d["platform"] for d in done} or {default[0]}
+    models = list(dict.fromkeys(d["model"] for d in done)) or [default[1]]
+    store.touch(piece.id)
+    ev.record_external(platforms.pop() if len(platforms) == 1 else "mixed", "+".join(models), [piece.id], duration,
+                       tokens, request=request, project=paths.project_of(cwd), task_id=tid, steps=done)
+    return {"task_id": tid, "summary": final, "steps": done, "duration_s": round(duration, 1), "tokens": tokens}

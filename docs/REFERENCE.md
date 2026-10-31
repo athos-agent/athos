@@ -109,6 +109,41 @@ Each edit is offered once and its copy is deleted right after; `athos status --j
 (file, piece, step and the `Athos · adjust <piece>#<step>:` text a panel can prefill). It works in Claude Code, Codex
 (`apply_patch`), Muse Code and OpenCode, stays on your machine, and is off with `ATHOS_CAPTURE=off`.
 
+### Per-step models
+
+For `athos delegate`: within one way of working, most steps are mechanical (extract the data, run a script, format a table) and one or two
+need real reasoning. A statement can name the model it needs with an optional line:
+
+```
+## #judge
+**When:** the totals are extracted.
+**Do:** decide which invoices look wrong, and why.
+**Model:** meta
+```
+
+The value is `local` (the default Ollama model), `meta` (muse-spark-1.3), `ollama:<model>` or `meta:<model>`. A
+statement without it runs on the task's model (`--model` / `--backend`, else the default), and pieces without any
+`**Model:**` line behave as before. An unknown value stops the run before anything starts.
+
+```
+athos delegate <piece> "<request>" --by-step                 each statement in turn, on its own model
+athos delegate <piece> "<request>" --by-step --allow-meta    also let the steps marked meta run on Meta Model API
+athos route <piece>                                          per step: which models ran it and how those tasks ended
+athos route <piece> --apply                                  write the suggested **Model:** lines (a new version)
+```
+
+`--by-step` runs the piece statement by statement in one conversation: for each one the model is told "Now do only
+this step: #id — <Do>" and works with the same tools and confirmations as a plain delegation. Each step is reported
+to the trail, so `athos watch` ticks it as it goes, and the task's record keeps, per step, the model, the time and the
+tokens. A step on Meta's hosted model sends the request and the files it reads off your machine, so it only runs with
+`--allow-meta` (or `--backend meta`).
+
+`athos route` reads your past by-step delegations of a piece and your marks on them, and suggests for each step the
+cheapest model (local before hosted, a smaller local model before a larger one) that had at least three good marked
+runs there and never ended in a corrected or failed task; otherwise it says why it has no suggestion. A mark is for
+the whole task, so every step shares its task's mark, and unmarked runs prove nothing. `--apply` saves the suggestions
+as a new version noted "routed by results"; `athos revert <piece>` undoes it.
+
 ### In Codex
 
 Athos is also a Codex plugin, reading the same store:

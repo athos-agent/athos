@@ -7,6 +7,10 @@ A piece is a page. Its body is a list of **statements**, the smallest unit you c
     **Do:** run `python3 tools/guard.py .` and stop on any finding.
     **Because:** a private name reached a public PR once.
     **Links:** [[bump-the-plugin-version#bump]] · [[land-a-change#open_pr]]
+    **Model:** local
+
+`**Model:**` is optional: the model that step runs on in `athos delegate --by-step` (`local`, `meta`,
+`ollama:<model>` or `meta:<model>`). A statement without it runs on the task's model.
 
 Links are trajectories, not topics: a statement links to what applies **next or alongside** it in a real task, so a
 task is done by walking: the index → the entry statement → its links, while they apply. `[[page]]` and
@@ -33,7 +37,7 @@ from athos import paths, store
 
 INDEX = "Index.md"
 STATEMENT = re.compile(r"^## #([a-z0-9][a-z0-9_-]*)\s*$", re.M)
-FIELD = re.compile(r"^\*\*(When|Do|Because|Links|Calls|If):\*\*\s*(.*)$", re.M)
+FIELD = re.compile(r"^\*\*(When|Do|Because|Links|Calls|If|Model):\*\*\s*(.*)$", re.M)
 LINK = re.compile(r"\[\[([a-z0-9][a-z0-9-]*)(?:#([a-z0-9][a-z0-9_-]*))?(?:\|[^\]]*)?\]\]")
 AGENT_PREFIX = "athos-"
 OVERLAP = 0.4          # share of the words two **When** lines have in common to call them the same moment
@@ -51,6 +55,7 @@ class Statement:
     because: str = ""
     links: list[tuple[str, str | None]] = field(default_factory=list)
     calls: list[dict] = field(default_factory=list)   # [{"page", "statement", "if"}]: the sub-routines of this step
+    model: str = ""                     # `**Model:**`, the model this step asks for; "" = the task's model
 
     @property
     def ref(self) -> str:
@@ -66,7 +71,7 @@ def statements(p: store.Piece) -> list[Statement]:
     for sid, text in zip(parts[1::2], parts[2::2]):
         f = {k.lower(): v.strip() for k, v in FIELD.findall(text)}
         out.append(Statement(p.id, sid, f.get("when", ""), f.get("do", ""), f.get("because", ""), LINK.findall(text),
-                             calls_of(f.get("calls", ""), f.get("if", ""))))
+                             calls_of(f.get("calls", ""), f.get("if", "")), f.get("model", "")))
     return out
 
 
