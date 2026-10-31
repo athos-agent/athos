@@ -62,10 +62,15 @@ def host() -> str:
     return h if h.startswith("http") else f"http://{h}"
 
 
-def chat(model: str, messages: list[dict], timeout: float = 600) -> dict:
+def chat(model: str, messages: list[dict], timeout: float = 600, tools: bool = True) -> dict:
+    """One Ollama chat call. `tools=False` sends none: a plain answer, for replaying a case (`athos test`, `athos
+    shadow`), where the model only writes."""
     # think=False: small reasoning models otherwise spend the turn thinking, and Ollama returns it apart from content.
-    body = json.dumps({"model": model, "messages": messages, "tools": TOOLS, "stream": False, "think": False,
-                       "options": {"temperature": 0, "num_ctx": 16384}}).encode()
+    req_body = {"model": model, "messages": messages, "stream": False, "think": False,
+                "options": {"temperature": 0, "num_ctx": 16384}}
+    if tools:
+        req_body["tools"] = TOOLS
+    body = json.dumps(req_body).encode()
     req = urllib.request.Request(host() + "/api/chat", data=body, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read())

@@ -144,6 +144,41 @@ runs there and never ended in a corrected or failed task; otherwise it says why 
 the whole task, so every step shares its task's mark, and unmarked runs prove nothing. `--apply` saves the suggestions
 as a new version noted "routed by results"; `athos revert <piece>` undoes it.
 
+### Your corrections as tests, your approved answers as references
+
+When you mark a task that followed one of your pieces, Athos keeps it as a **case**, on your machine only, in
+`~/.athos/cases/<piece>/<task>.json`: the whole request, the agent's final answer (from the agent's transcript, when
+it can be read), the piece and version used, your mark, and for a corrected task your correction: the words you said
+next that judged it wrong ("no, the notice is 30 days"), or your next request after `/athos:mark c`. Tasks you never
+mark, or that used no piece, are not kept.
+
+Each corrected case is a **test** of the piece. After you improve a piece, the save line says how many of your past
+corrections can be re-checked, and the agent offers to run them:
+
+```
+athos test <piece>                           each past request answered again with the piece as it is now, and a
+                                             second call judges whether the answer respects your correction
+athos test <piece> --backend meta            the same on Meta Model API (--model to choose the model)
+```
+
+It prints one line per case (pass or fail, and why) and records the run. Each good case is a **reference**: `athos
+shadow` answers your approved requests again on a cheaper model, with the piece, and judges how close each answer is
+to the one you approved (0-100, equivalent or not):
+
+```
+athos shadow [--limit N]                     the approved tasks not yet compared on this model
+athos shadow on                              after each task, compare one approved task in the background
+athos shadow on --backend meta               the same on Meta Model API; `athos shadow off` stops it
+```
+
+Both answer with no tools (the piece as instructions, your request as the message) and run on Ollama on your machine
+by default; nothing goes to a hosted model unless you choose `--backend meta`. In the background, the comparison runs
+as a separate low-priority process that never delays your agent. Once a cheaper model has run at least 5 of a piece's
+approved tasks and matched 9 of the last 10, Athos tells you once, in your language, at the start of a session or
+when that piece loads: "Your «Review a contract» way of working is solid: Muse Spark matched 9 of your last 10
+approved tasks. Want to hand it to Muse Spark?" Saying yes means running those tasks with `athos delegate`.
+`athos status --json` shows the counts (`tests` per piece loaded) and the suggestions (`handoff`).
+
 ### In Codex
 
 Athos is also a Codex plugin, reading the same store:

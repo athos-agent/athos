@@ -8,9 +8,14 @@ export type Status = {
   loaded: string[]
   to_mark: number
   /** The piece this session saved or improved last, and the agents where it is ready. */
-  last_saved: { id: string; title: string; version: number; platforms: string[] } | null
-  /** The know-how the current task follows. */
-  following: { id: string; title: string; version: number; steps: number; wiki: boolean; step_names?: string[]; platforms: string[] }[]
+  /** `recheck`: an improved piece the person corrected before, in their words ("2 past corrections to re-check"). */
+  last_saved: { id: string; title: string; version: number; platforms: string[]; tests?: number; recheck?: string } | null
+  /** The know-how the current task follows; `tests`: its past corrections `athos test` can re-check. */
+  following: { id: string; title: string; version: number; steps: number; wiki: boolean; step_names?: string[]; platforms: string[]; tests?: number }[]
+  /** Pieces a cheaper model matched the person's approved answers on (`athos shadow`); `told` once said. */
+  handoff?: { piece: string; title: string; model: string; label: string; platform: string; matched: number; of: number; told: boolean }[]
+  /** Whether background shadowing is on (`athos shadow on`). */
+  shadow?: boolean
   bars: {
     piece: string
     title: string
@@ -20,7 +25,7 @@ export type Status = {
   /** The last task did enough work to be worth keeping: the band offers [Save] (interactive Claude Code). */
   offer: { task_id: string; reason: 'work' | 'checklist' } | null
   /** The pieces this task loaded, with the request's words that loaded each one. */
-  loads?: { id: string; title: string; why: string[]; record?: { uses: number; ok: number; marked: number; agents: string[] } }[]
+  loads?: { id: string; title: string; why: string[]; record?: { uses: number; ok: number; marked: number; agents: string[] }; tests?: number }[]
   /** The current task's trail: the know-how it walks, step by step, and what happened beside it. */
   trail?: Trail
   /** "Good morning, Ana": how the band greets the person when a session starts. */

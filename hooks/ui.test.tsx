@@ -36,6 +36,8 @@ test('a save is one line: what, which version, where it is ready', () => {
   expect(announceText({ ...STATUS, last_saved: { ...saved, version: 3, platforms: ['Claude Code'] } } as never))
     .toBe('improved «Cut a release» → v3 · ready in Claude Code')
   expect(announceText(STATUS as never)).toBe(undefined)
+  expect(announceText({ ...STATUS, last_saved: { ...saved, version: 2, platforms: ['Claude Code'], recheck: '2 past corrections to re-check' } } as never))
+    .toBe('improved «Cut a release» → v2 · ready in Claude Code · 2 past corrections to re-check')
 })
 
 test('while a task runs, one line says which know-how it follows', () => {

@@ -225,7 +225,12 @@ def on_prompt(event: dict, cmd: str = "athos") -> str:
     mark_loaded(event.get("session_id", "default"), [p.id for p in found])
     text = inject_text(found, cmd)
     conn = note_connectors(event.get("session_id", "default"), found, cmd)
-    return text + ("\n" + conn + "\n" if conn else "")
+    text += "\n" + conn + "\n" if conn else ""
+    if found:                                    # a cheaper model proven on this piece: the person hears it once
+        from athos import replay
+        offer = replay.offer_text([p.id for p in found], cmd)
+        text += "\n" + offer + "\n" if offer else ""
+    return text
 
 
 def note_connectors(session_id: str, pieces: list[store.Piece], cmd: str = "athos") -> str:
@@ -252,4 +257,8 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
     if text and capture.enabled():               # with the guide given here, the Stop hook only needs one line
         text += "\n\n" + capture.guide(cmd)
         session.update(sid, guide=True)
+    from athos import replay
+    offer = replay.offer_text(None, cmd)        # a cheaper model proven on a piece: told once, at the session's start
+    if offer:
+        text = (text + "\n\n" if text else "") + offer
     return text

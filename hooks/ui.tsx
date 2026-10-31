@@ -109,7 +109,8 @@ export function announceText(s: Status | null): string | undefined {
   if (!l) return undefined
   const w = words(s)
   const what = l.version > 1 ? `${w.improved} «${l.title}» → v${l.version}` : `${w.saved} «${l.title}»`
-  return `${what} · ${w.ready} ${l.platforms.join(' · ')}`
+  // An improved piece the person corrected before: how many of those corrections can be re-checked (`athos test`).
+  return `${what} · ${w.ready} ${l.platforms.join(' · ')}${l.recheck ? ` · ${l.recheck}` : ''}`
 }
 
 export function savedText(s: Status | null): string {

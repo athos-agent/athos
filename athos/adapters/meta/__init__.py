@@ -76,14 +76,19 @@ def from_openai(r: dict) -> dict:
             "prompt_eval_count": int(u.get("prompt_tokens") or 0), "eval_count": int(u.get("completion_tokens") or 0)}
 
 
-def chat(model: str, messages: list[dict], timeout: float = 300, urlopen=urllib.request.urlopen) -> dict:
+def chat(model: str, messages: list[dict], timeout: float = 300, urlopen=urllib.request.urlopen,
+         tools: bool = True) -> dict:
+    """One Chat Completions call. `tools=False` sends none: a plain answer, for replaying a case."""
     from athos.delegate import TOOLS
     key = api_key()
     if not key:
         raise PermissionError(f"no Meta Model API key: set MODEL_API_KEY, or put a MODEL_API_KEY=... line in "
                               f"{paths.home() / '.env'}")
-    body = json.dumps({"model": model, "messages": to_openai(messages), "tools": TOOLS, "max_tokens": MAX_TOKENS,
-                       "reasoning_effort": REASONING}).encode()
+    req_body = {"model": model, "messages": to_openai(messages), "max_tokens": MAX_TOKENS,
+                "reasoning_effort": REASONING}
+    if tools:
+        req_body["tools"] = TOOLS
+    body = json.dumps(req_body).encode()
     req = urllib.request.Request(BASE + "/chat/completions", data=body,
                                  headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
     with urlopen(req, timeout=timeout) as resp:
