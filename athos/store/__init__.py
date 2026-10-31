@@ -1,40 +1,40 @@
-"""The know-how store: one markdown file per piece, with a small frontmatter the user can read and edit.
+"""Where pieces of know-how live on disk.
 
-    ---
-    id: release-checklist
-    title: Cut a release
-    when: preparing a release of a Python package
-    projects: [athos]
-    created: 2026-10-26
-    last_used: 2026-10-27
-    origin:
-      platform: claude-code
-      model: claude-opus-5-5
-    version: 2
-    ---
-    <steps, criteria, mistakes avoided>
+A piece is a plain markdown file, `<home>/know-how/<id>.md`, that a person can open and change by hand. It begins
+with a frontmatter block between two `---` lines holding, in this order: `id`; `title`; `when` (the situation the
+piece is for); `projects` as an inline list such as `[athos, docs]`; the `created` and `last_used` dates; an
+`origin` mapping whose indented `platform` and `model` say where it was written; and the `version` number. The
+steps, criteria and mistakes to avoid follow as free markdown. Last comes a `## History` heading over a bullet
+list of changes, newest first, each shaped like `v2 <date> (<platform>, <model>): <what changed>`.
 
-    ## History
-    - v2 2026-10-27 (claude-code, claude-opus-5-5): added the changelog step
-    - v1 2026-10-26 (claude-code, claude-opus-5-5): created
-
-Every change keeps the previous version under `.history/<id>/v<n>.md`, so nothing is overwritten silently.
+`render` writes exactly this layout and `parse` reads it back. Changing a piece never loses the text it replaces:
+the outgoing version is first copied to `.history/<id>/v<n>.md` inside the know-how folder.
 """
 
 from __future__ import annotations
 
-import datetime as _dt
 import difflib
 import re
 import shutil
 from dataclasses import dataclass, field
+from datetime import date as _date
 from pathlib import Path
 
 from athos import paths
 
+INDEX_NAME = "Index.md"                 # the wiki writes its index next to the pieces; it is not a piece
+HISTORY_HEADING = "## History"
+_ID_MAX = 60
+_UNKNOWN_ORIGIN = {"platform": "unknown", "model": "unknown"}
+_NEEDS_QUOTES = set(':#[]{},"')
+_KEY_LINE = re.compile(r"^(\s*)([A-Za-z_][\w-]*):\s*(.*)$")
+_HISTORY_LINE = re.compile(r"^## History\s*$", re.M)
+
 
 @dataclass
 class Piece:
+    """One piece of know-how, as read from (or about to be written to) its markdown file."""
+
     id: str
     title: str
     when: str
@@ -44,188 +44,278 @@ class Piece:
     last_used: str = ""
     origin: dict = field(default_factory=dict)
     version: int = 1
-    history: list[str] = field(default_factory=list)
+    history: list[str] = field(default_factory=list)       # newest first, without the leading "- "
 
     @property
     def path(self) -> Path:
-        return paths.know_how() / f"{self.id}.md"
+        return _file_for(self.id)
+
+
+def _file_for(piece_id: str) -> Path:
+    return paths.know_how() / (piece_id + ".md")
 
 
 def today() -> str:
-    return _dt.date.today().isoformat()
+    """Today's date as `YYYY-MM-DD`."""
+    return _date.today().isoformat()
 
 
 def slugify(text: str) -> str:
-    s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return s[:60].strip("-") or "piece"
+    """A filename-safe id: lowercase ASCII letters and digits joined by single dashes, at most 60 characters."""
+    dashed = "-".join(re.findall(r"[a-z0-9]+", text.lower()))
+    return dashed[:_ID_MAX].strip("-") or "piece"
 
 
-# ------------------------------------------------------------------------------------------------ frontmatter
-def _scalar(v: str) -> str:
-    v = v.strip()
-    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
-        v = v[1:-1].replace('\\"', '"')
-    return v
+# ---------------------------------------------------------------------------------------------------- frontmatter
+def _scalar(raw: str) -> str:
+    """A frontmatter value with surrounding blanks and one pair of matching quotes removed."""
+    value = raw.strip()
+    quoted = len(value) > 1 and value[0] in "\"'" and value[-1] == value[0]
+    return value[1:-1].replace('\\"', '"') if quoted else value
 
 
 def _quote(v: str) -> str:
-    if v != v.strip() or not v or any(c in v for c in ':#[]{},"'):
-        return '"' + v.replace('"', '\\"') + '"'
-    return v
+    """`v` as a frontmatter value: wrapped in double quotes when it would not read back unchanged otherwise."""
+    risky = not v or v.strip() != v or any(ch in _NEEDS_QUOTES for ch in v)
+    escaped = v.replace('"', '\\"')
+    return f'"{escaped}"' if risky else v
+
+
+def _split_frontmatter(text: str) -> tuple[str, str] | None:
+    """`(header, body)` when `text` opens with a `---` block that is closed again, else None."""
+    if text[:3] != "---":
+        return None
+    close = text.find("\n---", 3)
+    if close == -1:
+        return None
+    return text[3:close].strip("\n"), text[close + 4:].lstrip("\n")
+
+
+def _key_lines(header: str):
+    """`(indent, key, value)` for every `key: value` line of a frontmatter header; blanks and `#` comments and any
+    other line are passed over."""
+    for line in header.splitlines():
+        if line.strip() and not line.lstrip().startswith("#"):
+            found = _KEY_LINE.match(line)
+            if found is not None:
+                yield found.groups()
+
+
+def _header_fields(header: str) -> dict:
+    fields: dict = {}
+    mapping_key = None                  # the key whose nested `sub: value` lines we are reading, if any
+    for indent, key, value in _key_lines(header):
+        if indent and mapping_key is not None:
+            fields[mapping_key][key] = _scalar(value)
+        elif value == "":
+            fields[key], mapping_key = {}, key
+        elif value[:1] == "[" and value[-1:] == "]":
+            fields[key], mapping_key = [_scalar(item) for item in value[1:-1].split(",") if item.strip()], None
+        else:
+            fields[key], mapping_key = _scalar(value), None
+    return fields
 
 
 def parse_frontmatter(text: str) -> tuple[dict, str]:
-    """`(fields, body)` for a document that starts with `---`; `({}, text)` otherwise. Understands the subset Athos
-    writes: `key: value`, `key: [a, b]` and one level of nested `key:` / `  sub: value`."""
-    if not text.startswith("---"):
-        return {}, text
-    end = text.find("\n---", 3)
-    if end < 0:
-        return {}, text
-    head, body = text[3:end].strip("\n"), text[end + 4:].lstrip("\n")
-    data: dict = {}
-    parent = None
-    for line in head.splitlines():
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        m = re.match(r"^(\s*)([A-Za-z_][\w-]*):\s*(.*)$", line)
-        if not m:
-            continue
-        indent, key, val = m.groups()
-        if indent and parent is not None:
-            data[parent][key] = _scalar(val)
-            continue
-        if val == "":
-            data[key], parent = {}, key
-        elif val.startswith("[") and val.endswith("]"):
-            data[key], parent = [_scalar(x) for x in val[1:-1].split(",") if x.strip()], None
-        else:
-            data[key], parent = _scalar(val), None
-    return data, body
+    """Split a document into `(fields, body)`; a document without frontmatter gives `({}, text)`.
+
+    Only the shapes Athos itself writes are understood: `key: value`, inline lists `key: [a, b]`, and a mapping one
+    level deep (`key:` followed by indented `sub: value` lines)."""
+    parts = _split_frontmatter(text)
+    if parts is None:
+        return ({}, text)
+    return _header_fields(parts[0]), parts[1]
 
 
-def _split_history(body: str) -> tuple[str, list[str]]:
-    m = re.search(r"^## History\s*$", body, re.M)
-    if not m:
-        return body.rstrip(), []
-    lines = [ln.strip()[2:] for ln in body[m.end():].splitlines() if ln.strip().startswith("- ")]
-    return body[:m.start()].rstrip(), lines
+def _body_and_changelog(body: str) -> tuple[str, list[str]]:
+    """Separate the `## History` list from the rest of the body."""
+    heading = _HISTORY_LINE.search(body)
+    text_end = heading.start() if heading else len(body)
+    changelog = body[heading.end():] if heading else ""
+    entries = [item[2:] for item in map(str.strip, changelog.splitlines()) if item.startswith("- ")]
+    return body[:text_end].rstrip(), entries
 
 
 def parse(text: str) -> Piece:
-    data, body = parse_frontmatter(text)
-    body, hist = _split_history(body)
-    projects = data.get("projects") or []
-    return Piece(id=data.get("id", ""), title=data.get("title", ""), when=data.get("when", ""), body=body,
-                 projects=projects if isinstance(projects, list) else [projects],
-                 created=data.get("created", ""), last_used=data.get("last_used", ""),
-                 origin=data.get("origin") if isinstance(data.get("origin"), dict) else {},
-                 version=int(data.get("version") or 1), history=hist)
+    """Build a Piece from the text of its markdown file. Missing fields fall back to empty values."""
+    fields, rest = parse_frontmatter(text)
+    body, history = _body_and_changelog(rest)
+    projects = fields.get("projects") or []
+    if not isinstance(projects, list):
+        projects = [projects]
+    origin = fields.get("origin")
+    return Piece(
+        id=fields.get("id", ""),
+        title=fields.get("title", ""),
+        when=fields.get("when", ""),
+        body=body,
+        projects=projects,
+        created=fields.get("created", ""),
+        last_used=fields.get("last_used", ""),
+        origin=origin if isinstance(origin, dict) else {},
+        version=int(fields.get("version") or 1),
+        history=history,
+    )
+
+
+def _origin_lines(origin: dict) -> list[str]:
+    lines = [f"  {key}: {_quote(str(value))}" for key, value in origin.items()]
+    return lines or ["  platform: unknown"]
 
 
 def render(p: Piece) -> str:
-    out = ["---", f"id: {p.id}", f"title: {_quote(p.title)}", f"when: {_quote(p.when)}",
-           f"projects: [{', '.join(p.projects)}]", f"created: {p.created}", f"last_used: {p.last_used}", "origin:"]
-    out += [f"  {k}: {_quote(str(v))}" for k, v in p.origin.items()] or ["  platform: unknown"]
-    out += [f"version: {p.version}", "---", "", p.body.rstrip(), "", "## History"]
-    out += [f"- {h}" for h in p.history]
-    return "\n".join(out) + "\n"
+    """The markdown file for a piece: frontmatter, body, then its history (the inverse of `parse`)."""
+    header = [
+        "---",
+        f"id: {p.id}",
+        f"title: {_quote(p.title)}",
+        f"when: {_quote(p.when)}",
+        "projects: [" + ", ".join(p.projects) + "]",
+        f"created: {p.created}",
+        f"last_used: {p.last_used}",
+        "origin:",
+        *_origin_lines(p.origin),
+        f"version: {p.version}",
+        "---",
+    ]
+    tail = ["", p.body.rstrip(), "", HISTORY_HEADING, *("- " + entry for entry in p.history)]
+    return "\n".join(header + tail) + "\n"
 
 
-# ------------------------------------------------------------------------------------------------ store
+# ---------------------------------------------------------------------------------------------------- the store
+def _piece_files(folder: Path) -> list[Path]:
+    return [f for f in sorted(folder.glob("*.md")) if f.name != INDEX_NAME]
+
+
 def all_pieces() -> list[Piece]:
-    d = paths.know_how()
-    if not d.is_dir():
-        return []
-    return [parse(f.read_text()) for f in sorted(d.glob("*.md")) if f.name != "Index.md"]   # the wiki's index
+    """Every piece in the store, ordered by filename."""
+    folder = paths.know_how()
+    files = _piece_files(folder) if folder.is_dir() else []
+    return [parse(f.read_text()) for f in files]
 
 
 def get(piece_id: str) -> Piece | None:
-    f = paths.know_how() / f"{piece_id}.md"
-    return parse(f.read_text()) if f.is_file() else None
+    """The piece with this id, or None when there is no such file."""
+    target = _file_for(piece_id)
+    if not target.is_file():
+        return None
+    return parse(target.read_text())
 
 
 def _write(p: Piece) -> None:
-    p.path.parent.mkdir(parents=True, exist_ok=True)
-    p.path.write_text(render(p))
+    """Store a piece in its file as is (no archiving, no version bump)."""
+    target = p.path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(render(p))
 
 
-def _origin_label(origin: dict) -> str:
-    return ", ".join(str(origin.get(k, "unknown")) for k in ("platform", "model"))
+def _archive(p: Piece) -> Path:
+    """Copy the file of `p`, as it is now, to `.history/<id>/v<version>.md`; returns the piece's archive folder."""
+    folder = paths.history() / p.id
+    folder.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(p.path, folder / f"v{p.version}.md")
+    return folder
+
+
+def _where(origin: dict) -> str:
+    """`platform, model` of an origin, each "unknown" when missing."""
+    return ", ".join(str(origin.get(part, "unknown")) for part in ("platform", "model"))
+
+
+def _history_entry(version: int, origin: dict, what: str) -> str:
+    return f"v{version} {today()} ({_where(origin)}): {what}"
+
+
+def _free_id(wanted: str) -> str:
+    """`wanted`, or `wanted-2`, `wanted-3`... whichever is the first id not taken yet."""
+    candidate, suffix = wanted, 2
+    while _file_for(candidate).exists():
+        candidate = f"{wanted}-{suffix}"
+        suffix += 1
+    return candidate
+
+
+def _require(piece_id: str) -> Piece:
+    found = get(piece_id)
+    if found is None:
+        raise KeyError(piece_id)
+    return found
 
 
 def create(title: str, when: str, body: str, projects: list[str] | None = None, origin: dict | None = None,
            piece_id: str | None = None) -> Piece:
-    pid = slugify(piece_id or title)
-    base, n = pid, 2
-    while (paths.know_how() / f"{pid}.md").exists():
-        pid, n = f"{base}-{n}", n + 1
-    origin = origin or {"platform": "unknown", "model": "unknown"}
-    p = Piece(id=pid, title=title, when=when, body=body, projects=projects or [], created=today(),
-              last_used=today(), origin=origin, version=1,
-              history=[f"v1 {today()} ({_origin_label(origin)}): created"])
-    _write(p)
-    return p
+    """Add a new piece at version 1. The id comes from `piece_id` (or the title) and never reuses an existing one."""
+    origin = origin or dict(_UNKNOWN_ORIGIN)
+    date = today()
+    piece = Piece(id=_free_id(slugify(piece_id or title)), title=title, when=when, body=body,
+                  projects=projects or [], created=date, last_used=date, origin=origin, version=1,
+                  history=[_history_entry(1, origin, "created")])
+    _write(piece)
+    return piece
 
 
 def update(piece_id: str, note: str, body: str | None = None, title: str | None = None, when: str | None = None,
            origin: dict | None = None, projects: list[str] | None = None) -> tuple[Piece, str]:
-    """Improve a piece: archive the current version, bump `version`, add a history line. Returns the new piece and a
-    unified diff of the change, which callers show to the user."""
-    old = get(piece_id)
-    if old is None:
-        raise KeyError(piece_id)
-    arch = paths.history() / old.id
-    arch.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(old.path, arch / f"v{old.version}.md")
-    origin = origin or old.origin
-    new = Piece(id=old.id, title=title or old.title, when=when or old.when,
-                body=body if body is not None else old.body,
-                projects=sorted(set(old.projects) | set(projects or [])), created=old.created, last_used=today(),
-                origin=origin, version=old.version + 1,
-                history=[f"v{old.version + 1} {today()} ({_origin_label(origin)}): {note.strip() or 'updated'}"]
-                + old.history)
-    _write(new)
-    diff = "".join(difflib.unified_diff(render(old).splitlines(True), render(new).splitlines(True),
-                                        f"{old.id} v{old.version}", f"{old.id} v{new.version}"))
-    return new, diff
+    """Write an improved version of a piece and return it with a unified diff against the previous one.
+
+    The previous file is archived first; the version goes up by one and `note` becomes the newest history entry.
+    Fields left as None keep their current value, and `projects` is added to the ones the piece already has."""
+    current = _require(piece_id)
+    _archive(current)
+    origin = origin or current.origin
+    version = current.version + 1
+    improved = Piece(
+        id=current.id,
+        title=title or current.title,
+        when=when or current.when,
+        body=current.body if body is None else body,
+        projects=sorted(set(current.projects).union(projects or [])),
+        created=current.created,
+        last_used=today(),
+        origin=origin,
+        version=version,
+        history=[_history_entry(version, origin, note.strip() or "updated"), *current.history],
+    )
+    _write(improved)
+    diff = difflib.unified_diff(render(current).splitlines(True), render(improved).splitlines(True),
+                                f"{current.id} v{current.version}", f"{current.id} v{version}")
+    return improved, "".join(diff)
 
 
 def revert(piece_id: str, to: int | None = None) -> Piece:
-    """Put back an earlier version (`to`, by default the previous one) as a new version: nothing is deleted. The
-    version being replaced is archived too, so a revert can be reverted."""
-    cur = get(piece_id)
-    if cur is None:
-        raise KeyError(piece_id)
-    to = cur.version - 1 if to is None else int(to)
-    arch = paths.history() / piece_id
-    prev = arch / f"v{to}.md"
-    if not 1 <= to < cur.version or not prev.is_file():
-        raise FileNotFoundError(f"no version {to} of {piece_id} to go back to")
-    arch.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(cur.path, arch / f"v{cur.version}.md")
-    old = parse(prev.read_text())
-    old.id = cur.id
-    old.version = cur.version + 1
-    old.history = [f"v{old.version} {today()}: reverted to v{to}"] + cur.history
-    _write(old)
-    return old
+    """Bring back an archived version (by default the one just before the current one) as a brand-new version.
+
+    Nothing is removed: the version being replaced goes to the archive as well, so the revert itself can be undone.
+    Raises KeyError for an unknown piece and FileNotFoundError when the requested version is not available."""
+    current = _require(piece_id)
+    target = current.version - 1 if to is None else int(to)
+    source = paths.history() / piece_id / f"v{target}.md"
+    if not (1 <= target < current.version and source.is_file()):
+        raise FileNotFoundError(f"no version {target} of {piece_id} to go back to")
+    _archive(current)
+    restored = parse(source.read_text())
+    restored.id = current.id
+    restored.version = current.version + 1
+    restored.history = [f"v{restored.version} {today()}: reverted to v{target}", *current.history]
+    _write(restored)
+    return restored
 
 
 def touch(piece_id: str) -> None:
-    """Record that a piece was used today, without counting it as a new version."""
-    p = get(piece_id)
-    if p and p.last_used != today():
-        p.last_used = today()
-        _write(p)
+    """Mark a piece as used today. This only moves `last_used`; it is not a new version."""
+    piece = get(piece_id)
+    if piece is None or piece.last_used == today():
+        return
+    piece.last_used = today()
+    _write(piece)
 
 
 def export(dest: Path) -> int:
-    """Copy the whole store (with its history) to `dest`. Returns how many pieces were exported."""
-    src = paths.know_how()
-    dest = Path(dest)
-    dest.mkdir(parents=True, exist_ok=True)
-    if not src.is_dir():
-        return 0
-    shutil.copytree(src, dest, dirs_exist_ok=True)
-    return len([f for f in src.glob("*.md") if f.name != "Index.md"])
+    """Copy the know-how folder, archive included, into `dest` and return the number of pieces copied."""
+    source = paths.know_how()
+    target = Path(dest)
+    target.mkdir(parents=True, exist_ok=True)
+    present = source.is_dir()
+    if present:
+        shutil.copytree(source, target, dirs_exist_ok=True)
+    return len(_piece_files(source)) if present else 0
