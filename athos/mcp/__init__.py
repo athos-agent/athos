@@ -75,6 +75,15 @@ TOOLS = [
      "its id and a note). The text is a frontmatter (title, when, and id + note to improve) and a body of statements "
      "(## #id with **When:** **Do:** **Because:** **Links:**).",
      "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
+    {"name": "athos_merge", "description": "Merge colleagues' copies of one of the person's ways of working into one "
+     "team version (\"merge my lease review with Ana's version in this folder\"). `id`: the person's piece; `paths`: "
+     "the colleagues' exported files or folders (from `athos export --guild`). Without `apply` it only proposes and "
+     "says what it would keep, take from whom, and drop; with `apply: true` (only once the person agreed) it saves "
+     "the merge as a new version, the old one kept.",
+     "inputSchema": {"type": "object", "properties": {
+         "id": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}},
+         "as_id": {"type": "string", "description": "the id the colleagues' copies have, if it differs"},
+         "apply": {"type": "boolean"}}, "required": ["id", "paths"]}},
 ]
 
 
@@ -161,6 +170,25 @@ def call(name: str, args: dict, session_id: str = SESSION) -> str:
             out += ("\nOther pages say what to do at the same moment; check they agree and fix the wrong one: "
                     + "; ".join(w["overlaps"][:10]))
         return out
+    if name == "athos_merge":
+        # Deterministic only: the chat's own model can rewrite a statement afterwards with athos_save.
+        from athos import guild
+        pid = args.get("id", "")
+        try:
+            variants = guild.find_variants(list(args.get("paths") or []), args.get("as_id") or pid)
+        except FileNotFoundError as e:
+            raise LookupError(str(e)) from None
+        if not variants:
+            raise LookupError(f"no copy of {args.get('as_id') or pid} in those paths")
+        r = guild.merge(pid, variants)
+        out = guild.summary(r)
+        if not r["changed"]:
+            return out
+        if args.get("apply"):
+            piece, _ = guild.apply(r)
+            return out + f"\n\nSaved as {piece.id} v{piece.version}; the previous version is kept."
+        return out + f"\n\nProposal in {guild.write_proposal(r)}. Nothing changed yet: ask the person, then call " \
+                     "athos_merge again with apply: true."
     raise KeyError(name)
 
 
