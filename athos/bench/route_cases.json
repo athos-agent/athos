@@ -1,0 +1,625 @@
+{
+ "about": "Synthetic router cases (fictional): a request and the way of working (topic) it should load, or none. Each topic names its starter piece per language; `accept` lists topics whose pieces may also load without counting as wrong.",
+ "topics": {
+  "contract": {
+   "en": "review-a-contract-against-your-checklist",
+   "es": "revisar-un-contrato-con-tu-checklist"
+  },
+  "brief": {
+   "en": "build-the-argument-of-a-brief",
+   "es": "armar-un-argumento-para-un-escrito"
+  },
+  "investment": {
+   "en": "analyse-an-investment-with-my-committee-rules",
+   "es": "analizar-una-inversion-con-las-reglas-de-mi-comite",
+   "accept": [
+    "crossborder"
+   ]
+  },
+  "crossborder": {
+   "en": "check-the-cross-border-tax-treatment",
+   "es": "revisar-el-tratamiento-fiscal-entre-paises",
+   "accept": [
+    "investment"
+   ]
+  },
+  "lead": {
+   "en": "verify-a-lead-before-publishing",
+   "es": "verificar-una-pista-antes-de-publicar"
+  },
+  "incident": {
+   "en": "triage-a-production-incident",
+   "es": "atender-un-incidente-en-produccion"
+  },
+  "experiment": {
+   "en": "analyse-an-experiment-reproducibly",
+   "es": "analizar-un-experimento-de-forma-reproducible"
+  },
+  "training": {
+   "en": "plan-the-training-week",
+   "es": "planificar-la-semana-de-entrenamiento"
+  },
+  "match": {
+   "en": "write-the-post-match-report",
+   "es": "escribir-el-informe-post-partido"
+  }
+ },
+ "cases": [
+  {
+   "request": "Review this services contract before I sign it",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "contract"
+  },
+  {
+   "request": "Can you go through this NDA and comment on it before I send it back?",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "contract"
+  },
+  {
+   "request": "My landlord sent me the lease renewal, anything I should push back on?",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "contract"
+  },
+  {
+   "request": "Look over the agreement our supplier drafted and flag the risky clauses",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "contract"
+  },
+  {
+   "request": "Revisá este contrato de servicios antes de que lo firme",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "contract"
+  },
+  {
+   "request": "Comentá este acuerdo de confidencialidad antes de devolverlo",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "contract"
+  },
+  {
+   "request": "El dueño del departamento me mandó la renovación del alquiler, ¿qué le objetarías?",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "contract"
+  },
+  {
+   "request": "Mirá lo que redactó el proveedor y marcame las cláusulas peligrosas",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "contract"
+  },
+  {
+   "request": "Help me build the argument for the brief we file on Monday",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "brief"
+  },
+  {
+   "request": "Order the arguments of this pleading so the judge is convinced",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "brief"
+  },
+  {
+   "request": "I need the court to accept that the deadline never started running; how do I lay that out?",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "brief"
+  },
+  {
+   "request": "Does this draft reply to the claim actually win anyone over?",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "brief"
+  },
+  {
+   "request": "Armá el argumento del escrito que presentamos el lunes",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "brief"
+  },
+  {
+   "request": "Ordená los argumentos de este alegato para convencer al juez",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "brief"
+  },
+  {
+   "request": "Tengo que lograr que la cámara acepte que el plazo nunca empezó a correr, ¿cómo lo planteo?",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "brief"
+  },
+  {
+   "request": "¿Este borrador de contestación de demanda le cambia la cabeza a alguien?",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "brief"
+  },
+  {
+   "request": "Analyse this real-estate fund for my client",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "investment"
+  },
+  {
+   "request": "Prepare the risk and net-return table for this trust",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "investment"
+  },
+  {
+   "request": "A client wants to put money into a farmland vehicle, what's your read on it?",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "investment"
+  },
+  {
+   "request": "Is this bond offering worth it for Mrs. Lane? Her advisor needs a view by Friday",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "investment"
+  },
+  {
+   "request": "Analizá este fondo inmobiliario para mi cliente",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "investment"
+  },
+  {
+   "request": "Prepará la tabla de riesgos y rendimiento neto de este fideicomiso",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "investment"
+  },
+  {
+   "request": "Un cliente quiere poner plata en un campo a través de un vehículo, ¿qué te parece?",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "investment"
+  },
+  {
+   "request": "¿Le conviene a la señora Ruiz esta emisión de bonos? Su asesor necesita una opinión el viernes",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "investment"
+  },
+  {
+   "request": "Check the tax treatment of a Spanish investor holding shares of a US company",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "crossborder"
+  },
+  {
+   "request": "Which double-taxation treaty applies to dividends paid from Chile to Germany?",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "crossborder"
+  },
+  {
+   "request": "My client lives in Uruguay and collects rent from a flat in Miami; what does each side keep back?",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "crossborder"
+  },
+  {
+   "request": "How is interest that a Dutch holding pays to someone resident in Argentina taxed?",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "crossborder"
+  },
+  {
+   "request": "Revisá el tratamiento fiscal de un inversor español con acciones de una empresa de EE.UU.",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "crossborder"
+  },
+  {
+   "request": "¿Qué convenio de doble imposición aplica a dividendos que van de Chile a Alemania?",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "crossborder"
+  },
+  {
+   "request": "Mi cliente vive en Uruguay y cobra el alquiler de un departamento en Miami, ¿qué se queda cada lado?",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "crossborder"
+  },
+  {
+   "request": "¿Cómo tributan los intereses que una holding holandesa le paga a alguien que vive en Argentina?",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "crossborder"
+  },
+  {
+   "request": "Verify this lead about the bridge contract before I publish it",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "lead"
+  },
+  {
+   "request": "Fact-check the minister's statement on unemployment figures",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "lead"
+  },
+  {
+   "request": "A source slipped me a document saying the mayor's cousin won the paving tender, how do I confirm it?",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "lead"
+  },
+  {
+   "request": "Before the story goes out, make sure the leaked memo is genuine",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "lead"
+  },
+  {
+   "request": "Verificá esta pista sobre la licitación del puente antes de publicarla",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "lead"
+  },
+  {
+   "request": "Chequeá la declaración del ministro sobre las cifras de desempleo",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "lead"
+  },
+  {
+   "request": "Una fuente me pasó un documento que dice que el primo del intendente ganó la obra de asfalto, ¿cómo lo confirmo?",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "lead"
+  },
+  {
+   "request": "Antes de que salga la nota, asegurate de que el memo que se filtró sea auténtico",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "lead"
+  },
+  {
+   "request": "Checkout has been failing in production since 14:05, help me find what happened",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "incident"
+  },
+  {
+   "request": "The production API is throwing 500 errors after the deploy",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "incident"
+  },
+  {
+   "request": "Customers in Brazil can't log in since this morning, what do we do first?",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "incident"
+  },
+  {
+   "request": "Pager went off: latency on the payments service tripled",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "incident"
+  },
+  {
+   "request": "El checkout falla en producción desde las 14:05, ayudame a encontrar qué pasó",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "incident"
+  },
+  {
+   "request": "La API de producción tira errores 500 después del deploy",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "incident"
+  },
+  {
+   "request": "Los clientes de Brasil no pueden entrar desde la mañana, ¿qué hacemos primero?",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "incident"
+  },
+  {
+   "request": "Sonó la guardia: la latencia del servicio de pagos se triplicó",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "incident"
+  },
+  {
+   "request": "Analyse the data of this lab experiment so another lab can repeat it",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "experiment"
+  },
+  {
+   "request": "Clean and analyse the sensor measurements from last month's campaign",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "experiment"
+  },
+  {
+   "request": "I have the plate-reader output from Tuesday's assay, help me get numbers for the paper",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "experiment"
+  },
+  {
+   "request": "Turn these tensile test readings into a figure we can rerun next quarter",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "experiment"
+  },
+  {
+   "request": "Analizá los datos de este experimento para que otro laboratorio lo pueda repetir",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "experiment"
+  },
+  {
+   "request": "Limpiá y analizá las mediciones de sensores de la campaña del mes pasado",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "experiment"
+  },
+  {
+   "request": "Tengo la salida del lector de placas del ensayo del martes, ayudame a sacar números para el paper",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "experiment"
+  },
+  {
+   "request": "Convertí estas lecturas de tracción en una figura que podamos volver a correr el próximo trimestre",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "experiment"
+  },
+  {
+   "request": "Plan next week's training for the U17 team",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "training"
+  },
+  {
+   "request": "Build Maria's training week from her session log",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "training"
+  },
+  {
+   "request": "Our marathoner races in three weeks, what should her workouts look like from Monday?",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "training"
+  },
+  {
+   "request": "Given the minutes and effort the squad logged, how hard do we go in the coming days?",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "training"
+  },
+  {
+   "request": "Planificá la semana de entrenamiento del equipo sub 17",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "training"
+  },
+  {
+   "request": "Armá la semana de entrenamiento de María a partir de su registro de sesiones",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "training"
+  },
+  {
+   "request": "Nuestra maratonista corre en tres semanas, ¿cómo deberían ser sus pasadas desde el lunes?",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "training"
+  },
+  {
+   "request": "Con los minutos y el esfuerzo que cargó el plantel, ¿qué tan fuerte vamos en los próximos días?",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "training"
+  },
+  {
+   "request": "Write the post-match report from Saturday's stats",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "match"
+  },
+  {
+   "request": "Prepare the match report for the coach from these notes",
+   "lang": "en",
+   "kind": "direct",
+   "topic": "match"
+  },
+  {
+   "request": "We lost 2-1 on Sunday, here are the numbers, put together the debrief for the staff",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "match"
+  },
+  {
+   "request": "Sum up how the final went for the coaching staff using the video notes",
+   "lang": "en",
+   "kind": "paraphrase",
+   "topic": "match"
+  },
+  {
+   "request": "Escribí el informe post partido con las estadísticas del sábado",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "match"
+  },
+  {
+   "request": "Prepará el informe del partido para el entrenador con estas notas",
+   "lang": "es",
+   "kind": "direct",
+   "topic": "match"
+  },
+  {
+   "request": "Perdimos 2 a 1 el domingo, acá están los números, armá la devolución para el cuerpo técnico",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "match"
+  },
+  {
+   "request": "Resumí cómo salió la final para el cuerpo técnico usando las notas del video",
+   "lang": "es",
+   "kind": "paraphrase",
+   "topic": "match"
+  },
+  {
+   "request": "what time is it",
+   "lang": "en",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "write a haiku about autumn",
+   "lang": "en",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "fix this typo: teh",
+   "lang": "en",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "rename this variable to user_count",
+   "lang": "en",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "translate this paragraph into French",
+   "lang": "en",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "what's the weather in Madrid tomorrow?",
+   "lang": "en",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "summarize this email in two lines",
+   "lang": "en",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "plan a birthday party for my daughter",
+   "lang": "en",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "write a poem about a football match",
+   "lang": "en",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "make a grocery list for the week",
+   "lang": "en",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "explain what a hash map is",
+   "lang": "en",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "convert 30 miles to kilometres",
+   "lang": "en",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "¿qué hora es?",
+   "lang": "es",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "escribí un haiku sobre el otoño",
+   "lang": "es",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "corregí este error de tipeo: qeu",
+   "lang": "es",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "traducí este párrafo al inglés",
+   "lang": "es",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "¿cómo va a estar el clima en Córdoba mañana?",
+   "lang": "es",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "resumí este mail en dos líneas",
+   "lang": "es",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "organizá un cumpleaños para mi hija",
+   "lang": "es",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "escribí un poema sobre un partido de fútbol",
+   "lang": "es",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "hacé la lista del súper de la semana",
+   "lang": "es",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "explicame qué es una tabla hash",
+   "lang": "es",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "pasá 30 millas a kilómetros",
+   "lang": "es",
+   "kind": "negative",
+   "topic": null
+  },
+  {
+   "request": "cambiale el nombre a esta variable",
+   "lang": "es",
+   "kind": "negative",
+   "topic": null
+  }
+ ]
+}

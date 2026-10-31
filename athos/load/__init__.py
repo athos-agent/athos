@@ -20,6 +20,10 @@ RUNNER_UP = 0.5      # a second piece loads only with at least half the best pie
 MIN_SCORE = 1.2
 STEM = 5               # words match on their first letters, so "release" finds "releasing" and "releases"
 ONE_WORD_DF = 1        # one shared word is enough only if no other piece's title has it
+# The meaning (`athos embed on`, load/embed.py), set with `athos bench route`:
+SURE_SCORE = 8.0       # a lexical first piece this strong, alone at the top, needs no second opinion
+MEANING_MIN = 0.20     # a piece found by meaning alone: the closest one, this far above its closeness to any request
+MEANING_WEIGHT = 0.9   # its score, as a share of the words' best piece: it comes after what the words found
 
 STOP = set("""a an the and or but if then else for to of in on at by with from into over this that these those it its
 is are was were be been being do does did done have has had can could should would will shall may might must not no
@@ -136,9 +140,41 @@ def rank(prompt: str, pieces: list[store.Piece]) -> list[tuple[float, store.Piec
     return sorted(scored, key=lambda t: (-t[0], t[1].id))
 
 
-def relevant(prompt: str, pieces: list[store.Piece]) -> list[store.Piece]:
+def sure(ranked: list[tuple[float, store.Piece]]) -> bool:
+    """The lexical ranking needs no second opinion: a clear first piece, well ahead of any other."""
+    return bool(ranked) and ranked[0][0] >= SURE_SCORE and (len(ranked) == 1 or ranked[1][0] < RUNNER_UP * ranked[0][0])
+
+
+def rerank(prompt: str, pieces: list[store.Piece], ranked: list[tuple[float, store.Piece]],
+           closeness: dict[str, float]) -> list[tuple[float, store.Piece]]:
+    """Words and meaning together: what the words found stays, and the piece closest in meaning joins when it stands
+    clearly out (a Spanish request and an English piece share no word). `closeness` is each piece's cosine to the
+    request minus its usual cosine to any request (load/embed.py), so a piece close to everything doesn't win."""
+    if not closeness:
+        return ranked
+    pid, best = max(closeness.items(), key=lambda t: (t[1], t[0]))
+    p = next((p for p in pieces if p.id == pid), None)
+    if p is None or best < MEANING_MIN or any(q.id == pid for _, q in ranked):
+        return ranked
+    qwords = {_plain(w) for w in words(prompt)}
+    hw = {_plain(w) for w in words(p.title + " " + p.when)}
+    if any(set(qwords & hw) <= set(m) for m in misfires().get(pid, [])):    # [Didn't apply] holds here too
+        return ranked
+    score = ranked[0][0] * MEANING_WEIGHT if ranked else MIN_SCORE
+    return sorted(ranked + [(score, p)], key=lambda t: (-t[0], t[1].id))
+
+
+def relevant(prompt: str, pieces: list[store.Piece], meaning=None) -> list[store.Piece]:
+    """The pieces to load for this request. `meaning(prompt, pieces) -> {id: closeness} | None` is the optional second
+    opinion (`athos embed on`); None follows the person's setting, False is words only."""
     out, size = [], 0
-    ranked = rank(prompt, pieces)[:TOP_K]
+    ranked = rank(prompt, pieces)
+    if meaning is None:
+        from athos.load import embed
+        meaning = embed.scores if embed.enabled() else False
+    if meaning and not sure(ranked) and words(prompt) and not NOT_A_REQUEST.match(prompt):
+        ranked = rerank(prompt, pieces, ranked, meaning(prompt, pieces) or {})
+    ranked = ranked[:TOP_K]
     for score, p in ranked:
         if out and score < RUNNER_UP * ranked[0][0]:  # a second piece only when it matches nearly as well
             break
