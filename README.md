@@ -40,6 +40,11 @@ nine steps as Muse reports them:
 [a lawyer in Codex](demo/codex-lawyer-en.gif), [a coach in Muse Code](demo/muse-coach-en.gif). In OpenCode, **Athos:
 change this step** and **Athos: save as a way of working** are in its command palette (ctrl+p).*
 
+**A gallery of ways of working.** [Browse examples](https://athos-agent.github.io/athos/) from law, finance,
+journalism, science, operations and sports, each with the branches it takes when the case needs them, and take one
+into your own Athos with **Use in Athos**. Have a checklist you are proud of? [Add it to the
+gallery](gallery/CONTRIBUTING.md) ([en español](gallery/CONTRIBUIR.md)).
+
 **Connectors: when a way of working needs a service.** A step of your way of working can need a service, and Athos
 checks it on every request and shows it in the panel. The first one is [pii-guard](https://github.com/watt-mind/pii-guard),
 which masks a client's personal data before the model and restores it in the answer: a lawyer's contract review in

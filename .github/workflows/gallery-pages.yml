@@ -1,0 +1,46 @@
+# Publishes the gallery of ways of working (gallery/) as the repository's GitHub Pages site.
+# The page is built from the gallery's markdown pages with Athos itself (standard library only), so it always
+# matches what `athos add` downloads.
+name: Gallery page
+
+on:
+  push:
+    branches: [main]
+    paths: ["gallery/**", "athos/gallery.py", "athos/gallery.html", ".github/workflows/gallery-pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the page
+        run: |
+          python3 bin/athos gallery build --out _site
+          cp -r gallery/en gallery/es _site/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
