@@ -2,7 +2,7 @@
 
 It asks two things (language and profession), installs a few example pieces of know-how for that profession, and
 says in plain words what to do next: open Claude Desktop's Code tab (no terminal needed) or a terminal agent, and try
-one concrete request. The example pieces are ways of working, not legal or medical advice, and every one of them
+one concrete request. The example pieces are ways of working, not legal, financial or other professional advice, and every one of them
 leaves the professional decisions to the person.
 """
 
@@ -17,13 +17,14 @@ from athos import paths, store
 
 STARTERS = Path(__file__).resolve().parents[1] / "starters"
 LANGS = ("es", "en")
-PROFILES = ("law", "sports", "other")
+PROFILES = ("law", "sports", "ops", "journalism", "science", "finance", "other")
 
 # The words the person sees. Model-facing text stays in English; what a person reads follows their language.
 TEXT = {
     "en": {
         "ask_lang": "Language / Idioma:  1) Español  2) English  [2] ",
-        "ask_profile": "What is your work?  1) Law  2) Sports coaching  3) Something else  [3] ",
+        "ask_profile": "What is your work?  1) Law  2) Sports coaching  3) Engineering on call  4) Journalism  "
+                       "5) Science  6) Finance and tax advice  7) Something else  [7] ",
         "installed": "Added {n} example ways of working for your profession:",
         "skipped": "(already there: {names})",
         "none": "No examples for this profession yet: Athos learns your ways of working as you use it.",
@@ -44,7 +45,8 @@ TEXT = {
     },
     "es": {
         "ask_lang": "Language / Idioma:  1) Español  2) English  [1] ",
-        "ask_profile": "¿A qué te dedicás?  1) Abogacía  2) Entrenamiento deportivo  3) Otra cosa  [3] ",
+        "ask_profile": "¿A qué te dedicás?  1) Abogacía  2) Entrenamiento deportivo  3) Guardias de ingeniería  "
+                       "4) Periodismo  5) Ciencia  6) Finanzas y asesoría impositiva  7) Otra cosa  [7] ",
         "installed": "Agregué {n} formas de trabajar de ejemplo para tu profesión:",
         "skipped": "(ya estaban: {names})",
         "none": "Todavía no hay ejemplos para esta profesión: Athos aprende tus formas de trabajar mientras lo usás.",
@@ -74,6 +76,14 @@ TRY = {
                        "Escribí el informe post partido con estas estadísticas."],
     ("en", "sports"): ["Plan next week for this athlete with my rules (their session log is attached).",
                        "Write the post-match report from these stats."],
+    ("es", "ops"): ["Se cayó el checkout desde las 14:05, ayudame a encontrar qué pasó (adjunto el log)."],
+    ("en", "ops"): ["Checkout has been failing since 14:05, help me find what happened (the log is attached)."],
+    ("es", "journalism"): ["Verificá esta pista sobre la licitación del puente antes de que la publique."],
+    ("en", "journalism"): ["Check this lead about the bridge contract before I publish it."],
+    ("es", "science"): ["Analizá estos resultados del ensayo con mis reglas de limpieza (adjunto los crudos)."],
+    ("en", "science"): ["Analyse these test results with my cleaning rules (the raw files are attached)."],
+    ("es", "finance"): ["Analizá este fideicomiso inmobiliario para mi cliente (adjunto el prospecto)."],
+    ("en", "finance"): ["Analyse this real-estate trust for my client (the prospectus is attached)."],
     ("es", "other"): ["Hacé el informe semanal como lo hago yo: te explico los pasos la primera vez."],
     ("en", "other"): ["Write the weekly report the way I do it: I'll explain the steps the first time."],
 }

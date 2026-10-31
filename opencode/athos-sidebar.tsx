@@ -12,7 +12,7 @@ import { execFile } from "node:child_process"
 const ATHOS = process.env.ATHOS_BIN || "__ATHOS__"
 const POLL_MS = 1500
 
-type Step = { id: string; label: string; state: "done" | "now" | "ahead" }
+type Step = { id: string; label: string; state: "done" | "now" | "ahead"; piece?: string }
 type Piece = { id: string; title: string; steps: Step[] }
 type Status = {
   lang?: string
@@ -69,7 +69,7 @@ export const tui = async (api: any) => {
         placeholder={es ? "por ejemplo: además, comparar con el índice ICL" : "e.g. also compare against the CPI"}
         onConfirm={(value: string) => {
           api.ui.dialog.clear()
-          if (value.trim()) say(`${es ? "Athos · ajustar" : "Athos · adjust"} ${piece.id}#${step.id}: ${value.trim()}`)
+          if (value.trim()) say(`${es ? "Athos · ajustar" : "Athos · adjust"} ${step.piece || piece.id}#${step.id}: ${value.trim()}`)
         }}
         onCancel={() => api.ui.dialog.clear()}
       />

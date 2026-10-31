@@ -153,16 +153,41 @@ def view(state: dict) -> dict:
             order.append(pid)
     why = state.get("task_why") or {}
     tasks = ev.tasks()
+
+    def state_of(pid: str, sid: str) -> str:
+        x = next((x for x in trail if x["kind"] == "step" and x["piece"] == pid and x["step"] == sid), None)
+        return ("done" if x.get("done") else "now") if x else "ahead"
+
+    def as_step(s, depth: int = 0) -> dict:
+        d = {"id": s.id, "label": ("↳ " if depth else "") + label(s.when, s.do, s.id), "when": s.when[:200],
+             "do": s.do[:400], "because": s.because[:300], "state": state_of(s.page, s.id)}
+        return {**d, "piece": s.page, "depth": depth} if depth else d
+
+    # A step that hands over to another page (**Calls:** / **If:**) shows that page's statements right under it, as
+    # sub-steps, so the person sees the method expand only where the case needs it; the page isn't listed again.
+    calls = {pid: {c["page"] for s in wiki.statements(store.get(pid)) for c in s.calls}
+             for pid in order if store.get(pid)}
+    order = [pid for pid in order if not any(pid in pages for q, pages in calls.items() if q != pid)]
     pieces = []
     for pid in order[:3]:
         p = store.get(pid)
         if not p:
             continue
-        seen = {x["step"]: x for x in trail if x["kind"] == "step" and x["piece"] == pid}
-        steps = [{"id": s.id, "label": label(s.when, s.do, s.id), "when": s.when[:200], "do": s.do[:400],
-                  "because": s.because[:300],
-                  "state": ("done" if seen[s.id].get("done") else "now") if s.id in seen else "ahead"}
-                 for s in wiki.statements(p)]
+        steps = []
+        for s in wiki.statements(p):
+            steps.append(as_step(s))
+            for c in s.calls:
+                q = store.get(c["page"])
+                if not q or q.id == p.id:
+                    continue
+                subs = wiki.statements(q)
+                if c["statement"]:
+                    subs = subs[next((i for i, x in enumerate(subs) if x.id == c["statement"]), 0):]
+                for i, sub in enumerate(subs):
+                    row = as_step(sub, 1)
+                    if i == 0 and c["if"]:
+                        row["if"] = c["if"]
+                    steps.append(row)
         how = "loaded" if pid in (state.get("task_loaded") or []) else "read"
         see = [{"id": q, "title": store.get(q).title} for q in wiki.links_of(p)[:3] if store.get(q)]
         pieces.append({"id": pid, "title": p.title, "version": p.version, "when": p.when[:600], "how": how,
