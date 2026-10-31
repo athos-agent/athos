@@ -215,6 +215,10 @@ def _sent_model(event: Event) -> str | None:
     return model if isinstance(model, str) and model else None
 
 
+def _transcript_model(event: Event) -> str:
+    return session.model_from_transcript(event.get("transcript_path"))
+
+
 def _is_scratch(cwd) -> bool:
     return str(cwd or "").startswith(SCRATCH_PREFIXES)
 
@@ -225,10 +229,9 @@ def task_start(event: Event, platform: str = "claude-code") -> TaskId:
     if _sent_model(event):
         state["model"] = _sent_model(event)      # Codex repeats the model on every hook event
     new_id, opened_at = _new_id(), _iso(now())
-    model = state.get("model") or session.model_from_transcript(event.get("transcript_path"))
+    model = state.get("model") or _transcript_model(event)
     prompt = str(event.get("prompt") or "")
-    state.update(platform=platform, **_fresh_task_state(new_id, opened_at, prompt))
-    session.save(sid, state)
+    session.save(sid, {**state, "platform": platform, **_fresh_task_state(new_id, opened_at, prompt)})
     opened = _start_event(new_id, sid, platform, model, paths.project_of(event.get("cwd")), opened_at,
                           event.get("prompt"))
     if _is_scratch(event.get("cwd")):
@@ -240,7 +243,7 @@ def task_start(event: Event, platform: str = "claude-code") -> TaskId:
 def _settle_model(sid: str, state: dict, event: Event) -> None:
     """Fill in the session's model at the end of a task when the start could not tell which one it was."""
     if state.get("model") in (None, "", "unknown"):
-        state["model"] = _sent_model(event) or session.model_from_transcript(event.get("transcript_path"))
+        state["model"] = _sent_model(event) or _transcript_model(event)
         session.save(sid, state)
 
 
@@ -280,9 +283,7 @@ def record_external(platform: str, model: str, pieces: list[PieceId], duration_s
     if steps:
         closed["steps"] = steps
     append(closed)
-    if result:
-        mark(result, task_id=tid)
-    return tid
+    return mark(result, task_id=tid)[0] if result else tid
 
 
 def _add_to_open_task(sid: str, key: str, ids: Iterable[PieceId]) -> None:
