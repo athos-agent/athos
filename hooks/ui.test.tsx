@@ -16,16 +16,17 @@ const STATUS = {
 }
 
 /** The engine around the hooks, as these tests fake it: the session's folder is /work, `athos` answers with
- * `cli(args)` (args are what follows `python3 bin/athos`), and the status line and toasts go nowhere. Any other
- * answer a test needs is registered beside it, before `start`. */
-function fakeEngine(on: On, cli: (args: string[]) => string): void {
+ * `cli(args)` (args are what follows `python3 bin/athos`), toasts go nowhere, and what the status line is set to is
+ * pushed to `statusLines` when a test passes one. Any other answer a test needs is registered beside it, before
+ * `start`. */
+function fakeEngine(on: On, cli: (args: string[]) => string, statusLines?: unknown[]): void {
   on('session.root', () => ({ value: '/work' }))
   on('process.run', (_, e) => {
     const stdout = cli((e as unknown as { argv: string[] }).argv.slice(2))
     return { value: { exitCode: 0, stdout, stderr: '' } }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('ui.status', () => ({ value: undefined }))
+  on('ui.status', (_, e) => { statusLines?.push(e); return { value: undefined } })
   on('ui.toast', () => ({ value: undefined }))
 }
 
@@ -91,6 +92,16 @@ test('a task with no verdict is marked with one key from the band', async ($, on
   await ui.press({ key: 'g' })
   expect(ran).toContain('mark g')
   await ui.unmount()
+})
+
+test('when the status cannot be stored, the status line goes blank and the session still starts', async ($, on) => {
+  // `athos status` answers fine, but the engine refuses to store what it printed: the hook must not throw (that
+  // would show the person an error line) and the status line must not keep a count it could not store.
+  const lines: { text?: string }[] = []
+  fakeEngine(on, always(STATUS), lines)
+  on('state.set', () => ({ deny: 'state store unavailable' }))
+  await start($)
+  expect(lines).toEqual([{}])
 })
 
 test('a task worth keeping offers [Save], which sends the save, not a question to the model', async ($, on) => {

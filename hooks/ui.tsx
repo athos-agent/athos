@@ -200,13 +200,18 @@ async function toastRun($: EngineInterface, args: string[]): Promise<void> {
 const latest = ($: EngineInterface) => read($, snap)
 
 /** Reads the store again (`athos status --json`, whose last line is the JSON), keeps it for the renders and updates
- * the status line. When the command fails the line is cleared rather than left stale. */
+ * the status line. When anything fails the line is cleared rather than left stale. */
 async function refresh($: EngineInterface): Promise<void> {
-  const parsed = await athos($, ['status', '--json'])
-    .then(out => JSON.parse(out.split('\n').pop() || 'null') as Status | null)
+  // Reading, parsing and storing are one chain: a failure anywhere in it blanks the line and never throws, since a
+  // hook that throws shows the person an error line.
+  const line = await athos($, ['status', '--json'])
+    .then(async out => {
+      const fresh = JSON.parse(out.split('\n').pop() || 'null') as Status | null
+      await update($, snap, () => fresh)
+      return statusText(fresh)
+    })
     .catch(() => undefined)
-  if (parsed !== undefined) await update($, snap, () => parsed)
-  $.ui.status(parsed ? statusText(parsed) : undefined)
+  $.ui.status(line)
 }
 
 let lastRefresh = 0
