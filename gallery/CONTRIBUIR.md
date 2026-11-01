@@ -5,6 +5,30 @@ La galería muestra formas de trabajar que cualquiera puede llevarse a su Athos 
 ramas que toma solo cuando el caso lo pide. Si tenés un checklist del que estás orgulloso, compartilo acá.
 [In English](CONTRIBUTING.md).
 
+## La forma fácil: pedíselo a tu agente
+
+Sin cuenta de GitHub y sin terminal. En Claude Desktop, Claude Code, Codex, Muse Code u OpenCode con Athos,
+decilo con tus palabras:
+
+> *Compartí mi forma de revisar contratos de alquiler en la galería.*
+
+1. Athos arma un borrador de esa forma de trabajar, y de las páginas que usa, con solo lo que la galería necesita
+   (sin historial, proyectos ni fechas), y marca lo que parece privado: emails, teléfonos, números de documento o
+   CUIT, links, carpetas, nombres de proyectos, tu nombre.
+2. El agente reemplaza lo marcado, y cualquier cliente, persona, empresa o monto de tu trabajo, por datos ficticios,
+   sin tocar tus pasos ni tus criterios. Hasta acá no salió nada de tu computadora.
+3. Te muestra qué se va a publicar (el título, los pasos, qué sacó) y te pregunta con qué nombre querés figurar, o si
+   va anónima.
+4. Cuando decís que sí, se abre en tu navegador el formulario de la galería, ya completo. Lo leés y tocás Enviar.
+   No hace falta ninguna cuenta.
+
+Nosotros la convertimos en una página de la galería (y la traducimos al otro idioma) y la publicamos con el crédito
+que elegiste. Desde una terminal: `athos share <id>`, y después `athos share <id> --send --as "<nombre>"`.
+
+## Con un pull request
+
+Si usás GitHub, podés agregar la página vos. Lo que sigue es para ese camino.
+
 ## Qué hace buena a una página
 
 - **Una forma de trabajar real de tu área**, escrita como los pasos que seguís de verdad, en el orden en que los
