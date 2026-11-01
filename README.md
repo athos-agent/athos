@@ -185,15 +185,15 @@ You can also ask in plain words: *"what ways of working do I have?"*, *"show me 
 Everything stays on your computer, in the `.athos` folder of your home, as plain text you can read and edit. The same
 ways of working run in every agent. For terminal users, every command is in the [reference](docs/REFERENCE.md).
 
-## Roadmap
+## What comes next
 
-- **Athos Cloud**: sync between your devices, a visual map of your know-how, daily control over what is shared, and an
-  improvement agent as a service.
+- **Athos Cloud**, a separate paid service: your know-how kept in sync across your devices, a map you can see it on,
+  a daily say over what is shared, and the improvement agent run for you.
 
 ## Thanks
 
 To the people whose ideas shaped Athos: see [WHY.md](WHY.md#thanks).
 
-## License
+## License and copyright
 
-Apache 2.0. See [LICENSE](LICENSE).
+Athos is open source under the Apache License 2.0: the text is in [LICENSE](LICENSE), the notice in [NOTICE](NOTICE).

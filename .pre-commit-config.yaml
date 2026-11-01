@@ -1,5 +1,7 @@
+# One check before every commit (`pre-commit install` once per clone): gitleaks looks for keys, tokens and other
+# secrets in what is being committed. CONTRIBUTING.md asks for it to come out clean before a pull request.
 repos:
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.2
     hooks:
-      - id: gitleaks
+      - { id: gitleaks, name: no secrets in this commit (gitleaks) }
