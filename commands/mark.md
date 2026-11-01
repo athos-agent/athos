@@ -1,5 +1,5 @@
 ---
-description: Give the last task its verdict: g if it went well, c if you had to correct it, f if it failed
+description: "Give the last task its verdict: g if it went well, c if you had to correct it, f if it failed"
 argument-hint: g (good) | c (corrected) | f (failed)
 allowed-tools: Bash(python3:*)
 ---
