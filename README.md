@@ -145,7 +145,10 @@ it, at 8 to 24 times less per run than Claude Code where we compared. Without it
 house format, the vent that is tiled over and the 10% for breakage, the card fee on foreign expenses and the meal cap.
 Every request names the files to write, so only the method differs; the first count (19 of 20 and 2 of 20, the one in
 the video) left two requests vague and is replaced by this one, measured on November 1. Small cases written for the
-bench, 5 runs each arm; [how to reproduce](docs/REFERENCE.md#use).
+bench, 5 runs each arm; [how to reproduce](docs/REFERENCE.md#use). The know-how carries into Meta's agents too: on
+the expense review, Muse Code and OpenCode on Muse Spark followed all ten stages in every run with it (2 of 2 each)
+and missed the same four without it (0 of 2), at about 6 to 13 times the cost of a direct call, as an agent reads
+far more context: a task you already master is cheapest delegated straight to the model.
 
 ## For professionals, not only programmers
 
