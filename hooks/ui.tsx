@@ -2,13 +2,15 @@
 // (the person's know-how it walks, step by step, and the subagents and skills beside it). The status line counts the know-how ("N ways of working · K in use · M to mark"; the engine
 // prefixes the plugin's name); the band above the prompt says when the last task saved or improved a piece and, while
 // it has no verdict, offers one-key marking. Both read `athos status --json` and stay silent with nothing to say.
-import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import { atom, read, type EngineInterface, type Register, update } from 'claude-code'
 
 import type { Bar, Status, Trail } from '../types'
 
-const snap = atom({ plugin: 'athos', key: 'snap' } as const, null)
-const dismissed = atom({ plugin: 'athos', key: 'dismissed' } as const, null)
+// Per-session memory, one engine atom each under the plugin's name: the last status read, and which task the person
+// already answered (marked, offered a save, said a load didn't apply), whether they were greeted and which task's pane
+// was opened unasked.
+const snap = atom({ key: 'snap', plugin: 'athos' } as const, null as Status | null)
+const dismissed = atom({ key: 'dismissed', plugin: 'athos' } as const, null as string | null)
 const offered = atom({ plugin: 'athos', key: 'offered' } as const, null)
 const misfired = atom({ plugin: 'athos', key: 'misfired' } as const, null)
 const greeted = atom({ plugin: 'athos', key: 'greeted' } as const, false)
@@ -79,12 +81,13 @@ export function whyText(l: NonNullable<Status['loads']>[number], w: ReturnType<t
   return `${w.used} «${l.title}» · ${recordText(l.record, w)} · ${w.matched}: ${shown}`
 }
 
+/** The status line: how many ways of working there are, how many this session uses, and, when some task still waits
+ * for a verdict, how many. Nothing at all before the first status is read. */
 export function statusText(s: Status | null): string | undefined {
-  if (!s) return undefined
+  if (s == null) return undefined
   const w = words(s)
-  const parts = [w.ways(s.pieces), w.inUse(s.loaded.length)]
-  if (s.to_mark) parts.push(w.toMark(s.to_mark))
-  return parts.join(' · ')
+  const counts = [w.ways(s.pieces), w.inUse(s.loaded.length), s.to_mark ? w.toMark(s.to_mark) : '']
+  return counts.filter(c => c !== '').join(' · ')
 }
 
 /** While a task runs: the know-how it follows, how big it is, and where else it is ready. */
@@ -115,13 +118,11 @@ export function announceText(s: Status | null): string | undefined {
   return `${what} · ${w.ready} ${l.platforms.join(' · ')}${l.recheck ? ` · ${l.recheck}` : ''}`
 }
 
+/** What the last task changed in the store, as one line ("saved a · improved b"); empty when it changed nothing. */
 export function savedText(s: Status | null): string {
-  const last = s?.last
-  if (!last) return ''
-  const out: string[] = []
-  if (last.saved.length) out.push(`saved ${last.saved.join(', ')}`)
-  if (last.improved.length) out.push(`improved ${last.improved.join(', ')}`)
-  return out.join(' · ')
+  const task = s?.last
+  const said = (verb: string, ids: string[] | undefined) => (ids?.length ? [`${verb} ${ids.join(', ')}`] : [])
+  return [...said('saved', task?.saved), ...said('improved', task?.improved)].join(' · ')
 }
 
 export type TrailRow = { mark: string; text: string; tone: 'title' | 'done' | 'now' | 'ahead' | 'new' | 'note' }
@@ -179,23 +180,38 @@ export function barText(b: Bar, s: Status | null = null): { filled: string; empt
   return { filled: '█'.repeat(n), empty: '░'.repeat(BAR_WIDTH - n), words: out.join(' · ') }
 }
 
+/** Runs this plugin's own `bin/athos` in the session's folder and hands back what it printed. A non-zero exit
+ * becomes an Error carrying the first 200 characters of its output (stderr first). */
 async function athos($: EngineInterface, args: string[]): Promise<string> {
-  const r = await $.process.run(['python3', `${$.plugin.root}/bin/athos`, ...args], {
-    cwd: await $.session.root(),
-    timeoutMs: 15_000,
-  })
-  if (r.exitCode !== 0) throw new Error((r.stderr || r.stdout).trim().slice(0, 200))
-  return r.stdout.trim()
+  const cli = `${$.plugin.root}/bin/athos`
+  const { exitCode, stdout, stderr } = await $.process.run(['python3', cli, ...args],
+                                                          { cwd: await $.session.root(), timeoutMs: 15_000 })
+  if (exitCode === 0) return stdout.trim()
+  throw new Error((stderr || stdout).trim().slice(0, 200))
 }
 
+/** Runs an `athos` command for a button press and tells the person its answer, or the start of its error, in a toast. */
+async function toastRun($: EngineInterface, args: string[]): Promise<void> {
+  const answer = await athos($, args).catch(err => String(err).slice(0, 120))
+  $.ui.toast(`athos: ${answer}`)
+}
+
+/** The last status read, as every render sees it. */
+const latest = ($: EngineInterface) => read($, snap)
+
+/** Reads the store again (`athos status --json`, whose last line is the JSON), keeps it for the renders and updates
+ * the status line. When anything fails the line is cleared rather than left stale. */
 async function refresh($: EngineInterface): Promise<void> {
-  try {
-    const s = JSON.parse((await athos($, ['status', '--json'])).split('\n').pop() || 'null') as Status | null
-    await update($, snap, () => s)
-    $.ui.status(statusText(s))
-  } catch {
-    $.ui.status(undefined)
-  }
+  // Reading, parsing and storing are one chain: a failure anywhere in it blanks the line and never throws, since a
+  // hook that throws shows the person an error line.
+  const line = await athos($, ['status', '--json'])
+    .then(async out => {
+      const fresh = JSON.parse(out.split('\n').pop() || 'null') as Status | null
+      await update($, snap, () => fresh)
+      return statusText(fresh)
+    })
+    .catch(() => undefined)
+  $.ui.status(line)
 }
 
 let lastRefresh = 0
@@ -213,39 +229,42 @@ async function follow($: EngineInterface): Promise<void> {
   void $.ui.open({ id: PANE, title: `athos · ${words(await read($, snap)).trail}` })
 }
 
-async function mark($: EngineInterface, key: 'g' | 'c' | 'f'): Promise<void> {
-  try {
-    $.ui.toast(`athos: ${await athos($, ['mark', key])}`)
-  } catch (err) {
-    $.ui.toast(`athos: ${String(err).slice(0, 120)}`)
-  }
-  await refresh($)
+/** The verdict buttons of the band, in the order they show: the key a press sends and the word on the button. */
+const VERDICTS = [['g', 'ok'], ['c', 'corrected'], ['f', 'failed']] as const
+type VerdictKey = (typeof VERDICTS)[number][0]
+
+/** The person's verdict on the last task (g good, c corrected, f failed), then a fresh read so the band moves on. */
+const mark = async ($: EngineInterface, key: VerdictKey): Promise<void> => {
+  await toastRun($, ['mark', key])
+  return refresh($)
 }
 
-export const register: Register = on => {
-  on('session.start', async ($, e, next) => {
-    const started = await next(e)
-    await refresh($)
-    return started
-  })
+/** The engine handles the event first; Athos then looks again, and the engine's own result is passed back untouched. */
+async function afterwards<R>(handled: R | Promise<R>, then: () => unknown): Promise<R> {
+  const result = await handled
+  await then()
+  return result
+}
 
-  on('prompt.submit', async ($, e, next) => {
-    const done = await next(e)
+/** When one of Athos's handlers throws, the event goes on as if Athos were not there. */
+const passOn = <E, R>(_: EngineInterface, e: E, next: (e: E) => R): R => next(e)
+
+export const register: Register = on => {
+  // A new session shows the count at once.
+  on('session.start', ($, e, next) => afterwards(next(e), () => refresh($)))
+
+  // A request was sent: no greeting from now on, and the trail is followed from the first tool.
+  on('prompt.submit', ($, e, next) => afterwards(next(e), async () => {
     await update($, greeted, () => true)
     lastRefresh = 0
     void follow($)
-    return done
-  }).catch(($, e, next) => next(e))
+  })).catch(passOn)
 
   // Each tool the agent runs may move the trail (a step, a subagent, a skill, a piece opened).
-  on('tool.call', async ($, e, next) => {
-    const ran = await next(e)
-    void follow($)
-    return ran
-  }).catch(($, e, next) => next(e))
+  on('tool.call', ($, e, next) => afterwards(next(e), () => void follow($))).catch(passOn)
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const s = await read($, snap)
+    const s = await latest($)
     const w = words(s)
     const { Box, Button, Text } = $.ui.resolve(e)
     const t = s?.trail
@@ -286,11 +305,11 @@ export const register: Register = on => {
     // The Stop hook may still be writing the [Save] offer when the turn completes: look once more shortly after.
     $.clock.after(2000, () => void refresh($))
     return done
-  }).catch(($, e, next) => next(e))
+  }).catch(passOn)
 
   // Under the prompt: the engine's own line, then one bar per agent for the piece this project used last.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    const s = await read($, snap)
+    const s = await latest($)
     const bars = s?.bars
     const card = e.props.isWorking ? followingText(s) : undefined
     const steps = e.props.isWorking ? stepsText(s) : undefined
@@ -326,15 +345,17 @@ export const register: Register = on => {
         })}
       </Box>
     )
-  }).catch(($, e, next) => next(e))
+  }).catch(passOn)
 
+  // The band above the prompt: the greeting or where the trail is, then about the last task (what it loaded and why,
+  // what it saved, whether to save it, and its verdict). A survey of the engine's own takes the place first.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const s = await read($, snap)
-    const last = s?.last
     if (e.props.hasSurvey) return next(e)
+    const s = await latest($)
+    const task = s?.last
     const w0 = words(s)
     // Before the first request: a greeting and what is ready, the way Claude says hello.
-    const hello = s?.greeting && !last && !(await read($, greeted)) ? `${s.greeting} · ${w0.ready_(s.pieces)}` : undefined
+    const hello = s?.greeting && !task && !(await read($, greeted)) ? `${s.greeting} · ${w0.ready_(s.pieces)}` : undefined
     // While a task walks know-how and its pane is not on screen: where it is, and a press to see it.
     const trail = trailText(s?.trail, w0)
     const shown = trail ? (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced) : true
@@ -351,66 +372,58 @@ export const register: Register = on => {
         ) : null}
       </B0>
     ) : null
-    if (!last || last.task_id === (await read($, dismissed))) return head ?? next(e)
-    const unmarked = last.result === 'unevaluated'
+    if (!task || task.task_id === (await read($, dismissed))) return head ?? next(e)
+    const toMark = task.result === 'unevaluated'
     // The save is announced here and not under the answer: text a plugin adds there is drawn with an engine prefix.
-    const savedNow = s?.last_saved && [...last.saved, ...last.improved].includes(s.last_saved.id)
+    const savedNow = s?.last_saved && [...task.saved, ...task.improved].includes(s.last_saved.id)
     const saved = savedNow ? announceText(s) : undefined
     // Worth keeping: the person decides with one key, instead of the model being asked after every task.
-    const offer = !saved && s?.offer?.task_id === last.task_id && (await read($, offered)) !== last.task_id
+    const offer = !saved && s?.offer?.task_id === task.task_id && (await read($, offered)) !== task.task_id
       ? s!.offer : null
     // Which of the person's know-how this task loaded and why, with one key to say it didn't fit.
     const load = s?.loads?.[0]
-    const why = load && (await read($, misfired)) !== `${last.task_id}:${load.id}` ? load : null
-    if (!unmarked && !saved && !offer && !why) return head ?? next(e)
+    const why = load && (await read($, misfired)) !== `${task.task_id}:${load.id}` ? load : null
+    if (!toMark && !saved && !offer && !why) return head ?? next(e)
 
     const { Box, Button, Text } = $.ui.resolve(e)
-    const hide = () => update($, dismissed, () => last.task_id)
-    const later = () => update($, offered, () => last.task_id)
+    const tag = <Text color="cyan">athos </Text>
+    const later = () => update($, offered, () => task.task_id)
     const keep = async () => {
-      await update($, offered, () => last.task_id)
+      await update($, offered, () => task.task_id)
       // As the person's own words: one short line in the transcript, no "a plugin sent a message" frame.
       await $.prompt.submit({ text: s!.save_prompt || 'Athos · save: keep this task as a way of working', asUser: true })
     }
     const notIt = async () => {
-      await update($, misfired, () => `${last.task_id}:${why!.id}`)
-      try {
-        $.ui.toast(`athos: ${await athos($, ['dismiss', why!.id])}`)
-      } catch (err) {
-        $.ui.toast(`athos: ${String(err).slice(0, 120)}`)
-      }
+      await update($, misfired, () => `${task.task_id}:${why!.id}`)
+      await toastRun($, ['dismiss', why!.id])
     }
     const w = words(s)
-    return (
-      <Box flexDirection="column">
-        {head}
-        {why ? (
-          <Box>
-            {/* One Text, so a narrow band (the trail pane docked beside it) wraps it without losing the space. */}
-            <Text><Text color="cyan">athos </Text><Text dimColor>{`${whyText(why, w)} `}</Text></Text>
-            <Button key="x" label={w.didntApply} onPress={notIt} />
-          </Box>
-        ) : null}
-        {saved ? <Box><Text color="cyan">athos </Text><Text color="green">{saved}</Text></Box> : null}
-        {offer ? (
-          <Box>
-            <Text color="cyan">athos </Text>
-            <Text>{offer.reason === 'checklist' ? w.offerChecklist : w.offerWork}</Text>
-            <Button key="s" label={w.save} onPress={keep} />
-            <Button key="n" label={w.notNow} onPress={later} />
-          </Box>
-        ) : null}
-        {unmarked ? (
-          <Box>
-            <Text color="cyan">athos </Text>
-            <Text dimColor>{w.ask}</Text>
-            <Button key="g" label={w.ok} onPress={() => mark($, 'g')} />
-            <Button key="c" label={w.corrected} onPress={() => mark($, 'c')} />
-            <Button key="f" label={w.failed} onPress={() => mark($, 'f')} />
-            <Button key="hide" label={w.skip} onPress={hide} />
-          </Box>
-        ) : null}
+    // Each row of the band, top to bottom; the ones with nothing to say stay out.
+    const whyRow = why ? (
+      <Box key="why">
+        {/* One Text, so a narrow band (the trail pane docked beside it) wraps it without losing the space. */}
+        <Text>{tag}<Text dimColor>{`${whyText(why, w)} `}</Text></Text>
+        <Button key="x" label={w.didntApply} onPress={notIt} />
       </Box>
-    )
+    ) : null
+    const savedRow = saved ? <Box key="saved">{tag}<Text color="green">{saved}</Text></Box> : null
+    const offerRow = offer ? (
+      <Box key="offer">
+        {tag}
+        <Text>{offer.reason === 'checklist' ? w.offerChecklist : w.offerWork}</Text>
+        <Button key="s" label={w.save} onPress={keep} />
+        <Button key="n" label={w.notNow} onPress={later} />
+      </Box>
+    ) : null
+    // Marking is one key: a verdict button each, and Skip hides the question for this task.
+    const verdictRow = toMark ? (
+      <Box key="verdict">
+        {tag}
+        <Text dimColor>{w.ask}</Text>
+        {VERDICTS.map(([key, label]) => <Button key={key} label={w[label]} onPress={() => mark($, key)} />)}
+        <Button key="hide" label={w.skip} onPress={() => update($, dismissed, () => task.task_id)} />
+      </Box>
+    ) : null
+    return <Box flexDirection="column">{head}{whyRow}{savedRow}{offerRow}{verdictRow}</Box>
   })
 }

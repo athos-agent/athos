@@ -1,125 +1,149 @@
 import os
+from unittest import mock
 
 from athos import capture, session, store
 from tests.helpers import TempHome
 
-PIECE = """---
-title: Run the flaky test until it fails
-when: a test fails only sometimes in CI
----
-1. Run it 20 times with `-x`.
-2. Look for shared state between tests.
-"""
+FLAKY_PIECE = "\n".join((
+    "---",
+    "title: Run the flaky test until it fails",
+    "when: a test fails only sometimes in CI",
+    "---",
+    "1. Run it 20 times with `-x`.",
+    "2. Look for shared state between tests.",
+    "",
+))
 
 
-class CaptureTest(TempHome):
-    def test_save_creates_a_piece_with_origin_and_project(self):
-        session.update("s1", model="claude-opus-5-5")
-        piece, diff = capture.save_text(PIECE, "s1", cwd=self.home)
-        self.assertIsNone(diff)
-        got = store.get(piece.id)
-        self.assertEqual(got.when, "a test fails only sometimes in CI")
-        self.assertEqual(got.origin, {"platform": "claude-code", "model": "claude-opus-5-5"})
-        self.assertEqual(got.projects, [os.path.basename(self.home)])
-        self.assertIn("Run it 20 times", got.body)
+def edits(sid: str, n: int) -> None:
+    """`n` file edits in session `sid`, as the PostToolUse hook reports them."""
+    for _ in range(n):
+        capture.count_tool({"session_id": sid, "tool_name": "Edit"})
 
-    def test_save_rejects_incomplete_pieces(self):
-        with self.assertRaises(ValueError):
-            capture.save_text("---\ntitle: x\n---\nbody", "s1")
-        with self.assertRaises(ValueError):
-            capture.save_text("---\ntitle: x\nwhen: y\n---\n", "s1")
 
-    def test_save_resets_the_counter(self):
-        for _ in range(7):
-            capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
-        capture.save_text(PIECE, "s1")
-        self.assertEqual(session.load("s1")["tools_since_capture"], 0)
+def shell(sid: str, command: str) -> None:
+    capture.count_tool({"session_id": sid, "tool_name": "Bash", "tool_input": {"command": command}})
 
-    def test_stop_waits_for_enough_work(self):
-        for _ in range(capture.THRESHOLD - 1):
-            capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
-        self.assertIsNone(capture.stop_decision({"session_id": "s1"}))
-        capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
-        out = capture.stop_decision({"session_id": "s1"})
-        self.assertEqual(out["decision"], "block")
-        self.assertIn("save <<'EOF'", out["reason"])
 
-    def test_stop_asks_once_then_lets_claude_stop(self):
-        for _ in range(capture.THRESHOLD):
-            capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
-        self.assertIsNotNone(capture.stop_decision({"session_id": "s1"}))
-        self.assertIsNone(capture.stop_decision({"session_id": "s1"}))                       # counter was reset
-        for _ in range(capture.THRESHOLD):
-            capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
-        self.assertIsNone(capture.stop_decision({"session_id": "s1", "stop_hook_active": True}))
+def tally(sid: str) -> int:
+    """Tool calls counted since the last capture."""
+    return session.load(sid).get("tools_since_capture", 0)
 
-    def test_stop_can_be_turned_off(self):
-        for _ in range(capture.THRESHOLD):
-            capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
-        os.environ["ATHOS_CAPTURE"] = "off"
-        try:
-            self.assertIsNone(capture.stop_decision({"session_id": "s1"}))
-        finally:
-            del os.environ["ATHOS_CAPTURE"]
 
-    def test_stop_suggests_improving_loaded_pieces(self):
+def ask(sid: str, **event):
+    """What the Stop hook answers for session `sid`."""
+    return capture.stop_decision({"session_id": sid, **event})
+
+
+class SavingTest(TempHome):
+    def test_a_new_piece_keeps_its_origin_and_project(self):
+        session.update("new", model="claude-opus-5-5")
+        piece, diff = capture.save_text(FLAKY_PIECE, "new", cwd=self.home)
+        self.assertIsNone(diff, "a new piece has no diff")
+        stored = store.get(piece.id)
+        self.assertEqual(
+            (stored.when, stored.origin, stored.projects),
+            ("a test fails only sometimes in CI", {"platform": "claude-code", "model": "claude-opus-5-5"},
+             [os.path.basename(self.home)]))
+        self.assertIn("Run it 20 times", stored.body)
+
+    def test_a_piece_missing_when_or_body_is_refused(self):
+        for incomplete in ("---\ntitle: x\n---\nbody", "---\ntitle: x\nwhen: y\n---\n"):
+            with self.subTest(text=incomplete), self.assertRaises(ValueError):
+                capture.save_text(incomplete, "s1")
+
+    def test_improving_a_piece_needs_something_to_change(self):
+        piece, _ = capture.save_text(FLAKY_PIECE, "s1")
+        self.assertRaises(ValueError, capture.save_text, f"---\nid: {piece.id}\n---\n", "s1")
+        better, diff = capture.save_text(f"---\nid: {piece.id}\nnote: tighter\n---\nRun it 50 times.", "s1")
+        self.assertEqual((better.id, better.version), (piece.id, 2))
+        self.assertTrue(diff)
+
+    def test_saving_starts_the_tally_over(self):
+        edits("s1", 7)
+        capture.save_text(FLAKY_PIECE, "s1")
+        self.assertEqual(tally("s1"), 0)
+
+
+class StopHookTest(TempHome):
+    def test_it_waits_for_enough_work(self):
+        edits("s1", capture.THRESHOLD - 1)
+        self.assertIsNone(ask("s1"))
+        edits("s1", 1)
+        answer = ask("s1")
+        self.assertEqual(answer["decision"], "block")
+        self.assertIn("save <<'EOF'", answer["reason"])
+
+    def test_it_asks_once_and_never_inside_its_own_stop(self):
+        edits("s1", capture.THRESHOLD)
+        self.assertIsNotNone(ask("s1"))
+        self.assertIsNone(ask("s1"))                                     # the tally started over
+        edits("s1", capture.THRESHOLD)
+        self.assertIsNone(ask("s1", stop_hook_active=True))
+
+    def test_the_environment_can_switch_it_off(self):
+        edits("s1", capture.THRESHOLD)
+        with mock.patch.dict(os.environ, {"ATHOS_CAPTURE": "off"}):
+            self.assertFalse(capture.enabled())
+            self.assertIsNone(ask("s1"))
+
+    def test_it_points_at_the_pieces_already_loaded(self):
         session.update("s1", loaded=["fix-flaky-test"], tools_since_capture=capture.THRESHOLD, work_since_capture=1,
                        edits_since_capture=1)
-        self.assertIn("fix-flaky-test", capture.stop_decision({"session_id": "s1"})["reason"])
+        self.assertIn("fix-flaky-test", ask("s1")["reason"])
 
 
-class CounterTest(TempHome):
-    def test_subagent_tool_calls_do_not_count(self):
-        # Found live: a background research agent's tool calls kept asking for captures on turns with no work.
+class TallyTest(TempHome):
+    def test_a_subagents_calls_are_not_the_persons_work(self):
+        # Seen in real use: a research agent running in the background made the Stop hook ask on turns with no work.
+        subagent_call = {"session_id": "s1", "agent_id": "a1", "tool_name": "WebFetch"}
         for _ in range(10):
-            capture.count_tool({"session_id": "s1", "agent_id": "a1", "tool_name": "WebFetch"})
-        self.assertIsNone(capture.stop_decision({"session_id": "s1"}))
+            capture.count_tool(dict(subagent_call))
+        self.assertIsNone(ask("s1"))
+        self.assertEqual(tally("s1"), 0)
 
-    def test_athos_own_commands_do_not_count(self):
-        for cmd in ("/x/bin/athos save <<'EOF'", "athos mark g", "python3 /p/bin/athos report"):
-            capture.count_tool({"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": cmd}})
-        self.assertEqual(session.load("s1").get("tools_since_capture", 0), 0)
-        capture.count_tool({"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": "git status"}})
-        self.assertEqual(session.load("s1")["tools_since_capture"], 1)
+    def test_athos_commands_are_not_counted(self):
+        for command in ("/x/bin/athos save <<'EOF'", "athos mark g", "python3 /p/bin/athos report"):
+            shell("s1", command)
+        self.assertEqual(tally("s1"), 0)
+        shell("s1", "git status")
+        self.assertEqual(tally("s1"), 1)
 
-    def test_a_new_request_starts_the_count_again(self):
+    def test_each_request_has_its_own_tally(self):
         from athos import eval as ev
-        for _ in range(capture.THRESHOLD - 1):
-            capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
-        ev.task_start({"session_id": "s1", "prompt": "next request"})
-        capture.count_tool({"session_id": "s1", "tool_name": "Edit"})
-        self.assertIsNone(capture.stop_decision({"session_id": "s1"}))
+        edits("s1", capture.THRESHOLD - 1)
+        ev.task_start({"session_id": "s1", "prompt": "now something else"})
+        edits("s1", 1)
+        self.assertIsNone(ask("s1"))
 
 
 class QuietCaptureTest(TempHome):
     def test_with_the_guide_given_the_stop_line_is_short(self):
         from athos import load
         store.create("Ship", "shipping", "1. ship")
-        text = load.on_session_start({"session_id": "s2", "cwd": self.home})
-        self.assertIn("Saving know-how (Athos)", text)
-        for _ in range(capture.THRESHOLD):
-            capture.count_tool({"session_id": "s2", "tool_name": "Edit"})
-        reason = capture.stop_decision({"session_id": "s2"})["reason"]
-        self.assertLess(len(reason), 140)
-        self.assertIn("athos save", reason)
+        opening = load.on_session_start({"session_id": "s2", "cwd": self.home})
+        self.assertIn("Saving know-how (Athos)", opening)
+        edits("s2", capture.THRESHOLD)
+        line = ask("s2")["reason"]
+        self.assertLess(len(line), 140)
+        self.assertIn("athos save", line)
 
     def test_without_the_guide_the_stop_line_carries_the_format(self):
-        for _ in range(capture.THRESHOLD):
-            capture.count_tool({"session_id": "s3", "tool_name": "Edit"})
-        self.assertIn("save <<'EOF'", capture.stop_decision({"session_id": "s3"})["reason"])
+        edits("s3", capture.THRESHOLD)
+        self.assertIn("save <<'EOF'", ask("s3")["reason"])
 
-    def test_save_records_where_the_piece_is_ready(self):
-        piece, _ = capture.save_text(PIECE, "s4")
-        self.assertEqual(session.load("s4")["last_saved"],
-                         {"id": piece.id, "title": piece.title, "version": 1, "platforms": ["Claude Code"]})
+    def test_the_session_learns_where_the_saved_piece_is_ready(self):
+        piece, _ = capture.save_text(FLAKY_PIECE, "s4")
+        expected = {"id": piece.id, "title": piece.title, "version": 1, "platforms": ["Claude Code"]}
+        self.assertEqual(session.load("s4")["last_saved"], expected)
 
-    def test_save_refreshes_an_existing_export_for_codex_and_muse(self):
+    def test_an_existing_codex_export_is_refreshed_on_save(self):
         from athos.adapters import codex
-        d = codex.skills_dir()
-        self.assertTrue(str(d).startswith(self.home))
-        (d / "athos-old").mkdir(parents=True)
-        piece, _ = capture.save_text(PIECE, "s5")
-        self.assertTrue((d / f"athos-{piece.id}" / "SKILL.md").exists())
+        skills = codex.skills_dir()
+        self.assertTrue(str(skills).startswith(self.home))
+        (skills / "athos-old").mkdir(parents=True)
+        piece, _ = capture.save_text(FLAKY_PIECE, "s5")
+        self.assertTrue((skills / f"athos-{piece.id}" / "SKILL.md").exists())
         self.assertEqual(session.load("s5")["last_saved"]["platforms"], ["Claude Code", "Codex", "Muse Code"])
 
 

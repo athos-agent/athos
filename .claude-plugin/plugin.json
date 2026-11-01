@@ -1,19 +1,11 @@
 {
   "name": "athos",
-  "version": "0.1.87",
-  "description": "Your AI know-how. Free to move, fast to run. Captures how you work with AI as plain markdown you own, improves it, and loads only what each task needs.",
-  "author": {
-    "name": "Matías Molinas"
-  },
-  "homepage": "https://github.com/athos-agent/athos",
-  "repository": "https://github.com/athos-agent/athos",
+  "version": "0.1.88",
+  "description": "Your AI know-how, free to move and fast to run: how you work with AI, kept as markdown files you own, improved as you go, and loaded only when a task needs it.",
+  "author": { "name": "Matías Molinas", "url": "https://github.com/matiasmolinas" },
+  "homepage": "https://github.com/athos-agent/athos#readme",
+  "repository": "https://github.com/athos-agent/athos.git",
   "license": "Apache-2.0",
-  "keywords": [
-    "know-how",
-    "memory",
-    "claude-code",
-    "portability",
-    "local-first"
-  ],
+  "keywords": ["know-how", "memory", "claude-code", "portability", "local-first"],
   "types": "./types/index.d.ts"
 }

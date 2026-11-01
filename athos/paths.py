@@ -1,5 +1,8 @@
-"""Where Athos keeps the user's know-how. Everything lives under one folder the user owns (default `~/.athos`,
-overridable with `ATHOS_HOME`), never inside the plugin, so it survives updates and uninstalls."""
+"""Locations of everything Athos stores for the user.
+
+All of it sits in a single folder that belongs to the user: `~/.athos` unless `ATHOS_HOME` names another one. The
+plugin folder never holds user data, so reinstalling or removing the plugin cannot lose any know-how.
+"""
 
 from __future__ import annotations
 
@@ -7,25 +10,39 @@ import os
 import subprocess
 from pathlib import Path
 
+_DEFAULT_DIRNAME = ".athos"
+_GIT_FAILURES = (OSError, subprocess.SubprocessError)    # the command is missing, hung, or could not start
+
 
 def home() -> Path:
-    return Path(os.environ.get("ATHOS_HOME") or Path.home() / ".athos")
+    """The root of the user's Athos folder (`ATHOS_HOME` when set and non-empty)."""
+    override = os.environ.get("ATHOS_HOME")
+    if override:
+        return Path(override)
+    return Path.home() / _DEFAULT_DIRNAME
+
+
+def _under_home(*parts: str) -> Path:
+    return home().joinpath(*parts)
 
 
 def know_how() -> Path:
-    return home() / "know-how"
+    """Folder with one markdown file per piece of know-how."""
+    return _under_home("know-how")
 
 
 def history() -> Path:
-    return know_how() / ".history"
+    """Archive of earlier versions, kept inside the know-how folder."""
+    return know_how().joinpath(".history")
 
 
 def selection_file() -> Path:
-    return home() / "selection.json"
+    return _under_home("selection.json")
 
 
 def sessions() -> Path:
-    return home() / "sessions"
+    """Per-session state files (see `athos.session`)."""
+    return _under_home("sessions")
 
 
 def import_since() -> str | None:
@@ -38,15 +55,25 @@ def import_since() -> str | None:
 
 
 def events_file() -> Path:
-    return home() / "events.jsonl"
+    """Append-only log of what Athos did, one JSON object per line."""
+    return _under_home("events.jsonl")
+
+
+def _git_toplevel(folder: Path) -> str:
+    """Root of the git work tree containing `folder`, or "" when there is none (or git is unavailable)."""
+    cmd = ["git", "-C", str(folder), "rev-parse", "--show-toplevel"]
+    try:
+        done = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+    except _GIT_FAILURES:
+        return ""
+    return done.stdout.strip()
 
 
 def project_of(cwd: str | Path | None = None) -> str:
-    """The project a directory belongs to: the git repository's folder name, or the directory's own name."""
-    cwd = Path(cwd or os.getcwd())
-    try:
-        top = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
-                             capture_output=True, text=True, timeout=5).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        top = ""
-    return Path(top).name if top else cwd.name
+    """Name used for the project a folder is part of.
+
+    Inside a git work tree that is the name of the repository's top folder; anywhere else, the folder's own name.
+    With no argument the folder the process runs in is used."""
+    folder = Path(cwd) if cwd else Path(os.getcwd())
+    top = _git_toplevel(folder)
+    return Path(top).name if top else folder.name

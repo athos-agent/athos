@@ -13,7 +13,8 @@ Athos is entered in the [Meta Global AI Developer Hackathon](https://cerebralval
 (Oct 26 – Nov 4, 2026). **Before the event** there was a one-day prototype (Oct 25–26, tag
 [`pre-hackathon`](https://github.com/athos-agent/athos/tree/pre-hackathon)): a Claude Code plugin that saved a way of
 working as a markdown file and loaded it for a matching request, a Codex adapter, a local task report and
-`athos delegate` to a local model. **During the event** we built the rest:
+`athos delegate` to a local model. **During the event** we built the rest, and rewrote that prototype's code as
+new code:
 
 - **Meta's models and agents:** Athos in Meta's Muse Code (the same plugin) and in OpenCode on Muse Spark,
   `athos delegate --backend meta` on Muse Spark, and `athos bench`, where Muse Spark with your know-how did 19 of 20
@@ -201,15 +202,15 @@ You can also ask in plain words: *"what ways of working do I have?"*, *"show me 
 Everything stays on your computer, in the `.athos` folder of your home, as plain text you can read and edit. The same
 ways of working run in every agent. For terminal users, every command is in the [reference](docs/REFERENCE.md).
 
-## Roadmap
+## What comes next
 
-- **Athos Cloud**: sync between your devices, a visual map of your know-how, daily control over what is shared, and an
-  improvement agent as a service.
+- **Athos Cloud**, a separate paid service: your know-how kept in sync across your devices, a map you can see it on,
+  a daily say over what is shared, and the improvement agent run for you.
 
 ## Thanks
 
 To the people whose ideas shaped Athos: see [WHY.md](WHY.md#thanks).
 
-## License
+## License and copyright
 
-Apache 2.0. See [LICENSE](LICENSE).
+Athos is open source under the Apache License 2.0: the text is in [LICENSE](LICENSE), the notice in [NOTICE](NOTICE).

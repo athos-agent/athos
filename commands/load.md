@@ -5,4 +5,4 @@ allowed-tools: Bash(python3:*)
 ---
 !`python3 "${CLAUDE_PLUGIN_ROOT}/bin/athos" load $ARGUMENTS`
 
-Tell the user in one line what will load from now on.
+Say in one line which know-how may load from here on.

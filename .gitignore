@@ -1,34 +1,31 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.eggs/
-build/
-dist/
-.venv/
-venv/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
+# What never goes into this repository.
 
-# Local know-how, metrics and exports never belong in the repo
+# Athos's promise is that a person's know-how stays on their machine: a project's local store, task logs, local
+# databases (with their journal files) and metrics are theirs, not the repo's.
 .athos/
 *.jsonl
-*.sqlite
 *.db
+*.sqlite*
 METRICS.md
 
-# Editors and OS
+# Anything that may hold a secret: every dotenv file, whatever its suffix.
+.env*
+
+# Python leftovers: bytecode, virtual environments, and the caches and coverage data tools write beside the code.
+# The repo has no packaging step, so there is no build output to ignore.
+__pycache__/
+.venv/
+venv/
+.*_cache/
+.coverage*
+
+# Editor and OS clutter (vim swap files included).
 .DS_Store
 .idea/
 .vscode/
-*.swp
+*.sw[po]
 
-# Secrets
-.env
-.env.*
+# Demo recordings: only the GIFs that the README and the docs show are kept.
 demo/*.gif
 !demo/athos-claude-to-codex.gif
 !demo/codex-lawyer-en.gif
@@ -40,3 +37,7 @@ demo/*.gif
 !demo/gallery-en.gif
 !demo/desktop-gallery-dd-en.gif
 !demo/memory-en.gif
+
+# local build output (the Desktop extension and the skill zip)
+dist/
+build/

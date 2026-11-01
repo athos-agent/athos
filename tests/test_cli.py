@@ -1,46 +1,64 @@
-import unittest
-import shlex
+"""The `athos` command run as the agents run it: a separate process, with the event JSON on stdin for the hooks."""
+
 import json
 import os
+import shlex
+import stat
 import subprocess
 import sys
+import unittest
 from pathlib import Path
 
 from athos import store
 from tests.helpers import TempHome
 
-ATHOS = str(Path(__file__).resolve().parents[1] / "bin" / "athos")
+LAUNCHER = Path(__file__).resolve().parent.parent / "bin" / "athos"
+TAGGING = "---\ntitle: Tag a release\nwhen: tagging a release of the package\n---\nRun `git tag` with the version."
 
 
-class CliTest(TempHome):
+class ThroughTheLauncher(TempHome):
+    """Runs bin/athos in a child process inside the test's store. Headless by default (CLAUDE_CODE_ENTRYPOINT=sdk-cli,
+    as under `claude -p`), where the stop hook asks the model instead of offering the [Save] button."""
+
     def run_athos(self, *args, stdin="", cwd=None, env=None):
-        # Headless by default (like `claude -p`): the hooks then ask the model, as an interactive session would offer.
-        return subprocess.run([sys.executable, ATHOS, *args], input=stdin, capture_output=True, text=True,
-                              cwd=cwd or self.home,
-                              env={**os.environ, "CLAUDE_CODE_ENTRYPOINT": "sdk-cli", **(env or {})})
+        child_env = dict(os.environ, CLAUDE_CODE_ENTRYPOINT="sdk-cli")
+        child_env.update(env or {})
+        return subprocess.run([sys.executable, str(LAUNCHER), *args], input=stdin, text=True, capture_output=True,
+                              cwd=cwd or self.home, env=child_env)
 
-    def hook(self, event, payload):
-        r = self.run_athos("hook", event, stdin=json.dumps(payload))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        return json.loads(r.stdout) if r.stdout.strip() else None
+    def send(self, event, payload):
+        """Send one hook event; give back the JSON it answered with, or None when it stayed silent."""
+        done = self.run_athos("hook", event, stdin=json.dumps(payload))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        answer = done.stdout.strip()
+        return json.loads(answer) if answer else None
 
-    def test_the_whole_cycle_through_the_hooks(self):
-        ev = {"session_id": "s1", "cwd": self.home, "transcript_path": None}
-        self.assertIsNone(self.hook("session-start", {**ev, "model": "claude-opus-5-5"}))     # empty store: silent
-        for _ in range(5):
-            self.hook("tool", ev)
-        stop = self.hook("stop", ev)                                  # Claude Code: feedback, not a "hook error"
-        self.assertIn("athos save", stop["hookSpecificOutput"]["additionalContext"])
-        piece = "---\ntitle: Bump a version\nwhen: releasing a new version of a package\n---\nEdit pyproject."
-        r = self.run_athos("save", stdin=piece)                       # what Claude runs, from the session's cwd
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("saved bump-a-version", r.stdout)
-        saved = (Path(self.home) / "know-how" / "bump-a-version.md").read_text()
-        self.assertIn("model: claude-opus-5-5", saved)
-        start = self.hook("session-start", {"session_id": "s2", "cwd": self.home})
-        self.assertIn("bump-a-version", start["hookSpecificOutput"]["additionalContext"])
-        ctx = self.hook("prompt", {"session_id": "s2", "cwd": self.home, "prompt": "release a new version please"})
-        self.assertIn("Edit pyproject.", ctx["hookSpecificOutput"]["additionalContext"])
+    @staticmethod
+    def context(answer):
+        return answer["hookSpecificOutput"]["additionalContext"]
+
+
+class CliTest(ThroughTheLauncher):
+    def test_a_session_saves_know_how_and_the_next_one_gets_it(self):
+        first = {"session_id": "s1", "cwd": self.home, "transcript_path": None}
+        # Nothing stored yet, so the session opens without any context.
+        self.assertIsNone(self.send("session-start", dict(first, model="claude-opus-5-5")))
+        for tool in ["Edit"] * 5:                                   # enough work for the stop hook to ask for a save
+            self.send("tool", dict(first, tool_name=tool))
+        # Claude Code shows the request to save as feedback for the model, not as a "hook error".
+        self.assertIn("athos save", self.context(self.send("stop", first)))
+        # The model saves from the session's folder; the page records the model that wrote it.
+        saved = self.run_athos("save", stdin="---\ntitle: Bump a version\nwhen: releasing a new version of a "
+                                             "package\n---\nEdit pyproject.")
+        self.assertEqual(saved.returncode, 0, saved.stderr)
+        self.assertIn("saved bump-a-version", saved.stdout)
+        page = Path(self.home, "know-how", "bump-a-version.md").read_text()
+        self.assertIn("model: claude-opus-5-5", page)
+        # The next session is told the piece exists, and a matching request brings in its text.
+        second = {"session_id": "s2", "cwd": self.home}
+        self.assertIn("bump-a-version", self.context(self.send("session-start", second)))
+        prompt = self.send("prompt", dict(second, prompt="release a new version please"))
+        self.assertIn("Edit pyproject.", self.context(prompt))
 
     def test_an_interactive_claude_code_session_offers_a_button_instead(self):
         ev = {"session_id": "i1", "cwd": self.home, "transcript_path": None}
@@ -57,69 +75,81 @@ class CliTest(TempHome):
 
     def test_the_save_button_request_gets_the_instruction_out_of_sight_and_starts_no_task(self):
         from athos import capture, eval as ev
-        out = self.hook("prompt", {"session_id": "b1", "cwd": self.home, "prompt": capture.SAVE_PROMPT["en"]})
+        out = self.send("prompt", {"session_id": "b1", "cwd": self.home, "prompt": capture.SAVE_PROMPT["en"]})
         self.assertIn("athos save", out["hookSpecificOutput"]["additionalContext"])
         self.assertEqual([e for e in ev.events() if e["type"] == "task_start"], [])
 
     def test_codex_still_gets_a_stop_block(self):
         ev = {"session_id": "s1", "cwd": self.home, "transcript_path": None}
         for _ in range(5):
-            self.hook("tool", ev)
+            self.send("tool", ev)
         r = self.run_athos("hook", "stop", "--platform", "codex", stdin=json.dumps(ev))
         self.assertEqual(json.loads(r.stdout)["decision"], "block")
 
-    def test_a_broken_event_never_breaks_the_session(self):
-        r = self.run_athos("hook", "prompt", stdin="not json")
-        self.assertEqual(r.returncode, 0)
-        self.assertEqual(r.stdout, "")
+    def test_unreadable_event_json_leaves_stdout_empty_and_exits_zero(self):
+        done = self.run_athos("hook", "prompt", stdin="{ this is not an event")
+        self.assertEqual((done.returncode, done.stdout), (0, ""))
+        self.assertIn("athos hook prompt:", done.stderr)              # the reason goes to stderr only
 
-    def test_commands(self):
-        self.run_athos("save", stdin="---\ntitle: A\nwhen: aaa bbb\n---\nbody")
-        self.assertIn("1 piece(s)", self.run_athos("list").stdout)
-        self.assertIn("title: A", self.run_athos("show", "a").stdout)
-        self.assertIn("pieces a", self.run_athos("load", "pieces", "a").stdout)
-        self.assertEqual(self.run_athos("load", "pieces", "zzz").returncode, 1)
-        out = Path(self.home) / "exported"
-        self.assertIn("exported 1", self.run_athos("export", str(out)).stdout)
-        self.assertTrue((out / "a.md").is_file())
+    def test_list_show_load_and_export(self):
+        self.run_athos("save", stdin=TAGGING)
+        listing = self.run_athos("list").stdout
+        self.assertIn("1 piece(s)", listing)
+        self.assertIn("tag-a-release  v1  Tag a release", listing)
+        self.assertIn("Run `git tag`", self.run_athos("show", "tag-a-release").stdout)
+        self.assertEqual(self.run_athos("show", "missing").returncode, 1)
+        chosen = self.run_athos("load", "pieces", "tag-a-release")
+        self.assertIn("pieces tag-a-release", chosen.stdout)
+        self.assertIn("loading: pieces tag-a-release", self.run_athos("load").stdout)   # bare: the current choice
+        self.assertEqual(self.run_athos("load", "pieces", "no-such-piece").returncode, 1)
+        folder = Path(self.home, "exported")
+        self.assertIn("exported 1", self.run_athos("export", str(folder)).stdout)
+        self.assertTrue(Path(folder, "tag-a-release.md").is_file())
+        self.assertEqual(self.run_athos("export").returncode, 1)                # no folder named
 
-    def test_show_inside_a_session_marks_the_piece_loaded(self):
-        self.run_athos("save", stdin="---\ntitle: A\nwhen: aaa bbb\n---\nbody")
-        self.hook("session-start", {"session_id": "s9", "cwd": self.home})
-        self.run_athos("show", "a")
+    def test_reading_a_piece_during_a_session_counts_as_loading_it(self):
         from athos import session
-        self.assertEqual(session.load("s9")["loaded"], ["a"])
+        self.run_athos("save", stdin=TAGGING)
+        self.send("session-start", {"session_id": "reader", "cwd": self.home})
+        self.assertEqual(self.run_athos("show", "tag-a-release").returncode, 0)
+        self.assertEqual(session.load("reader")["loaded"], ["tag-a-release"])
 
-    def test_status_for_the_terminal(self):
-        ev = {"session_id": "s5", "cwd": self.home}
-        self.hook("session-start", ev)
-        self.hook("prompt", {**ev, "prompt": "release a new version"})
-        self.run_athos("save", stdin="---\ntitle: Release\nwhen: release a new version\n---\nBump.")
-        self.hook("stop", ev)
-        s = json.loads(self.run_athos("status", "--json").stdout)
-        self.assertEqual((s["pieces"], s["to_mark"]), (1, 1))
-        self.assertEqual(s["last"]["saved"], ["release"])
-        self.assertEqual(s["last"]["result"], "unevaluated")
-        self.run_athos("mark", "g")
-        s = json.loads(self.run_athos("status", "--json").stdout)
-        self.assertEqual((s["to_mark"], s["last"]["result"]), (0, "ok"))
+    def test_status_reports_the_last_task_before_and_after_its_mark(self):
+        folder = {"session_id": "s5", "cwd": self.home}
 
-    def test_save_explains_a_read_only_store(self):
-        os.chmod(self.home, 0o500)
+        def snapshot():
+            return json.loads(self.run_athos("status", "--json").stdout)
+
+        self.send("session-start", folder)
+        self.send("prompt", dict(folder, prompt="release a new version"))
+        page = "---\ntitle: Release\nwhen: release a new version\n---\nBump the version, then tag it."
+        self.assertEqual(self.run_athos("save", stdin=page).returncode, 0)
+        self.send("stop", folder)
+        before = snapshot()
+        self.assertEqual((before["pieces"], before["to_mark"]), (1, 1))
+        self.assertEqual((before["last"]["saved"], before["last"]["improved"]), (["release"], []))
+        self.assertEqual(before["last"]["result"], "unevaluated")
+        self.assertIn("task", self.run_athos("mark", "g").stdout)
+        after = snapshot()
+        self.assertEqual((after["to_mark"], after["last"]["result"]), (0, "ok"))
+        self.assertIn("1 ways of working", self.run_athos("status").stdout)
+
+    def test_a_save_into_a_read_only_store_says_how_to_allow_it(self):
+        os.chmod(self.home, stat.S_IRUSR | stat.S_IXUSR)            # the store as Codex's sandbox sees it
         try:
-            r = self.run_athos("save", stdin="---\ntitle: A\nwhen: aaa\n---\nbody", cwd="/")
+            refused = self.run_athos("save", stdin=TAGGING, cwd="/")
         finally:
-            os.chmod(self.home, 0o700)
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("writable_roots", r.stderr)
-        self.assertNotIn("Traceback", r.stderr)
+            os.chmod(self.home, stat.S_IRWXU)
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("writable_roots", refused.stderr)          # how to let Codex's sandbox write the store
+        self.assertNotIn("Traceback", refused.stderr)
 
 
 class StartTest(TempHome):
     """A first run for people who don't program: language, profession, example ways of working."""
 
     def run_cli(self, args):
-        r = subprocess.run([sys.executable, ATHOS, *args], capture_output=True, text=True, cwd=self.home,
+        r = subprocess.run([sys.executable, str(LAUNCHER), *args], capture_output=True, text=True, cwd=self.home,
                            env=dict(os.environ), stdin=subprocess.DEVNULL)
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout

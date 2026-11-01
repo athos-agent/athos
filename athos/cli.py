@@ -1,26 +1,29 @@
-"""The `athos` command.
+"""Entry point of the `athos` command line: argument parsing, the plugin hooks, and one handler per subcommand.
+
+Everyday commands (`athos <command> --help` has the details of each):
 
     athos start                        first run: language, profession, example ways of working (no programming needed)
-    athos list                         the pieces, with what is enabled
-    athos show <id>                    one piece
-    athos save                         save a piece from stdin (creates it, or improves the one named by `id:`)
-    athos load [all | project [name] | pieces <id>... | none]   what may load; no argument shows the current choice
-    athos export <dir>                 copy the whole store to a folder
-    athos export --codex [dir]         write each piece as a Codex skill (default ~/.agents/skills)
-    athos codex install|uninstall      add or remove Athos's hooks in Codex (~/.codex/hooks.json)
-    athos import codex [--include-tmp] record Codex's past tasks from its session files (report does it too)
+    athos list                         every piece in the store; a filled dot marks the ones allowed to load here
+    athos show <id>                    print a piece (inside a session, that also counts as loading it)
+    athos save                         read a piece on stdin and store it: new, or a new version of the `id:` it names
+    athos load [all | project [name] | pieces <id>... | none]   choose what may load; bare, it prints the choice
+    athos export <dir>                 a plain copy of every piece into a folder
+    athos export --codex [dir]         every piece as a skill Codex reads (default ~/.agents/skills)
+    athos codex install|uninstall      wire Athos's hooks into Codex, or unwire them (~/.codex/hooks.json)
+    athos import codex [--include-tmp] pull Codex's finished tasks from its session logs (`athos report` does it too)
     athos revert <id> [--to N]         put back a piece's previous version (or version N), as a new version
     athos library [--port N]           every way of working at a glance, as a local page (127.0.0.1)
     athos watch                       a live panel: one bar per agent for this project's know-how (for Codex)
     athos watch --web                 the trail panel as a local page, beside Muse Code, Codex or OpenCode
     athos export --muse [<folder>]    the same skills for Muse Code; `athos import muse` records its tasks
-    athos delegate <id> "<request>"    run a task you have mastered on a small local model (Ollama), recorded as `local`
+    athos delegate <id> "<request>"    hand a task you already master to a small model on this machine (Ollama),
+                                       recorded under the `local` platform
     athos delegate <id> "<request>" --backend meta   the same on Meta Model API (muse-spark-1.3), recorded as `meta`
     athos delegate <id> "<request>" --by-step   statement by statement, each on its `**Model:**` (local, meta, …)
     athos route <id> [--apply]         per step, which models ran it and how those tasks ended; --apply writes the
                                        cheapest one that never ended corrected or failed
-    athos mark g|c|f [task]            your verdict on the last task: good, corrected or failed
-    athos report [--json]              what each piece and each model brings to your work
+    athos mark g|c|f [task]            how the last task went, in your words: good, corrected or failed
+    athos report [--json]              the value each piece and each model adds to your own work
     athos mcp                          your know-how as an MCP server (stdio), for Claude Desktop's chat
     athos wiki [--json]                rebuild Index.md and check the links between pieces (pages of a wiki)
     athos export --dataset FILE        your statements and marked tasks as JSON lines (evals, training data)
@@ -34,12 +37,12 @@
     athos embed [on|off] [--model M]   also load know-how by meaning (local embeddings, Ollama); off by default
     athos test <id> [--backend meta]   re-check a piece against the corrections you made on it before
     athos shadow [--limit N] | on|off  compare a cheaper model with the answers you approved (Ollama by default)
-    athos status --json                what the terminal's status line and band show
+    athos status [--json]              one summary line, or (--json) everything the status line and band draw
     athos doctor [--json]              which Athos each agent runs (Claude Code, Desktop, Codex, OpenCode, Muse Code,
                                        the terminal) and which are behind the newest
     athos gallery build [--out DIR]    gallery.json and index.html from the gallery's pages
     athos add <id|url> [--dry-run]     add a way of working (and the pages it calls) from Athos's public gallery
-    athos hook <event>                 used by the Claude Code plugin's hooks (reads the event JSON on stdin)
+    athos hook <event>                 called by the agents' hook configuration; the event arrives as JSON on stdin
 """
 
 from __future__ import annotations
@@ -57,16 +60,23 @@ from pathlib import Path
 
 from athos import capture, cases, control, edits, eval as ev, load, paths, replay, session, store, trail
 
-ME = Path(__file__).resolve().parents[1] / "bin" / "athos"
+ROOT = Path(__file__).resolve().parent.parent      # the Athos installation this module belongs to
+ME = ROOT / "bin" / "athos"                         # its launcher: hooks, shims and printed commands point here
 STEP_SINCE = (0, 1, 75)                 # the first `athos step` that answers ok inside a sandbox (Muse Code)
 
 
 def _cmd() -> str:
-    """How the agent should call Athos in the lines it and the person read: plain `athos` when the agent's shell finds
-    it (the plugin puts its own bin on PATH; the installer adds ~/.local/bin), else the full path. A full path also
-    showed the person's user name in every line."""
-    found = shutil.which("athos")
-    return "athos" if not ME.exists() or (found and _runs_me(found)) else shlex.quote(str(ME))
+    """The spelling of the command in every line an agent runs or a person reads.
+
+    Plain `athos` whenever the shell resolves it to this installation (the plugin puts its bin on PATH, the installer
+    adds ~/.local/bin) or to one recent enough; otherwise the quoted full path to ME, which works anywhere but also
+    puts the person's user name on screen."""
+    if not ME.exists():
+        return "athos"
+    on_path = shutil.which("athos")
+    if on_path and _runs_me(on_path):
+        return "athos"
+    return shlex.quote(str(ME))
 
 
 def _runs_me(path: str) -> bool:
@@ -99,27 +109,51 @@ def _version(root: Path) -> tuple:
         return (0,)
 
 
-# ------------------------------------------------------------------------------------- which session a shell is in
-def _cwd_key(cwd: str) -> Path:
-    return paths.sessions() / "by-cwd" / (hashlib.sha1(os.path.realpath(cwd).encode()).hexdigest()[:16] + ".json")
+def _fail(message: object) -> int:
+    """Report a command's failure on stderr and give back its exit status."""
+    print(message, file=sys.stderr)
+    return 1
+
+
+# ==================================================================== which session a working folder belongs to
+#
+# A hook knows its session; a command typed later (`athos save`, `athos mark`) only knows the folder it runs in. The
+# hooks therefore leave, per folder, a small note naming the session that is working there.
+
+def _folder_note(cwd: str) -> Path:
+    """Where the note for a folder lives: sessions/by-cwd/<first 16 hex digits of the sha1 of its real path>.json."""
+    digest = hashlib.sha1(os.path.realpath(cwd).encode()).hexdigest()
+    return paths.sessions() / "by-cwd" / f"{digest[:16]}.json"
 
 
 def _remember_session(event: dict) -> None:
-    cwd, sid = event.get("cwd"), event.get("session_id")
-    if cwd and sid:
-        f = _cwd_key(cwd)
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(json.dumps({"session_id": sid, "transcript_path": event.get("transcript_path")}))
+    """Point the event's folder at the event's session (and transcript), when the event names both."""
+    folder, sid = event.get("cwd"), event.get("session_id")
+    if not (folder and sid):
+        return
+    note = _folder_note(folder)
+    note.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text(json.dumps({"session_id": sid, "transcript_path": event.get("transcript_path")}))
 
 
 def _current_session(cwd: str) -> dict:
+    """The session last noted for this folder ({} when there is no readable note)."""
     try:
-        return json.loads(_cwd_key(cwd).read_text())
-    except (OSError, ValueError):
-        return {}
+        found = json.loads(_folder_note(cwd).read_text())
+    except (OSError, json.JSONDecodeError):
+        found = None
+    return found if isinstance(found, dict) else {}
 
 
-# ------------------------------------------------------------------------------------------------ hooks
+def _folder_session_id(event: dict, sid: str | None) -> str | None:
+    """The session of the request running in the event's folder, falling back to `sid`. Muse Code gives every hook
+    call a fresh session id, so a tool or stop event must find its task through the folder."""
+    if not event.get("cwd"):
+        return sid
+    return _current_session(event["cwd"]).get("session_id") or sid
+
+
+# ==================================================================== hooks
 def _quietly(fn, *args):
     """Cases and shadowing are extras: their failure must not cost the person the capture or the load."""
     try:
@@ -129,8 +163,102 @@ def _quietly(fn, *args):
         return None
 
 
+def _add_context(hook_event: str, text: str) -> None:
+    """Answer the hook with extra context for the model, in the shape Claude Code (and the agents copying it) read."""
+    answer = {"hookSpecificOutput": {"hookEventName": hook_event, "additionalContext": text}}
+    print(json.dumps(answer))
+
+
+def _on_session_start(event: dict, platform: str) -> None:
+    """A session opens: the know-how that may load for it goes in as context (nothing at all on an empty store)."""
+    intro = load.on_session_start(event, _cmd())
+    if intro:
+        _add_context("SessionStart", intro)
+
+
+def _on_prompt(event: dict, platform: str) -> None:
+    """The person sent a request. A button's request is answered on its own; any other one starts a task, and the
+    pieces it calls for (plus a rule learned from the person's hand edits) go in as context."""
+    prompt, sid = event.get("prompt", ""), event.get("session_id")
+    if capture.is_save_prompt(prompt):
+        # The person pressed [Save]: the save belongs to the task that just ended, so no new task starts
+        # and nothing loads; the offer is spent.
+        if sid:
+            session.update(sid, offer=None)
+        _add_context("UserPromptSubmit", capture.SAVE_CONTEXT.format(cmd=_cmd()))
+        return
+    from athos import gallery
+    if ref := gallery.requested(prompt):
+        # The person pasted [Use in Athos] from the gallery: the agent adds it, in sight, with one command.
+        _add_context("UserPromptSubmit", (
+            f"The person asked to add {ref!r} from Athos's gallery: run `{_cmd()} add {shlex.quote(ref)}` "
+            "now (it downloads only from the athos-agent/athos repository and never overwrites a page they "
+            "have), then tell them in one short line, in their language, what was added."))
+        return
+    if capture.is_adjust_prompt(prompt):
+        # The person pressed [Adjust] on a step of the pane and wrote the change: it improves that piece.
+        # [Keep this rule] is an adjust too: the edit it names is kept, and its button goes away.
+        if sid:
+            _quietly(edits.kept, sid, prompt)
+        _add_context("UserPromptSubmit", capture.ADJUST_CONTEXT.format(cmd=_cmd()))
+        return
+    from athos import start
+    start.note_language(prompt)
+    if sid:
+        # After `athos mark c`, these words are the correction the last task needed (athos/cases.py).
+        _quietly(cases.note_prompt, sid, prompt)
+        ev.infer_mark(sid, prompt)     # before the new task replaces it
+    ev.task_start(event, platform)
+    capture.note_request(event)
+    context = load.on_prompt(event, _cmd())
+    if capture.enabled():
+        # The person's hand edits of files the agent wrote: a rule of their way of working, offered once.
+        learned = edits.on_prompt(event, _cmd())
+        context = (context + "\n" + learned) if context and learned else (context or learned)
+    if context:
+        _add_context("UserPromptSubmit", context)
+
+
+def _on_tool(event: dict, platform: str) -> None:
+    """A tool call ended: it is counted, drawn on the trail, and checked for files the person may edit later."""
+    capture.count_tool(event)
+    trail.on_tool(event)
+    sid = event.get("session_id", "default")
+    if not session.load(sid).get("task_id"):     # Muse Code: this folder's task
+        sid = _folder_session_id(event, sid)
+    if capture.enabled():
+        edits.on_tool(event, sid)
+
+
+def _on_stop(event: dict, platform: str) -> None:
+    """The agent finished its turn: close the task, then offer (or ask the model) to save what it learned."""
+    rec = ev.task_end(event)
+    _quietly(cases.on_task_end, event, rec)
+    _quietly(replay.maybe_spawn, ME)          # background shadowing, when the person turned it on
+    sid = event.get("session_id")
+    if sid and not session.load(sid).get("trail"):
+        sid = _folder_session_id(event, sid)
+    if sid:
+        trail.finish(sid)
+    # A person at an interactive Claude Code session gets a [Save] button above the prompt instead of a
+    # line asking the model; a `claude -p` run (CLAUDE_CODE_ENTRYPOINT=sdk-…) has no band, so it is asked.
+    interactive = platform == "claude-code" and not os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith("sdk")
+    decision = capture.stop_decision(event, _cmd(), offer=interactive and os.environ.get("ATHOS_ASK") != "model")
+    if not decision:
+        return
+    if platform == "claude-code":
+        # Claude Code labels a Stop block "Stop hook error"; the same request as context reads as feedback.
+        _add_context("Stop", decision["reason"])
+    else:
+        print(json.dumps(decision))
+
+
+_HOOK_HANDLERS = {"session-start": _on_session_start, "prompt": _on_prompt, "tool": _on_tool, "stop": _on_stop}
+
+
 def hook(event_name: str, platform: str = "claude-code") -> int:
-    """Never breaks the user's session: any error is reported on stderr and the hook exits 0."""
+    """Handle one hook event read from stdin. It always exits 0: a failure is written to stderr and the person's
+    session carries on untouched."""
     try:
         if platform == "claude-code" and os.environ.get("MUSE_PLUGIN_ID"):
             platform = "muse-code"                  # Muse Code runs the Claude Code plugin as it is, and says so
@@ -141,124 +269,70 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
             _remember_session(event)
         if event.get("session_id"):
             session.update(event["session_id"], platform=platform)
-        if event_name == "session-start":
-            text = load.on_session_start(event, _cmd())
-            if text:
-                print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}))
-        elif event_name == "prompt":
-            if capture.is_save_prompt(event.get("prompt", "")):
-                # The person pressed [Save]: the save belongs to the task that just ended, so no new task starts
-                # and nothing loads; the offer is spent.
-                if event.get("session_id"):
-                    session.update(event["session_id"], offer=None)
-                print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
-                                                         "additionalContext": capture.SAVE_CONTEXT.format(cmd=_cmd())}}))
-                return 0
-            from athos import gallery
-            if ref := gallery.requested(event.get("prompt", "")):
-                # The person pasted [Use in Athos] from the gallery: the agent adds it, in sight, with one command.
-                print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": (
-                    f"The person asked to add {ref!r} from Athos's gallery: run `{_cmd()} add {shlex.quote(ref)}` "
-                    "now (it downloads only from the athos-agent/athos repository and never overwrites a page they "
-                    "have), then tell them in one short line, in their language, what was added.")}}))
-                return 0
-            if capture.is_adjust_prompt(event.get("prompt", "")):
-                # The person pressed [Adjust] on a step of the pane and wrote the change: it improves that piece.
-                # [Keep this rule] is an adjust too: the edit it names is kept, and its button goes away.
-                if event.get("session_id"):
-                    _quietly(edits.kept, event["session_id"], event.get("prompt", ""))
-                print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
-                                                         "additionalContext": capture.ADJUST_CONTEXT.format(cmd=_cmd())}}))
-                return 0
-            from athos import start
-            start.note_language(event.get("prompt", ""))
-            if event.get("session_id"):
-                # After `athos mark c`, these words are the correction the last task needed (athos/cases.py).
-                _quietly(cases.note_prompt, event["session_id"], event.get("prompt", ""))
-                ev.infer_mark(event["session_id"], event.get("prompt", ""))     # before the new task replaces it
-            ev.task_start(event, platform)
-            capture.note_request(event)
-            text = load.on_prompt(event, _cmd())
-            if capture.enabled():
-                # The person's hand edits of files the agent wrote: a rule of their way of working, offered once.
-                learned = edits.on_prompt(event, _cmd())
-                text = (text + "\n" + learned) if text and learned else (text or learned)
-            if text:
-                print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
-                                                         "additionalContext": text}}))
-        elif event_name == "tool":
-            capture.count_tool(event)
-            trail.on_tool(event)
-            sid = event.get("session_id", "default")
-            if not session.load(sid).get("task_id") and event.get("cwd"):     # Muse Code: this folder's task
-                sid = _current_session(event["cwd"]).get("session_id") or sid
-            if capture.enabled():
-                edits.on_tool(event, sid)
-        elif event_name == "stop":
-            rec = ev.task_end(event)
-            _quietly(cases.on_task_end, event, rec)
-            _quietly(replay.maybe_spawn, ME)          # background shadowing, when the person turned it on
-            sid = event.get("session_id")
-            if sid and not session.load(sid).get("trail") and event.get("cwd"):
-                sid = _current_session(event["cwd"]).get("session_id") or sid
-            if sid:
-                trail.finish(sid)
-            # A person at an interactive Claude Code session gets a [Save] button above the prompt instead of a
-            # line asking the model; a `claude -p` run (CLAUDE_CODE_ENTRYPOINT=sdk-…) has no band, so it is asked.
-            interactive = platform == "claude-code" and not os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith("sdk")
-            out = capture.stop_decision(event, _cmd(), offer=interactive and os.environ.get("ATHOS_ASK") != "model")
-            if out and platform == "claude-code":
-                # Claude Code labels a Stop block "Stop hook error"; the same request as context reads as feedback.
-                out = {"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": out["reason"]}}
-            if out:
-                print(json.dumps(out))
-    except Exception as e:  # noqa: BLE001
-        print(f"athos hook {event_name}: {e}", file=sys.stderr)
+        _HOOK_HANDLERS[event_name](event, platform)
+    except Exception as problem:  # noqa: BLE001 — whatever it is, the session must not see it
+        print(f"athos hook {event_name}: {problem}", file=sys.stderr)
     return 0
 
 
-# ------------------------------------------------------------------------------------------------ commands
-def cmd_list(_args) -> int:
-    pieces = store.all_pieces()
-    on = {p.id for p in load.enabled(os.getcwd())}
+# ==================================================================== commands
+#
+# Each `cmd_*` handler receives the parsed arguments. A handler returns an exit status when it has one to give (1 on
+# failure, through `_fail`); one that simply runs to its end has succeeded, and `main` turns that into 0.
+
+def _here() -> tuple[str, dict]:
+    """The folder a command runs in, and the session the hooks last noted for it."""
+    folder = os.getcwd()
+    return folder, _current_session(folder)
+
+
+def cmd_list(args: argparse.Namespace) -> int | None:
+    """Every piece, most recently used first; ● marks the pieces allowed to load in this folder, ○ the others."""
     from athos import start
+    pieces = sorted(store.all_pieces(), key=lambda p: p.last_used, reverse=True)
+    enabled = {p.id for p in load.enabled(os.getcwd())}
+    where, choice = paths.know_how(), control.describe()
     if start.lang() == "es":
-        print(f"{len(pieces)} forma(s) de trabajar en {paths.know_how()} · se cargan: {control.describe()}")
+        print(f"{len(pieces)} forma(s) de trabajar en {where} · se cargan: {choice}")
     else:
-        print(f"{len(pieces)} piece(s) in {paths.know_how()} · loading: {control.describe()}")
-    for p in sorted(pieces, key=lambda p: p.last_used, reverse=True):
-        mark = "●" if p.id in on else "○"
-        print(f"{mark} {p.id}  v{p.version}  {p.title}\n    when: {p.when}  · last used {p.last_used}")
-    return 0
+        print(f"{len(pieces)} piece(s) in {where} · loading: {choice}")
+    for p in pieces:
+        dot = "●" if p.id in enabled else "○"
+        print(f"{dot} {p.id}  v{p.version}  {p.title}")
+        print(f"    when: {p.when}  · last used {p.last_used}")
 
 
-def cmd_show(args) -> int:
-    p = store.get(args.id)
-    if p is None:
-        print(f"no piece {args.id}", file=sys.stderr)
-        return 1
-    cur = _current_session(os.getcwd())
-    if cur.get("session_id"):
-        load.mark_loaded(cur["session_id"], [p.id])
-    print(store.render(p), end="")
-    return 0
+def cmd_show(args: argparse.Namespace) -> int | None:
+    """Print one piece as stored. Run inside a session, reading it counts as loading it there."""
+    piece = store.get(args.id)
+    if piece is None:
+        return _fail(f"no piece {args.id}")
+    sid = _here()[1].get("session_id")
+    if sid:
+        load.mark_loaded(sid, [piece.id])
+    sys.stdout.write(store.render(piece))
 
 
-def cmd_save(_args) -> int:
-    cwd = os.getcwd()
-    cur = _current_session(cwd)
+def _unwritable_store_hint() -> str:
+    """Why a save failed inside a sandbox, and the Codex setting that lets the store be written."""
+    home = paths.home()
+    return (f"not saved: {home} is read-only for this session. Codex's workspace-write sandbox can be told to allow "
+            f"it with `-c 'sandbox_workspace_write.writable_roots=[\"{home}\"]'`, or with the same key in "
+            "~/.codex/config.toml.")
+
+
+def cmd_save(args: argparse.Namespace) -> int | None:
+    """Store the piece written on stdin: a new page, or a new version of the page its `id:` names. The lines printed
+    afterwards are read by the model, which reports them and fixes what the save broke in the wiki."""
+    folder, noted = _here()
+    sid = noted.get("session_id", "default")
     try:
-        piece, diff = capture.save_text(sys.stdin.read(), cur.get("session_id", "default"), cwd,
-                                        cur.get("transcript_path"))
-    except ValueError as e:
-        print(f"not saved: {e}", file=sys.stderr)
-        return 1
-    except PermissionError:
-        print(f"not saved: this session may not write to {paths.home()}. In Codex's workspace-write sandbox, allow it "
-              f"with `-c 'sandbox_workspace_write.writable_roots=[\"{paths.home()}\"]'` or the same key in "
-              "~/.codex/config.toml.", file=sys.stderr)
-        return 1
-    if diff:
+        piece, diff = capture.save_text(sys.stdin.read(), sid, folder, noted.get("transcript_path"))
+    except (PermissionError, ValueError) as refused:          # a sandboxed store, or a page that doesn't parse
+        return _fail(_unwritable_store_hint() if isinstance(refused, PermissionError) else f"not saved: {refused}")
+    if not diff:
+        print(f"saved {piece.id} ({piece.path})")
+    else:
         n = capture.recheck(piece.id)
         print(f"improved {piece.id} → v{piece.version} ({piece.path})"
               + (f" · {capture.recheck_words(n)}" if n else "") + f"\n\n{diff}")
@@ -266,18 +340,16 @@ def cmd_save(_args) -> int:
             print(f"\nThe person corrected this piece {n} time(s) before. Offer them, in one line and in their "
                   f"language, to re-check that the new version respects those corrections: `{_cmd()} test {piece.id}` "
                   f"(a local model; nothing leaves the machine).")
-    else:
-        print(f"saved {piece.id} ({piece.path})")
-    broken = (session.load(cur.get("session_id", "default")).get("wiki") or {}).get("broken") or []
+    wiki = session.load(sid).get("wiki") or {}        # what the save left in the wiki, read after it
+    broken = wiki.get("broken") or []
     if broken:                                     # the wiki improves in the same turn: the model fixes what it broke
         print("\nwiki: links that lead nowhere; fix them with another `athos save` (id: of the page):\n  "
               + "\n  ".join(broken[:10]))
-    same = (session.load(cur.get("session_id", "default")).get("wiki") or {}).get("overlaps") or []
+    same = wiki.get("overlaps") or []
     if same:                                       # possible contradictions: the model checks them now
         print("\nwiki: other pages say what to do at the same moment. Check they agree; if one is wrong or "
               "outdated, fix it with `athos save` (id: of that page), or link them if they apply together:\n  "
               + "\n  ".join(same[:10]))
-    return 0
 
 
 def cmd_wiki(args) -> int:
@@ -322,55 +394,69 @@ def cmd_wiki(args) -> int:
     return 0 if not (lint["broken"] or lint["duplicate_ids"]) else 1
 
 
-def cmd_load(args) -> int:
-    if not args.what:
-        print(f"loading: {control.describe()}")
-        return 0
-    mode, values = args.what[0], args.what[1:]
-    try:
-        sel = control.set_selection(mode, values)
-    except ValueError as e:
-        print(e, file=sys.stderr)
-        return 1
-    print(f"loading: {control.describe(sel)} ({len(load.enabled(os.getcwd()))} piece(s) enabled)")
-    return 0
-
-
-def cmd_export(args) -> int:
-    if args.guild:
-        from athos import guild
-        dest = Path(args.guild).expanduser()
+def cmd_load(args: argparse.Namespace) -> int | None:
+    """With no words, say what may load; otherwise set it: `all`, `project [name]`, `pieces <id>...` or `none`."""
+    if args.what:
+        mode, *values = args.what
         try:
-            ids = guild.export(dest, args.piece, args.owner)
-        except LookupError as e:
-            print(e, file=sys.stderr)
-            return 1
-        print(f"{len(ids)} piece(s) with their stats to {dest}, for your colleagues' `athos merge`. The stats are "
-              "counts only (how many of your tasks walked each step, and how you marked them): no request, no client.")
-        return 0
+            chosen = control.set_selection(mode, values)
+        except ValueError as refused:
+            return _fail(refused)
+        enabled = len(load.enabled(os.getcwd()))
+        print(f"loading: {control.describe(chosen)} ({enabled} piece(s) enabled)")
+    else:
+        print(f"loading: {control.describe()}")
+
+
+def _export_guild(args: argparse.Namespace) -> int | None:
+    from athos import guild
+    dest = Path(args.guild).expanduser()
+    try:
+        ids = guild.export(dest, args.piece, args.owner)
+    except LookupError as e:
+        return _fail(e)
+    print(f"{len(ids)} piece(s) with their stats to {dest}, for your colleagues' `athos merge`. The stats are "
+          "counts only (how many of your tasks walked each step, and how you marked them): no request, no client.")
+
+
+def _export_dataset(args: argparse.Namespace) -> int | None:
+    from athos import wiki
+    rows = wiki.dataset()
+    dest = Path(args.dataset).expanduser()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    n_st = sum(r["kind"] == "statement" for r in rows)
+    print(f"{n_st} statements and {len(rows) - n_st} marked tasks to {dest} (JSON lines). It holds your requests "
+          "as you typed them: it stays on this machine unless you move it.")
+
+
+def _export_skills(args: argparse.Namespace) -> int | None:
+    """Each piece as an agent skill. Muse Code reads the same ~/.agents/skills folder Codex does."""
+    from athos.adapters import codex
+    target = codex.skills_dir() if not args.dir else Path(args.dir).expanduser()
+    count, stale = codex.export_skills(target)
+    who = "Codex and Muse Code" if args.muse else "Codex"
+    print(f"exported {count} piece(s) as skills for {who} to {target}" + (f" (removed {stale} stale)" if stale else ""))
+
+
+def _export_folder(folder: str | None) -> int | None:
+    """A plain copy of every piece file, for a backup or to read elsewhere."""
+    if folder:
+        target = Path(folder).expanduser()
+        print(f"exported {store.export(target)} piece(s) to {target}")
+        return None
+    return _fail("name a folder to export to")
+
+
+def cmd_export(args: argparse.Namespace) -> int | None:
+    """Take the know-how out of the store, in the form the flags ask for (a plain folder copy without any)."""
+    if args.guild:
+        return _export_guild(args)
     if args.dataset:
-        from athos import wiki
-        rows = wiki.dataset()
-        dest = Path(args.dataset).expanduser()
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
-        n_st = sum(r["kind"] == "statement" for r in rows)
-        print(f"{n_st} statements and {len(rows) - n_st} marked tasks to {dest} (JSON lines). It holds your requests "
-              "as you typed them: it stays on this machine unless you move it.")
-        return 0
+        return _export_dataset(args)
     if args.codex or args.muse:
-        from athos.adapters import codex
-        dest = Path(args.dir).expanduser() if args.dir else codex.skills_dir()
-        n, removed = codex.export_skills(dest)
-        who = "Codex and Muse Code" if args.muse else "Codex"
-        print(f"exported {n} piece(s) as skills for {who} to {dest}" + (f" (removed {removed} stale)" if removed else ""))
-        return 0
-    if not args.dir:
-        print("name a folder to export to", file=sys.stderr)
-        return 1
-    n = store.export(Path(args.dir).expanduser())
-    print(f"exported {n} piece(s) to {Path(args.dir).expanduser()}")
-    return 0
+        return _export_skills(args)
+    return _export_folder(args.dir)
 
 
 def cmd_merge(args) -> int:
@@ -411,19 +497,20 @@ def cmd_merge(args) -> int:
     return 0
 
 
-def cmd_codex(args) -> int:
+def cmd_codex(args: argparse.Namespace) -> int | None:
+    """Wire Athos's hooks into Codex (keeping a backup of the hooks file it replaces), or take them out."""
     from athos.adapters import codex
-    if args.action == "install":
-        f, backup = codex.install(Path(__file__).resolve().parents[1])
-        print(f"Athos hooks added to {f}" + (f" (previous file saved as {backup.name})" if backup else ""))
-        print("Codex asks you to trust new hooks once: run /hooks inside Codex and approve the Athos ones.")
-        print(f"So that Codex can save know-how from its workspace-write sandbox, add {paths.home()} to "
-              "`sandbox_workspace_write.writable_roots` in ~/.codex/config.toml:\n\n"
-              f"  [sandbox_workspace_write]\n  writable_roots = [\"{paths.home()}\"]")
-        return 0
-    removed = codex.uninstall()
-    print("Athos hooks removed from Codex" if removed else "no Codex hooks file")
-    return 0
+    if args.action == "uninstall":
+        print("Athos hooks removed from Codex" if codex.uninstall() else "no Codex hooks file")
+        return None
+    hooks_file, backup = codex.install(ROOT)
+    home = paths.home()
+    note = f" (the previous one is kept as {backup.name})" if backup else ""
+    print(f"Athos hooks added to {hooks_file}{note}")
+    print("Codex trusts new hooks only once you approve them: type /hooks inside Codex and accept the Athos entries.")
+    print(f"Codex's workspace-write sandbox also needs {home} among its writable roots for saves to reach the "
+          "store; in ~/.codex/config.toml:\n\n"
+          f"  [sandbox_workspace_write]\n  writable_roots = [\"{home}\"]")
 
 
 def cmd_opencode(args) -> int:
@@ -474,24 +561,51 @@ def cmd_dismiss(args) -> int:
     return 0
 
 
-def cmd_revert(args) -> int:
+def cmd_revert(args: argparse.Namespace) -> int | None:
+    """Bring back an earlier version of a piece. The history only grows: the old text returns as a new version."""
     try:
-        p = store.revert(args.id, args.to)
-    except (KeyError, FileNotFoundError) as e:
-        print(f"cannot revert: {e}", file=sys.stderr)
-        return 1
-    print(f"reverted {p.id} (now v{p.version})")
-    return 0
+        piece = store.revert(args.id, args.to)
+    except (KeyError, FileNotFoundError) as missing:
+        return _fail(f"cannot revert: {missing}")
+    print(f"reverted {piece.id} (now v{piece.version})")
 
 
-def cmd_delegate(args) -> int:
+def _delegation_backend(args):
+    """(platform, model, chat function) for a delegation: Ollama on this machine, recorded as `local`, unless
+    --backend meta sends it to Meta Model API."""
+    from athos import delegate
+    if args.backend != "meta":
+        return "local", args.model or delegate.DEFAULT_MODEL, delegate.chat
+    from athos.adapters import meta
+    return "meta", args.model or meta.DEFAULT_MODEL, meta.chat
+
+
+def _unreachable(platform: str, model: str, reason: object) -> str:
+    """What to say when the model's server did not answer at all, with the way to start it when it is local."""
+    if platform == "meta":
+        return f"cannot reach Meta Model API ({reason})."
+    from athos import delegate
+    return (f"cannot reach Ollama at {delegate.host()} ({reason}). Start it (`ollama serve`) and pull the "
+            f"model (`ollama pull {model}`).")
+
+
+def _delegation_lines(args, r: dict, platform: str, model: str) -> str:
+    """The result the person (or the calling agent) reads: the model's summary, its cost, and how to mark the task."""
+    tokens = f"{r['tokens']['total']:,} tokens"
+    if not args.by_step:
+        return (f"\n{r['summary'].strip()}\n\n{platform} / {model}: {r['duration_s']} s, {r['steps']} step(s), "
+                f"{tokens} · task {r['task_id']}. Mark it with `athos mark g|c|f`.")
+    steps = "\n".join(f"  #{d['id']:24} {d['platform']} / {d['model']}: {d['duration_s']} s, "
+                      f"{d['tokens']['total']:,} tokens" for d in r["steps"])
+    return (f"\n{r['summary'].strip()}\n\n{steps}\n{r['duration_s']} s, {tokens} · task "
+            f"{r['task_id']}. Mark it with `athos mark g|c|f`; `athos route {args.id}` learns from the marks.")
+
+
+def cmd_delegate(args: argparse.Namespace) -> int | None:
+    """Run a task the person already masters on a smaller model, following one piece, and record it as a task."""
     from athos import delegate
     import urllib.error
-    if args.backend == "meta":
-        from athos.adapters import meta
-        model, platform, chat_fn = args.model or meta.DEFAULT_MODEL, "meta", meta.chat
-    else:
-        model, platform, chat_fn = args.model or delegate.DEFAULT_MODEL, "local", delegate.chat
+    platform, model, chat_fn = _delegation_backend(args)
     try:
         if args.by_step:
             r = delegate.by_step(args.id, args.request, (platform, model), yes=args.yes, max_steps=args.max_steps,
@@ -499,28 +613,13 @@ def cmd_delegate(args) -> int:
         else:
             r = delegate.delegate(args.id, args.request, model, yes=args.yes, max_steps=args.max_steps,
                                   chat_fn=chat_fn, platform=platform)
-    except (LookupError, PermissionError, ValueError) as e:
-        print(e, file=sys.stderr)
-        return 1
-    except urllib.error.HTTPError as e:
-        print(_model_error(e, platform, model), file=sys.stderr)
-        return 1
-    except urllib.error.URLError as e:
-        if platform == "meta":
-            print(f"cannot reach Meta Model API ({e.reason}).", file=sys.stderr)
-        else:
-            print(f"cannot reach Ollama at {delegate.host()} ({e.reason}). Start it (`ollama serve`) and pull the "
-                  f"model (`ollama pull {model}`).", file=sys.stderr)
-        return 1
-    if args.by_step:
-        steps = "\n".join(f"  #{d['id']:24} {d['platform']} / {d['model']}: {d['duration_s']} s, "
-                          f"{d['tokens']['total']:,} tokens" for d in r["steps"])
-        print(f"\n{r['summary'].strip()}\n\n{steps}\n{r['duration_s']} s, {r['tokens']['total']:,} tokens · task "
-              f"{r['task_id']}. Mark it with `athos mark g|c|f`; `athos route {args.id}` learns from the marks.")
-        return 0
-    print(f"\n{r['summary'].strip()}\n\n{platform} / {model}: {r['duration_s']} s, {r['steps']} step(s), "
-          f"{r['tokens']['total']:,} tokens · task {r['task_id']}. Mark it with `athos mark g|c|f`.")
-    return 0
+    except (LookupError, PermissionError, ValueError) as refused:
+        return _fail(refused)
+    except urllib.error.HTTPError as answered:            # the server answered, with an error
+        return _fail(_model_error(answered, platform, model))
+    except urllib.error.URLError as silent:               # nothing answered
+        return _fail(_unreachable(platform, model, silent.reason))
+    print(_delegation_lines(args, r, platform, model))
 
 
 def cmd_route(args) -> int:
@@ -556,37 +655,40 @@ def import_other_agents() -> list[str]:
     return failed
 
 
-def cmd_mark(args) -> int:
-    cur = _current_session(os.getcwd())
-    if not args.task:
+_VERDICT_ES = {"ok": "salió bien", "corrected": "lo corregí", "failed": "falló"}
+
+
+def cmd_mark(args: argparse.Namespace) -> int | None:
+    """Record the person's verdict (g good, c corrected, f failed) on a task: the one named, else the last one here."""
+    folder, noted = _here()
+    named = args.task or None                          # an empty id means the last task, as no id does
+    if named is None:
         import_other_agents()                          # a Codex or Muse Code task just finished here may be the one meant
     try:
-        tid, res = ev.mark(args.result, args.task, cur.get("session_id"), paths.project_of(os.getcwd()))
-    except (ValueError, LookupError) as e:
-        print(e, file=sys.stderr)
-        return 1
+        task_id, result = ev.mark(args.result, named, noted.get("session_id"), paths.project_of(folder))
+    except (ValueError, LookupError) as refused:
+        return _fail(refused)
     from athos import start
-    if start.lang() == "es":
-        print(f"tarea marcada: {dict(ok='salió bien', corrected='lo corregí', failed='falló').get(res, res)}")
-    else:
-        print(f"task {tid} marked {res}")
-    return 0
+    spanish = start.lang() == "es"
+    # The plugin's pane shows the English line as it is (hooks/ui.tsx): keep its wording.
+    print(f"tarea marcada: {_VERDICT_ES.get(result, result)}" if spanish else f"task {task_id} marked {result}")
 
 
-def cmd_import(args) -> int:
+def cmd_import(args: argparse.Namespace) -> int | None:
+    """Record the tasks Codex or Muse Code ran, from that agent's own session logs."""
     from athos.adapters import codex, muse
-    mod, name = (muse, "Muse Code") if args.platform == "muse" else (codex, "Codex")
-    out = mod.import_sessions(Path(args.sessions).expanduser() if args.sessions else None, args.include_tmp)
-    print(f"{name}: {out['imported']} task(s) imported from {out['files']} session file(s) ({out['skipped']} skipped)")
-    return 0
+    name, adapter = ("Muse Code", muse) if args.platform == "muse" else ("Codex", codex)
+    folder = Path(args.sessions).expanduser() if args.sessions else None
+    got = adapter.import_sessions(folder, args.include_tmp)
+    print(f"{name}: {got['imported']} task(s) imported from {got['files']} session file(s) ({got['skipped']} skipped)")
 
 
-def cmd_report(args) -> int:
+def cmd_report(args: argparse.Namespace) -> int | None:
+    """What each piece and each model adds to the person's work, as text or (--json) as the numbers themselves."""
     for failed in import_other_agents():              # Codex's and Muse Code's tasks are always in the report
         print(f"(sessions not imported: {failed})", file=sys.stderr)
-    r = ev.report()
-    print(json.dumps(r, indent=1, ensure_ascii=False) if args.json else ev.render(r))
-    return 0
+    numbers = ev.report()
+    print(json.dumps(numbers, indent=1, ensure_ascii=False) if args.json else ev.render(numbers))
 
 
 def cmd_bench(args) -> int:
@@ -762,22 +864,39 @@ def learned_from_edit(state: dict, lang: str = "en") -> list[dict] | None:
             for f in seen["files"]]
 
 
+def _session_task(sid: str | None, state: dict, tasks: list[dict]) -> dict | None:
+    """The newest recorded task whose id is the session's current one (None outside a session)."""
+    if not sid:
+        return None
+    wanted = state.get("task_id")
+    return next((t for t in reversed(tasks) if t.get("task_id") == wanted), None)
+
+
+def _task_summary(task: dict | None) -> dict | None:
+    """The last task as the band shows it, with the pieces it saved split into new ones and improved ones."""
+    if not task:
+        return None
+    saved = task.get("saved", [])
+    improved = [pid for pid in saved if (piece := store.get(pid)) and piece.version > 1]
+    return {"task_id": task["task_id"], "result": task["result"], "pieces": task.get("pieces", []),
+            "saved": [pid for pid in saved if pid not in improved], "improved": improved}
+
+
 def status() -> dict:
-    """For the plugin's status line and band: the store, this session's pieces and its last task."""
-    cur = _current_session(os.getcwd())
-    sid = cur.get("session_id")
-    state = session.load(sid) if sid else {}
-    tasks = ev.tasks()
-    last = next((t for t in reversed(tasks) if sid and t.get("task_id") == state.get("task_id")), None)
-    saved = last.get("saved", []) if last else []
-    improved = [pid for pid in saved if (store.get(pid) and store.get(pid).version > 1)]
+    """Everything the plugin's status line and band draw: the store, what this folder's session loaded and is
+    following, and how its last task went. Its keys are read by hooks/ui.tsx and the other panels."""
     from athos import start
-    return {"pieces": len(store.all_pieces()), "lang": start.lang(), "enabled": len(load.enabled(os.getcwd())),
-            "bars": ev.bars(paths.project_of(os.getcwd())),
-            "loading": control.describe(), "loaded": state.get("loaded", []),
+    cwd, noted = _here()
+    sid = noted.get("session_id")
+    state, tasks, lang = (session.load(sid) if sid else {}), ev.tasks(), start.lang()
+    current_offer = state.get("offer") if (state.get("offer") or {}).get("task_id") == state.get("task_id") else None
+    return {"pieces": len(store.all_pieces()), "lang": lang, "enabled": len(load.enabled(cwd)),
+            "bars": ev.bars(paths.project_of(cwd)),
+            "loading": control.describe(),
+            "loaded": state.get("loaded", []),
             "last_saved": state.get("last_saved"),
-            "offer": state.get("offer") if (state.get("offer") or {}).get("task_id") == state.get("task_id") else None,
-            "save_prompt": capture.SAVE_PROMPT["es" if start.lang() == "es" else "en"],
+            "offer": current_offer,
+            "save_prompt": capture.SAVE_PROMPT["es" if lang == "es" else "en"],
             "loads": [{"id": pid, "title": (store.get(pid).title if store.get(pid) else pid), "why": words,
                        "record": ev.record(pid, tasks), "tests": len(cases.tests(pid))}
                       for pid, words in (state.get("task_why") or {}).items()],
@@ -785,14 +904,13 @@ def status() -> dict:
             # A cheaper model that matched the person's approved answers on a piece (`athos shadow`).
             "handoff": replay.handoffs(), "shadow": bool(replay.settings().get("on")),
             "embed": bool((start.config().get("embed") or {}).get("on")),     # loads by meaning too (`athos embed on`)
-            "learned_from_edit": learned_from_edit(state, start.lang()),
-            "trail": trail.view(state), "greeting": trail.greeting(start.lang()),
+            "learned_from_edit": learned_from_edit(state, lang),
+            "trail": trail.view(state), "greeting": trail.greeting(lang),
             # One line when an agent runs an older Athos (`athos doctor`); file reads only, no command is run.
-            "behind": _behind(start.lang()),
+            "behind": _behind(lang),
             # Only recent tasks wait for a mark: an old backlog reads as debt, not help.
             "to_mark": sum(1 for t in tasks if t["result"] == "unevaluated" and ev.recent(t)),
-            "last": {"task_id": last["task_id"], "result": last["result"], "pieces": last.get("pieces", []),
-                     "saved": [x for x in saved if x not in improved], "improved": improved} if last else None}
+            "last": _task_summary(_session_task(sid, state, tasks))}
 
 
 def _behind(lang: str) -> str:
@@ -828,16 +946,16 @@ def cmd_add(args) -> int:
     return 0
 
 
-def cmd_status(args) -> int:
-    s = status()
-    if args.json:
-        print(json.dumps(s, ensure_ascii=False))
-    else:
-        if s["lang"] == "es":
-            print(f"athos · {s['pieces']} formas de trabajar · {len(s['loaded'])} en uso · {s['to_mark']} por marcar")
-        else:
-            print(f"athos · {s['pieces']} ways of working · {len(s['loaded'])} in use · {s['to_mark']} to mark")
-    return 0
+def cmd_status(args: argparse.Namespace) -> int | None:
+    """A one-line summary for a terminal; with --json, the whole `status()` the panels draw from."""
+    snapshot = status()
+    print(json.dumps(snapshot, ensure_ascii=False) if args.json else _status_line(snapshot))
+
+
+def _status_line(s: dict) -> str:
+    if s["lang"] == "es":
+        return f"athos · {s['pieces']} formas de trabajar · {len(s['loaded'])} en uso · {s['to_mark']} por marcar"
+    return f"athos · {s['pieces']} ways of working · {len(s['loaded'])} in use · {s['to_mark']} to mark"
 
 
 def _model_error(e: Exception, platform: str, model: str) -> str | None:
@@ -1056,38 +1174,53 @@ def cmd_start(args) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    argv = sys.argv[1:] if argv is None else argv
-    if not argv:                                   # a bare `athos` greets instead of failing with a usage error
-        from athos import start
-        print(start.t("hello"))
-        return 0
-    ap = argparse.ArgumentParser(prog="athos", description="Your AI know-how. Free to move, fast to run.")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+def cmd_library(args) -> int:
+    from athos import library
+    return library.serve(port=args.port, open_browser=not args.no_open)
+
+
+def cmd_mcp(_args) -> int:
+    from athos import mcp
+    return mcp.serve()
+
+
+def cmd_watch(args) -> int:
+    """The trail as a page (--web), as text beside the agent (--trail), or the per-agent bars (the default)."""
+    if args.web:
+        from athos import watch_web
+        return watch_web.serve(port=args.port, open_browser=not args.no_open)
+    from athos import watch
+    return watch.run_trail() if args.trail else watch.run(once=args.once)
+
+
+def cmd_hook(args) -> int:
+    return hook(args.event, args.platform)
+
+
+def _parser() -> argparse.ArgumentParser:
+    """Every subcommand and its arguments. Which function runs each one is `_HANDLERS`, below."""
+    ap = argparse.ArgumentParser(prog="athos", description="Your AI know-how: yours to move between agents, and quick "
+                                                           "to run on small models.")
+    sub = ap.add_subparsers(dest="cmd", required=True, metavar="<command>")
     s = sub.add_parser("start", help="first run: your language, your profession, example ways of working")
     s.add_argument("--lang", choices=["es", "en"])
     s.add_argument("--profile", choices=["law", "ops", "journalism", "science", "finance", "other"])
-    s.set_defaults(fn=cmd_start)
-    sub.add_parser("list").set_defaults(fn=cmd_list)
-    s = sub.add_parser("show")
-    s.add_argument("id")
-    s.set_defaults(fn=cmd_show)
-    sub.add_parser("save").set_defaults(fn=cmd_save)
+    sub.add_parser("list", help="every piece in the store; ● marks the ones allowed to load here")
+    s = sub.add_parser("show", help="print one piece")
+    s.add_argument("id", help="the piece's id (its file name without .md)")
+    sub.add_parser("save", help="store the piece written on stdin (a new version when its id: already exists)")
     s = sub.add_parser("curate", help="tidy your ways of working: tag pages with the projects they are used in, "
                        "archive unused ones, spot near-duplicates, broken links and work with no page yet")
     s.add_argument("action", nargs="?", choices=["list", "apply", "dismiss", "ignore", "restore"], default="list")
     s.add_argument("which", nargs="*", help="apply/dismiss: proposal numbers; ignore: a project; restore: a page id")
-    s.set_defaults(fn=cmd_curate)
     s = sub.add_parser("journal", help="what happened lately in this project: its last tasks, what they followed "
                        "or saved, how they went, and what is open")
     s.add_argument("--project", help="another project, by its folder name")
-    s.set_defaults(fn=cmd_journal)
-    s = sub.add_parser("load")
-    s.add_argument("what", nargs="*")
-    s.set_defaults(fn=cmd_load)
-    s = sub.add_parser("export")
-    s.add_argument("dir", nargs="?")
-    s.add_argument("--codex", action="store_true", help="write each piece as a Codex skill (default ~/.agents/skills)")
+    s = sub.add_parser("load", help="choose which pieces may load; with nothing after it, show the current choice")
+    s.add_argument("what", nargs="*", metavar="CHOICE", help="all | project [name] | pieces <id>... | none")
+    s = sub.add_parser("export", help="copy your know-how out: a folder, agent skills, a dataset or a guild bundle")
+    s.add_argument("dir", nargs="?", help="the folder to write to")
+    s.add_argument("--codex", action="store_true", help="each piece as a skill for Codex (default ~/.agents/skills)")
     s.add_argument("--muse", action="store_true", help="the same skills for Muse Code, which reads ~/.agents/skills too")
     s.add_argument("--dataset", metavar="FILE", help="your statements and marked tasks as JSON lines, to evaluate or "
                    "specialise a model on")
@@ -1095,7 +1228,6 @@ def main(argv: list[str] | None = None) -> int:
                    "`athos merge`")
     s.add_argument("--piece", action="append", help="with --guild: only this piece (repeatable)")
     s.add_argument("--as", dest="owner", metavar="NAME", help="with --guild: your name, as colleagues will see it")
-    s.set_defaults(fn=cmd_export)
     s = sub.add_parser("merge", help="merge colleagues' versions of one of your pieces into one (a dry run unless "
                        "--apply)")
     s.add_argument("id", help="your piece")
@@ -1106,62 +1238,50 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--backend", choices=["ollama", "meta"],
                    help="merge differing texts with a model: ollama on this machine, or meta (Meta Model API)")
     s.add_argument("--model", help="the model for --backend (Ollama by default)")
-    s.set_defaults(fn=cmd_merge)
-    s = sub.add_parser("codex")
-    s.add_argument("action", choices=["install", "uninstall"])
-    s.set_defaults(fn=cmd_codex)
+    s = sub.add_parser("codex", help="wire Athos's hooks into Codex (~/.codex/hooks.json), or remove them")
+    s.add_argument("action", choices=["install", "uninstall"], help="add the hooks, or take them out")
     s = sub.add_parser("opencode")
     s.add_argument("action", choices=["install", "uninstall"])
-    s.set_defaults(fn=cmd_opencode)
     s = sub.add_parser("project", help="this project's own copy of your know-how in .athos/, read by every agent")
     s.add_argument("action", choices=["sync", "remove"])
     s.add_argument("--piece", action="append", help="only this piece (repeatable)")
     s.add_argument("--all", action="store_true", help="every piece, not only the ones this project used")
     s.add_argument("--commit", action="store_true", help="don't add .athos/ to .gitignore (share it with the team)")
-    s.set_defaults(fn=cmd_project)
     s = sub.add_parser("dismiss", help="the piece loaded for the last task didn't apply: don't load it on those words")
     s.add_argument("id")
-    s.set_defaults(fn=cmd_dismiss)
-    s = sub.add_parser("revert")
-    s.add_argument("id")
+    s = sub.add_parser("revert", help="bring back an earlier version of a piece, saved as a new version")
+    s.add_argument("id", help="the piece")
     s.add_argument("--to", type=int, help="the version to go back to (default: the previous one)")
-    s.set_defaults(fn=cmd_revert)
     s = sub.add_parser("library", help="every way of working at a glance, as a local page on 127.0.0.1")
     s.add_argument("--port", type=int, default=8712)
     s.add_argument("--no-open", action="store_true", help="don't open the browser")
-    s.set_defaults(fn=lambda a: __import__("athos.library", fromlist=["serve"]).serve(port=a.port,
-                                                                                     open_browser=not a.no_open))
-    s = sub.add_parser("delegate")
-    s.add_argument("id", help="the piece of know-how the task follows")
-    s.add_argument("request")
+    s = sub.add_parser("delegate", help="hand a task you master to a smaller model, following one piece")
+    s.add_argument("id", help="the piece the task follows")
+    s.add_argument("request", help="the request, as you would type it to the agent")
     s.add_argument("--backend", choices=["ollama", "meta"], default="ollama",
                    help="where the model runs: ollama on this machine (default), or meta (Meta Model API)")
     s.add_argument("--model", help="the model: an Ollama one (default gemma4:12b), or with --backend meta "
                                    "muse-spark-1.3 (default) or muse-wonder-1.0")
-    s.add_argument("--yes", action="store_true", help="run the model's commands without asking for each")
-    s.add_argument("--max-steps", type=int, default=20)
+    s.add_argument("--yes", action="store_true", help="don't ask before each command the model wants to run")
+    s.add_argument("--max-steps", type=int, default=20, help="stop after this many model turns (default 20)")
     s.add_argument("--by-step", action="store_true",
                    help="statement by statement, each on the model its **Model:** line names (else this one)")
     s.add_argument("--allow-meta", action="store_true",
                    help="with --by-step: let steps whose **Model:** is meta run on Meta Model API")
-    s.set_defaults(fn=cmd_delegate)
     s = sub.add_parser("route", help="which model each step of a piece needs, from your marks on by-step delegations")
     s.add_argument("id")
     s.add_argument("--apply", action="store_true", help="write the suggested **Model:** lines (a new version)")
     s.add_argument("--json", action="store_true")
-    s.set_defaults(fn=cmd_route)
-    s = sub.add_parser("mark")
-    s.add_argument("result", help="g (good), c (corrected) or f (failed)")
-    s.add_argument("task", nargs="?")
-    s.set_defaults(fn=cmd_mark)
-    s = sub.add_parser("import")
+    s = sub.add_parser("mark", help="your verdict on a task: good, corrected or failed")
+    s.add_argument("result", help="g for good, c for corrected, f for failed")
+    s.add_argument("task", nargs="?", help="the task's id (default: the last task in this folder)")
+    s = sub.add_parser("import", help="record the tasks another agent ran, from its session logs")
     s.add_argument("platform", choices=["codex", "muse"])
     s.add_argument("--sessions", help="sessions folder (default ~/.codex/sessions, or ~/.local/share/muse/sessions)")
-    s.add_argument("--include-tmp", action="store_true", help="also sessions run in temporary folders (tests)")
-    s.set_defaults(fn=cmd_import)
-    s = sub.add_parser("report")
-    s.add_argument("--json", action="store_true")
-    s.set_defaults(fn=cmd_report)
+    s.add_argument("--include-tmp", action="store_true",
+                   help="include sessions that ran in temporary folders (as test runs do)")
+    s = sub.add_parser("report", help="what each piece and each model adds to your work")
+    s.add_argument("--json", action="store_true", help="the numbers as JSON")
     s = sub.add_parser("bench", help="the same tasks on several agents and models, checked by what they leave behind")
     s.add_argument("target", nargs="?", help="a case, several (a,b), all, report, or transfer / transfer-report")
     s.add_argument("case", nargs="?", help="with transfer / transfer-report: the transfer case")
@@ -1185,52 +1305,41 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--embed-model", help="with route: the Ollama embedding model for hybrid (default your setting)")
     s.add_argument("--from-store", action="store_true",
                    help="with route: your tasks marked good against your store (read-only, counts only)")
-    s.set_defaults(fn=cmd_bench)
     s = sub.add_parser("embed", help="also load know-how by meaning, with a local embedding model (Ollama); on|off")
     s.add_argument("action", nargs="?", choices=["on", "off"])
     s.add_argument("--model", help="the Ollama embedding model (default embeddinggemma)")
     s.add_argument("--refresh", action="store_true", help=argparse.SUPPRESS)
-    s.set_defaults(fn=cmd_embed)
     s = sub.add_parser("wiki", help="your know-how as a wiki: rebuild Index.md, check links, trajectory agents")
     s.add_argument("action", nargs="?", choices=["lint", "agents"], default="lint")
     s.add_argument("--install", action="store_true", help="with agents: put them where Claude Code finds subagents")
     s.add_argument("--uninstall", action="store_true", help="with agents: remove them from there")
     s.add_argument("--dir", help="with agents: where to install (default ~/.claude/agents)")
     s.add_argument("--json", action="store_true")
-    s.set_defaults(fn=cmd_wiki)
-    s = sub.add_parser("mcp", help="serve your know-how as an MCP server over stdio (Claude Desktop's chat, any MCP app)")
-    s.set_defaults(fn=lambda a: __import__("athos.mcp", fromlist=["serve"]).serve())
+    sub.add_parser("mcp", help="serve your know-how as an MCP server over stdio (Claude Desktop's chat, any MCP app)")
     s = sub.add_parser("watch", help="a live panel of how each agent applies this project's know-how")
     s.add_argument("--once", action="store_true", help="print the panel once and exit")
     s.add_argument("--web", action="store_true", help="the trail panel as a local page, beside an agent without one")
     s.add_argument("--port", type=int, default=8711)
     s.add_argument("--no-open", action="store_true", help="don't open the browser")
     s.add_argument("--trail", action="store_true", help="the trail panel as text, in a terminal beside the agent")
-    s.set_defaults(fn=lambda a: __import__("athos.watch_web", fromlist=["serve"]).serve(port=a.port, open_browser=not a.no_open)
-                   if a.web else (__import__("athos.watch", fromlist=["run_trail"]).run_trail() if a.trail
-                                  else __import__("athos.watch", fromlist=["run"]).run(once=a.once)))
     s = sub.add_parser("connector", help="services a way of working can ask for, e.g. pii-guard (list, add, check, wire)")
     s.add_argument("action", nargs="?", default="list", choices=["list", "add", "check", "wire"])
     s.add_argument("name", nargs="?")
     s.add_argument("agent", nargs="?", help="for wire: opencode, codex, muse-code, claude-code")
-    s.set_defaults(fn=cmd_connector)
     s = sub.add_parser("desktop", help="build Athos as a Claude Desktop extension (.mcpb): the chat gets your "
                                        "know-how and the trail panel")
     s.add_argument("--out", help="where to write it (default dist/athos.mcpb in the Athos folder)")
     s.add_argument("--carry", action="append", metavar="ID[,ID…]",
                    help="ways of working to put inside the skill, so Claude follows them even without the connector "
                         "(they are then kept in your Claude account too)")
-    s.set_defaults(fn=cmd_desktop)
     s = sub.add_parser("step", help="(for the agent) the step of your know-how it is on, shown in Athos's pane")
     s.add_argument("ref", nargs="?", help="<piece>#<statement>")
     s.add_argument("--new", help="a step the task needed that your know-how doesn't have yet")
-    s.set_defaults(fn=cmd_step)
     s = sub.add_parser("test", help="re-check a piece against the corrections you made on it before")
     s.add_argument("id", help="the piece")
     s.add_argument("--backend", choices=["ollama", "meta"], default="ollama",
                    help="where the model runs: ollama on this machine (default), or meta (Meta Model API)")
     s.add_argument("--model", help="the model (default gemma4:12b, or muse-spark-1.3 with --backend meta)")
-    s.set_defaults(fn=cmd_test)
     s = sub.add_parser("shadow", help="compare a cheaper model with the answers you approved; on|off after each task")
     s.add_argument("action", nargs="?", choices=["on", "off"])
     s.add_argument("--backend", choices=["ollama", "meta"],
@@ -1238,28 +1347,44 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--model", help="the model (default gemma4:12b, or muse-spark-1.3 with --backend meta)")
     s.add_argument("--limit", type=int, help="at most this many approved tasks")
     s.add_argument("--quiet", action="store_true", help=argparse.SUPPRESS)
-    s.set_defaults(fn=cmd_shadow)
-    s = sub.add_parser("status")
-    s.add_argument("--json", action="store_true")
-    s.set_defaults(fn=cmd_status)
+    s = sub.add_parser("status", help="a one-line summary of the store and this folder's session")
+    s.add_argument("--json", action="store_true", help="everything the status line and band draw, as JSON")
     s = sub.add_parser("doctor", help="which Athos each of your agents runs, and which are behind")
     s.add_argument("--json", action="store_true")
-    s.set_defaults(fn=cmd_doctor)
     s = sub.add_parser("gallery", help="build the gallery's gallery.json and index.html")
     s.add_argument("action", choices=["build"])
     s.add_argument("--out", help="the folder to write to (default: the gallery folder)")
-    s.set_defaults(fn=cmd_gallery)
     s = sub.add_parser("add", help="add a way of working from Athos's public gallery")
     s.add_argument("ref", help="the gallery id, or its raw URL in the athos-agent/athos repository")
     s.add_argument("--dry-run", action="store_true", help="only show what would be added")
-    s.set_defaults(fn=cmd_add)
-    s = sub.add_parser("hook")
-    s.add_argument("event", choices=["session-start", "prompt", "tool", "stop"])
-    s.add_argument("--platform", default="claude-code")
-    s.set_defaults(fn=lambda a: hook(a.event, a.platform))
-    args = ap.parse_args(argv)
-    return args.fn(args)
+    s = sub.add_parser("hook", help="(for the agents' hook configuration) handle one event read as JSON on stdin")
+    s.add_argument("event", choices=list(_HOOK_HANDLERS), help="which moment of the session the event marks")
+    s.add_argument("--platform", default="claude-code", help="the agent sending it (default claude-code)")
+    return ap
+
+
+_HANDLERS = {
+    "start": cmd_start, "list": cmd_list, "show": cmd_show, "save": cmd_save, "curate": cmd_curate,
+    "journal": cmd_journal, "load": cmd_load, "export": cmd_export, "merge": cmd_merge, "codex": cmd_codex,
+    "opencode": cmd_opencode, "project": cmd_project, "dismiss": cmd_dismiss, "revert": cmd_revert,
+    "library": cmd_library, "delegate": cmd_delegate, "route": cmd_route, "mark": cmd_mark, "import": cmd_import,
+    "report": cmd_report, "bench": cmd_bench, "embed": cmd_embed, "wiki": cmd_wiki, "mcp": cmd_mcp,
+    "watch": cmd_watch, "connector": cmd_connector, "desktop": cmd_desktop, "step": cmd_step, "test": cmd_test,
+    "shadow": cmd_shadow, "status": cmd_status, "doctor": cmd_doctor, "gallery": cmd_gallery, "add": cmd_add,
+    "hook": cmd_hook,
+}
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the command line. Called by bin/athos, by Codex's hook shim and by the tests with an explicit argv."""
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv:                                   # a bare `athos` greets instead of failing with a usage error
+        from athos import start
+        print(start.t("hello"))
+        return 0
+    args = _parser().parse_args(argv)
+    return _HANDLERS[args.cmd](args) or 0           # a handler that ran to its end succeeded
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

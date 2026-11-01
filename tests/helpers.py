@@ -2,29 +2,32 @@ import os
 import tempfile
 import unittest
 
+# Environment variables a test must never let point at the user's real data, each mapped to the folder (inside the
+# test's temporary home) it is redirected to. None means the temporary home itself.
+_SANDBOXED_ENV = {
+    "ATHOS_HOME": None,                         # the know-how store
+    "CODEX_HOME": "codex-home",                 # Codex sessions and skills (~/.codex)
+    "XDG_DATA_HOME": "xdg-data",                # Muse Code sessions
+    "ATHOS_SKILLS_DIR": "agents-skills",        # exported skills
+    "XDG_CONFIG_HOME": "xdg-config",            # OpenCode plugins
+}
+
 
 class TempHome(unittest.TestCase):
-    """Each test gets its own ATHOS_HOME, so nothing touches the real store."""
+    """Base class that runs every test against a fresh temporary ATHOS_HOME (available as `self.home`), with the
+    other agents' folders redirected under it too. Whatever the environment held before is put back afterwards."""
 
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self._old = os.environ.get("ATHOS_HOME")
-        self._old_codex = os.environ.get("CODEX_HOME")
-        self._old_xdg = os.environ.get("XDG_DATA_HOME")
-        self._old_skills = os.environ.get("ATHOS_SKILLS_DIR")
-        self._old_cfg = os.environ.get("XDG_CONFIG_HOME")
-        os.environ["ATHOS_HOME"] = self._tmp.name
-        os.environ["CODEX_HOME"] = os.path.join(self._tmp.name, "codex-home")      # never the user's real ~/.codex
-        os.environ["XDG_DATA_HOME"] = os.path.join(self._tmp.name, "xdg-data")     # nor their Muse Code sessions
-        os.environ["ATHOS_SKILLS_DIR"] = os.path.join(self._tmp.name, "agents-skills")  # nor their exported skills
-        os.environ["XDG_CONFIG_HOME"] = os.path.join(self._tmp.name, "xdg-config")  # nor their OpenCode plugins
-        self.home = self._tmp.name
+        self._home_dir = tempfile.TemporaryDirectory()
+        self.home = self._home_dir.name
+        self._saved_env = {name: os.environ.get(name) for name in _SANDBOXED_ENV}
+        for name, sub in _SANDBOXED_ENV.items():
+            os.environ[name] = self.home if sub is None else os.path.join(self.home, sub)
 
     def tearDown(self):
-        for key, old in (("ATHOS_HOME", self._old), ("CODEX_HOME", self._old_codex), ("XDG_DATA_HOME", self._old_xdg),
-                         ("ATHOS_SKILLS_DIR", self._old_skills), ("XDG_CONFIG_HOME", self._old_cfg)):
-            if old is None:
-                os.environ.pop(key, None)
+        for name, before in self._saved_env.items():
+            if before is None:
+                os.environ.pop(name, None)
             else:
-                os.environ[key] = old
-        self._tmp.cleanup()
+                os.environ[name] = before
+        self._home_dir.cleanup()
