@@ -68,7 +68,8 @@ def host() -> str:
 def chat(model: str, messages: list[dict], timeout: float = 600, tools: bool = True) -> dict:
     """One Ollama chat call. `tools=False` sends none: a plain answer, for replaying a case (`athos test`, `athos
     shadow`), where the model only writes."""
-    # think=False: small reasoning models otherwise spend the turn thinking, and Ollama returns it apart from content.
+    # Thinking is switched off: a small reasoning model would spend its turn on it, and Ollama keeps it out of the
+    # content anyway.
     req_body = {"model": model, "messages": messages, "stream": False, "think": False,
                 "options": {"temperature": 0, "num_ctx": 16384}}
     if tools:
@@ -79,16 +80,16 @@ def chat(model: str, messages: list[dict], timeout: float = 600, tools: bool = T
         return json.loads(response.read())
 
 
-def _inside(cwd: Path, rel: str) -> Path:
+def _within_project(cwd: Path, rel: str) -> Path:
     """`rel` resolved against the project folder; PermissionError when it lands outside it (`..`, symlinks)."""
     root = cwd.resolve()
     target = (root / rel).resolve()
     if target == root or root in target.parents:
         return target
-    raise PermissionError(f"{rel} is outside the project folder")
+    raise PermissionError(f"{rel} lies outside the project folder")
 
 
-def _clip(text: str) -> str:
+def _trimmed(text: str) -> str:
     """Tool output trimmed to OUTPUT_LIMIT, saying how much was left out."""
     overflow = len(text) - OUTPUT_LIMIT
     return text[:OUTPUT_LIMIT] + f"\n… ({overflow} more chars)" if overflow > 0 else text
@@ -103,18 +104,18 @@ def _run_command(args: dict, root: Path, confirm) -> str:
     if not confirm(f"run: {command}"):
         return _refused("command")
     done = subprocess.run(command, shell=True, cwd=root, capture_output=True, text=True, timeout=COMMAND_TIMEOUT)
-    return _clip(f"exit code {done.returncode}\n{done.stdout}{done.stderr}")
+    return _trimmed(f"exit code {done.returncode}\n{done.stdout}{done.stderr}")
 
 
 def _read_file(args: dict, root: Path, confirm) -> str:
-    return _clip(_inside(root, str(args.get("path", ""))).read_text())
+    return _trimmed(_within_project(root, str(args.get("path", ""))).read_text())
 
 
 def _edit_file(args: dict, root: Path, confirm) -> str:
     """Swap one exact, unique snippet; the rest of the file stays as it was."""
-    target = _inside(root, str(args.get("path", "")))
+    target = _within_project(root, str(args.get("path", "")))
     shown = target.relative_to(root)
-    old, new = str(args.get("old", "")), str(args.get("new", ""))
+    old, new = (str(args.get(key, "")) for key in ("old", "new"))
     current = target.read_text()
     found = current.count(old) if old else 0
     if found != 1:
@@ -126,7 +127,7 @@ def _edit_file(args: dict, root: Path, confirm) -> str:
 
 
 def _write_file(args: dict, root: Path, confirm) -> str:
-    target = _inside(root, str(args.get("path", "")))
+    target = _within_project(root, str(args.get("path", "")))
     shown = target.relative_to(root)
     content = str(args.get("content", ""))
     if not confirm(f"write: {shown} ({len(content)} chars)"):
@@ -145,18 +146,19 @@ def call_tool(name: str, args: dict, cwd: Path, confirm) -> str:
     root = cwd.resolve()
     handler = _HANDLERS.get(name)
     if handler is None:
-        return f"unknown tool {name}"
+        return f"unknown tool {name} (the tools are {', '.join(_HANDLERS)})"
     try:
         return handler(args, root, confirm)
-    except Exception as e:  # noqa: BLE001
-        return f"error: {e}"
+    except Exception as failure:  # noqa: BLE001 - whatever went wrong, the model reads it and carries on
+        return f"error: {failure}"
 
 
-def _ask(what: str) -> bool:
+def _ask_at_terminal(what: str) -> bool:
     """Ask the person at the terminal; with no terminal to ask, the answer is no."""
-    if sys.stdin.isatty():
-        return input(f"  allow {what}? [y/N] ").strip().lower() in ("y", "yes")
-    return False
+    if not sys.stdin.isatty():
+        return False
+    reply = input(f"  allow {what}? [y/N] ")
+    return reply.strip().lower() in {"y", "yes"}
 
 
 def _arguments(function: dict):
@@ -192,18 +194,19 @@ def _loop(chat_fn, model: str, messages: list[dict], cwd: Path, confirm, max_ste
         said = reply.get("message") or {}
         calls = said.get("tool_calls") or []
         messages.append({"role": "assistant", "content": said.get("content", ""), "tool_calls": calls})
-        if not calls:
-            return said.get("content", ""), turn, used
-        # Small models sometimes loop on one call; the same calls REPEATS turns running end the run.
-        fingerprint = json.dumps([c.get("function") for c in calls], sort_keys=True)
-        streak = streak + 1 if fingerprint == previous else 1
-        previous = fingerprint
-        if streak >= REPEATS:
-            verdict = f"(stopped: the model repeated the same step {REPEATS} times)"
-            # Calls left unanswered would break the next turn of a shared conversation (--by-step).
-            messages[-1] = {"role": "assistant", "content": verdict}
-            return verdict, turn, used
-        _answer_calls(calls, messages, cwd, confirm, out)
+        if calls:
+            # Small models sometimes loop on one call; the same calls REPEATS turns running end the run.
+            fingerprint = json.dumps([c.get("function") for c in calls], sort_keys=True)
+            streak = streak + 1 if fingerprint == previous else 1
+            previous = fingerprint
+            if streak >= REPEATS:
+                verdict = f"(stopped: the model repeated the same step {REPEATS} times)"
+                # Calls left unanswered would break the next turn of a shared conversation (--by-step).
+                messages[-1] = {"role": "assistant", "content": verdict}
+                return verdict, turn, used
+            _answer_calls(calls, messages, cwd, confirm, out)
+            continue
+        return said.get("content", ""), turn, used          # a reply with no tool call: the model is done
     return f"(stopped after {max_steps} steps)", max(max_steps, 0), used
 
 
@@ -214,7 +217,7 @@ def _system(piece: store.Piece, cwd: Path) -> dict:
 
 
 def _confirmer(yes: bool):
-    return (lambda _what: True) if yes else _ask
+    return (lambda _what: True) if yes else _ask_at_terminal
 
 
 def _with_totals(tokens: dict) -> dict:
@@ -239,11 +242,17 @@ def delegate(piece_id: str, request: str, model: str = DEFAULT_MODEL, cwd: Path 
     summary, turns, spent = _loop(chat_fn, model, conversation, folder, _confirmer(yes), max_steps, out)
     elapsed = time.monotonic() - started
     tokens = _with_totals(spent)
-    store.touch(piece.id)
-    task_id = ev.record_external(platform, model, [piece.id], elapsed, tokens, request=request,
-                                 project=paths.project_of(folder))
+    task_id = _log_run(piece.id, platform, model, elapsed, tokens, request, folder)
     return {"task_id": task_id, "summary": summary, "steps": turns, "duration_s": round(elapsed, 1),
             "tokens": tokens}
+
+
+def _log_run(piece_id: str, platform: str, model: str, elapsed: float, tokens: dict, request: str,
+             folder: Path) -> str:
+    """Count the piece as used and add the run to the task log, as a task like any other; returns its id."""
+    store.touch(piece_id)
+    return ev.record_external(platform, model, [piece_id], elapsed, tokens, request=request,
+                              project=paths.project_of(folder))
 
 
 # ------------------------------------------------------------------------------------------------ one model per step
