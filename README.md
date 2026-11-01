@@ -109,7 +109,7 @@ expensive model to a cheap or local one, and check it keeps up.
 Athos is a musketeer: free, and on its own two feet. Three minutes on why, and Athos at work in Claude Desktop,
 OpenCode on Meta's Muse Spark, and its memory (no sound; fictional data):
 
-[![Athos: your AI know-how, free to move, fast to run (YouTube, 3 min)](https://img.youtube.com/vi/mAsmreBVtYw/maxresdefault.jpg)](https://youtu.be/mAsmreBVtYw)
+[![Athos: your AI know-how, free to move, fast to run (YouTube, 3 min)](https://img.youtube.com/vi/4JabA-KajK0/maxresdefault.jpg)](https://youtu.be/4JabA-KajK0)
 
 **Guides:** [Claude Desktop](docs/guides/claude-desktop-en.md) ([en español](docs/guides/claude-desktop.md)) · [for lawyers](docs/guides/lawyer.md) ([en español](docs/guides/abogado.md)) ·
 [your checklist is know-how](docs/guides/checklist-en.md) ([en español](docs/guides/checklist.md)) · why this should
