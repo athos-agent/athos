@@ -1,18 +1,20 @@
-"""Local evaluation: what each piece of know-how and each model brings to the user's own work.
+"""Athos's own measuring tape: the user's tasks, kept on the user's machine, and what each piece and model did on them.
 
-Everything is appended to `<home>/events.jsonl` on the user's machine and never sent anywhere.
+The log is one JSON object per line in `<home>/events.jsonl`. Nothing in this module sends it anywhere.
 
-    task_start  a request begins (UserPromptSubmit): task id, session, platform, model, time
-    task_end    the assistant stops (Stop): duration, tokens, the pieces loaded and saved. A task may end twice
-                when Athos asks for a capture; time and tokens count only up to the first end, so the capture's own
-                cost never inflates a baseline
-    mark        the user's verdict on a task: ok, corrected or failed. A task never marked stays "unevaluated".
-                A marked task that loaded a piece is kept as a case (athos/cases.py)
-    test_run    `athos test`: a piece's past corrections replayed on its current version (athos/replay.py)
-    shadow      `athos shadow`: one approved task replayed on a cheaper model, and how close it came
+Kinds of line written to the log:
 
-A task's baseline is the one in which a piece was first saved: that execution ran without the piece. Later tasks
-that load the piece are compared with it on time and tokens.
+    task_start  written when a request arrives (UserPromptSubmit): ids, session, platform, model, the time
+    task_end    written when the assistant stops (Stop): how long it took, its tokens, the pieces it loaded and
+                saved. When Athos asks for a capture the same task stops a second time; only the first stop sets
+                its time and tokens, so a capture never makes a baseline look more expensive than it was
+    mark        the person's verdict: ok, corrected or failed. Tasks nobody judges are reported as "unevaluated".
+                Judging a task that loaded a piece also keeps it as a case (athos/cases.py)
+    test_run    `athos test` replaying a piece's recorded corrections on its latest version (athos/replay.py)
+    shadow      `athos shadow` running an approved task again on a cheaper model and scoring the result
+
+Comparisons: the task that first saved a piece ran without it, so it is that piece's baseline. Every later task
+that loaded the piece is measured against the baseline on time, tokens and request length.
 """
 
 from __future__ import annotations
@@ -23,223 +25,313 @@ import os
 import re
 import uuid
 from pathlib import Path
+from typing import Any, Iterable, Iterator
 
 from athos import paths, session, store
 
-RESULTS = {"g": "ok", "ok": "ok", "good": "ok",
-           "c": "corrected", "corrected": "corrected", "fix": "corrected",
-           "f": "failed", "failed": "failed", "fail": "failed"}
-STALE_DAYS = 14
-LOW_SUCCESS = 0.5
-MIN_EVALUATED = 3
+# Shapes passed around below. They are all plain JSON-ready dicts; the names only say which is which.
+Event = dict[str, Any]          # one line of the log
+Task = dict[str, Any]           # a task folded from its lines (see `tasks`)
+Tokens = dict[str, int]         # input / output / cache_read / cache_write / total
+TaskId = str
+PieceId = str
+Moment = _dt.datetime
 
+# Every spelling `athos mark` accepts, folded into the three verdicts written to the log.
+_SPELLINGS = {"ok": ("g", "good"), "corrected": ("c", "fix"), "failed": ("f", "fail")}
+RESULTS = {word: verdict for verdict, extra in _SPELLINGS.items() for word in (verdict, *extra)}
+UNMARKED = "unevaluated"
 
-def now() -> _dt.datetime:
-    return _dt.datetime.now(_dt.timezone.utc)
+STALE_DAYS = 14             # a piece idle for longer than this is put up for review
+LOW_SUCCESS = 0.5           # ...and so is one whose judged tasks succeed less often than this
+MIN_EVALUATED = 3           # ...once at least this many of its tasks have been judged
 
-
-def _iso(t: _dt.datetime) -> str:
-    return t.isoformat(timespec="milliseconds")
-
-
-def _parse(ts: str) -> _dt.datetime | None:
-    try:
-        return _dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except (AttributeError, ValueError):
-        return None
-
-
-def append(event: dict) -> None:
-    f = paths.events_file()
-    f.parent.mkdir(parents=True, exist_ok=True)
-    with f.open("a") as fh:
-        fh.write(json.dumps(event, ensure_ascii=False) + "\n")
-
-
-def events() -> list[dict]:
-    try:
-        lines = paths.events_file().read_text().splitlines()
-    except OSError:
-        return []
-    out = []
-    for line in lines:
-        try:
-            out.append(json.loads(line))
-        except ValueError:
-            continue
-    return out
-
-
-# ------------------------------------------------------------------------------------------------ recording
-def tokens_between(transcript_path: str | None, start: str, end: str) -> dict | None:
-    """Tokens of the model replies between two times, from the transcript. The format is internal to the platform, so
-    this is best effort: None when nothing can be read. Each reply is counted once (it spans several lines)."""
-    if not transcript_path:
-        return None
-    t0, t1 = _parse(start), _parse(end)
-    seen, tot = set(), {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
-    try:
-        fh = open(transcript_path, errors="ignore")
-    except OSError:
-        return None
-    with fh:
-        for line in fh:
-            try:
-                o = json.loads(line)
-            except ValueError:
-                continue
-            msg, ts = o.get("message"), _parse(o.get("timestamp", ""))
-            if not isinstance(msg, dict) or not isinstance(msg.get("usage"), dict) or ts is None:
-                continue
-            if (t0 and ts < t0) or (t1 and ts > t1):
-                continue
-            key = msg.get("id") or o.get("uuid")
-            if key in seen:
-                continue
-            seen.add(key)
-            u = msg["usage"]
-            tot["input"] += int(u.get("input_tokens") or 0)
-            tot["output"] += int(u.get("output_tokens") or 0)
-            tot["cache_read"] += int(u.get("cache_read_input_tokens") or 0)
-            tot["cache_write"] += int(u.get("cache_creation_input_tokens") or 0)
-    if not seen:
-        return None
-    tot["total"] = sum(tot.values())
-    return tot
-
-
-def _tokens(platform: str, transcript: str | None, start: str, end: str, session_id: str = "") -> dict | None:
-    if platform == "codex":
-        from athos.adapters import codex
-        return codex.tokens_between(transcript, start, end)
-    if platform == "muse-code":                  # Muse sends no transcript path: its session log has the usage
-        from athos.adapters import muse
-        return muse.tokens_between(session_id, start, end)
-    return tokens_between(transcript, start, end)
-
-
-def request_fields(text: str) -> dict:
-    """The request as recorded: its first characters to recognise it, and its whole length, which the bars compare
-    with the first run's (what the know-how spares you from explaining)."""
-    text = (text or "").strip()
-    return {"request": text[:120], "request_chars": len(text)}
-
-
-def task_start(event: dict, platform: str = "claude-code") -> str:
-    sid = event.get("session_id", "default")
-    state = session.load(sid)
-    if isinstance(event.get("model"), str) and event["model"]:
-        state["model"] = event["model"]                          # Codex sends the model on every event
-    state["platform"] = platform
-    tid = uuid.uuid4().hex[:12]
-    model = state.get("model") or session.model_from_transcript(event.get("transcript_path"))
-    started = _iso(now())
-    # Capture is per request: only the work done for this request can trigger the Stop hook's ask.
-    state.update(task_id=tid, task_started=started, task_loaded=[], task_saved=[], tools_since_capture=0,
-                 work_since_capture=0, edits_since_capture=0, task_why={}, trail=[],
-                 task_request=str(event.get("prompt") or "")[:200],
-                 # The whole request, until the task is marked: a case keeps it (athos/cases.py). Only in this
-                 # session's own state, replaced by the next request.
-                 case_request=str(event.get("prompt") or ""))
-    session.save(sid, state)
-    start = {"type": "task_start", "task_id": tid, "session_id": sid, "platform": platform, "model": model,
-             "project": paths.project_of(event.get("cwd")), "at": started, **request_fields(event.get("prompt"))}
-    # A task in a temporary or demo folder is a test or a rehearsal, not the person's work: curating leaves it out.
-    if str(event.get("cwd") or "").startswith(SCRATCH_PREFIXES):
-        start["scratch"] = True
-    append(start)
-    return tid
-
-
+# Working folders that hold tests and demo rehearsals rather than real work; their tasks are flagged `scratch`.
 SCRATCH_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/", "/Users/Shared/athos-demo")
 
 
-def task_end(event: dict) -> dict | None:
-    sid = event.get("session_id", "default")
-    state = session.load(sid)
-    tid = state.get("task_id")
-    if not tid:
-        return None
-    ended = now()
-    started = _parse(state.get("task_started", "")) or ended
-    if not state.get("model") or state.get("model") == "unknown":
-        given = event.get("model")
-        state["model"] = given if isinstance(given, str) and given else \
-            session.model_from_transcript(event.get("transcript_path"))
-        session.save(sid, state)
-    rec = {"type": "task_end", "task_id": tid, "session_id": sid, "at": _iso(ended),
-           "duration_s": round((ended - started).total_seconds(), 1),
-           # A platform that counts its own tokens (OpenCode) sends them; the others are read from the transcript.
-           "tokens": event["tokens"] if isinstance(event.get("tokens"), dict) else
-           _tokens(state.get("platform", "claude-code"), event.get("transcript_path"),
-                   state.get("task_started", ""), _iso(ended), sid),
-           "model": state.get("model", "unknown"),
-           "pieces": state.get("task_loaded", []), "saved": state.get("task_saved", [])}
-    append(rec)
-    return rec
+# ================================================================================================ time and the log
+def now() -> Moment:
+    """The current moment, timezone-aware in UTC. Tests freeze it by patching this name."""
+    return _dt.datetime.now(tz=_dt.timezone.utc)
 
 
-def new_task_id() -> str:
+def _iso(moment: Moment) -> str:
+    return moment.isoformat(timespec="milliseconds")
+
+
+def _parse(stamp: str) -> Moment | None:
+    """A log or transcript timestamp as a datetime (a trailing Z is accepted); None when it can't be read."""
+    parsed = None
+    if isinstance(stamp, str):
+        if stamp.endswith("Z"):
+            stamp = stamp[:-1] + "+00:00"
+        try:
+            parsed = _dt.datetime.fromisoformat(stamp)
+        except ValueError:
+            parsed = None
+    return parsed
+
+
+def _new_id() -> TaskId:
     return uuid.uuid4().hex[:12]
 
 
-def record_external(platform: str, model: str, pieces: list[str], duration_s: float, tokens: dict | None,
+def new_task_id() -> TaskId:
+    """A fresh short task id, for callers that need it before the task is logged (athos delegate)."""
+    return _new_id()
+
+
+def append(event: Event) -> None:
+    """Add one event at the end of the log, creating its folder the first time."""
+    log = paths.events_file()
+    log.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(event, ensure_ascii=False)
+    with log.open("a") as out:
+        out.write(line + "\n")
+
+
+def _decoded(lines: Iterable[str]) -> Iterator[Any]:
+    for line in lines:
+        try:
+            yield json.loads(line)
+        except ValueError:          # a half-written or hand-edited line is skipped, never fatal
+            pass
+
+
+def _log_text() -> str:
+    try:
+        return paths.events_file().read_text()
+    except OSError:                 # no log yet (or unreadable): the same as an empty one
+        return ""
+
+
+def events() -> list[Event]:
+    """Every readable event in the log, oldest first; an absent log is simply empty."""
+    return list(_decoded(_log_text().splitlines()))
+
+
+# ================================================================================================ tokens
+_USAGE_FIELDS = (("input", "input_tokens"), ("output", "output_tokens"),
+                 ("cache_read", "cache_read_input_tokens"), ("cache_write", "cache_creation_input_tokens"))
+
+
+def _replies_in_window(handle, since: Moment | None, until: Moment | None):
+    """The (key, usage) of each transcript line that carries a model reply's usage inside the window."""
+    for row in _decoded(handle):
+        message = row.get("message") if isinstance(row, dict) else None
+        when = _parse(row.get("timestamp", "")) if isinstance(message, dict) else None
+        has_usage = when is not None and isinstance(message.get("usage"), dict)
+        if has_usage and not (since and when < since) and not (until and when > until):
+            yield message.get("id") or row.get("uuid"), message["usage"]
+
+
+def _open_quietly(path: str | None):
+    """The file opened for reading (undecodable bytes ignored), or None when there is no path or it can't be read."""
+    if path:
+        try:
+            return open(path, errors="ignore")
+        except OSError:
+            pass
+    return None
+
+
+def tokens_between(transcript_path: str | None, start: str, end: str) -> Tokens | None:
+    """Add up the tokens Claude Code's transcript reports for the replies made between `start` and `end`.
+
+    The transcript is the platform's private format, so this is a best effort that answers None when it finds
+    nothing. A single reply is written over several lines that share its id: it is added only once."""
+    handle = _open_quietly(transcript_path)
+    if handle is None:
+        return
+    totals = {name: 0 for name, _ in _USAGE_FIELDS}
+    counted: set = set()
+    with handle:
+        for key, usage in _replies_in_window(handle, _parse(start), _parse(end)):
+            if key not in counted:
+                counted.add(key)
+                for name, field in _USAGE_FIELDS:
+                    totals[name] += int(usage.get(field) or 0)
+    return {**totals, "total": sum(totals.values())} if counted else None
+
+
+def _tokens(platform: str, transcript_path: str | None, since: str, until: str, sid: str = "") -> Tokens | None:
+    """Token usage for a task, read from wherever its platform keeps it."""
+    if platform == "muse-code":
+        # Muse's hooks carry no transcript path; its own session log has the usage instead.
+        from athos.adapters import muse
+        return muse.tokens_between(sid, since, until)
+    if platform != "codex":
+        return tokens_between(transcript_path, since, until)
+    from athos.adapters import codex
+    return codex.tokens_between(transcript_path, since, until)
+
+
+# ================================================================================================ recording tasks
+def request_fields(text: str) -> dict:
+    """What the log keeps of a request: a short head to recognise it by, and its full length. The bars compare
+    that length with the first run's, which is how much explaining the know-how saved."""
+    cleaned = (text or "").strip()
+    return {"request": cleaned[:120], "request_chars": len(cleaned)}
+
+
+def _start_event(task_id: TaskId, sid: str, platform: str, model: str, project, at: str, request) -> Event:
+    """The task_start line, shared by tasks seen through hooks and tasks reported from elsewhere."""
+    return {"type": "task_start", "task_id": task_id, "session_id": sid, "platform": platform, "model": model,
+            "project": project, "at": at, **request_fields(request)}
+
+
+def _end_event(task_id: TaskId, at: str, duration_s: float, tokens, model: str, loaded, saved,
+               sid: str | None = None) -> Event:
+    """The task_end line. Only tasks seen through hooks name their session here."""
+    head = {"type": "task_end", "task_id": task_id}
+    if sid is not None:
+        head["session_id"] = sid
+    return {**head, "at": at, "duration_s": round(duration_s, 1),
+            "tokens": tokens, "model": model, "pieces": loaded, "saved": saved}
+
+
+def _hook_session(event: Event) -> tuple[str, dict]:
+    """The session a hook event belongs to, and that session's saved state."""
+    sid = event.get("session_id", "default")
+    return sid, session.load(sid)
+
+
+def _fresh_task_state(task_id: TaskId, started: str, prompt: str) -> dict:
+    """The per-request part of a session's state. Capture works per request, so its counters start again here."""
+    return {
+        "task_id": task_id, "task_started": started,
+        "task_loaded": [], "task_saved": [], "task_why": {}, "trail": [],
+        "tools_since_capture": 0, "work_since_capture": 0, "edits_since_capture": 0,
+        "task_request": prompt[:200],
+        # The full request stays here (this session only, overwritten by the next request) until the task is
+        # judged, so a case can keep it (athos/cases.py).
+        "case_request": prompt,
+    }
+
+
+def _sent_model(event: Event) -> str | None:
+    model = event.get("model")
+    return model if isinstance(model, str) and model else None
+
+
+def _transcript_model(event: Event) -> str:
+    return session.model_from_transcript(event.get("transcript_path"))
+
+
+def _is_scratch(cwd) -> bool:
+    return str(cwd or "").startswith(SCRATCH_PREFIXES)
+
+
+def task_start(event: Event, platform: str = "claude-code") -> TaskId:
+    """Open a task for a new request: reset the session's per-task state and log a task_start. Returns its id."""
+    sid, state = _hook_session(event)
+    if _sent_model(event):
+        state["model"] = _sent_model(event)      # Codex repeats the model on every hook event
+    new_id, opened_at = _new_id(), _iso(now())
+    model = state.get("model") or _transcript_model(event)
+    prompt = str(event.get("prompt") or "")
+    session.save(sid, {**state, "platform": platform, **_fresh_task_state(new_id, opened_at, prompt)})
+    opened = _start_event(new_id, sid, platform, model, paths.project_of(event.get("cwd")), opened_at,
+                          event.get("prompt"))
+    if _is_scratch(event.get("cwd")):
+        opened["scratch"] = True                 # a test or rehearsal: curating ignores it
+    append(opened)
+    return new_id
+
+
+def _settle_model(sid: str, state: dict, event: Event) -> None:
+    """Fill in the session's model at the end of a task when the start could not tell which one it was."""
+    if state.get("model") in (None, "", "unknown"):
+        state["model"] = _sent_model(event) or _transcript_model(event)
+        session.save(sid, state)
+
+
+def task_end(event: Event) -> Event | None:
+    """Close the session's open task: log a task_end with its duration, tokens and pieces, and return it.
+    None when the session has no task open."""
+    sid, state = _hook_session(event)
+    open_id = state.get("task_id")
+    if not open_id:
+        return
+    finished = now()
+    opened_at = state.get("task_started", "")
+    began = _parse(opened_at) or finished
+    _settle_model(sid, state, event)
+    if isinstance(event.get("tokens"), dict):
+        used = event["tokens"]                   # OpenCode counts its own tokens and sends them
+    else:
+        used = _tokens(state.get("platform", "claude-code"), event.get("transcript_path"),
+                       opened_at, _iso(finished), sid)
+    closed = _end_event(open_id, _iso(finished), (finished - began).total_seconds(), used,
+                        state.get("model", "unknown"), state.get("task_loaded", []), state.get("task_saved", []),
+                        sid=sid)
+    append(closed)
+    return closed
+
+
+def record_external(platform: str, model: str, pieces: list[PieceId], duration_s: float, tokens: Tokens | None,
                     result: str | None = None, request: str = "", project: str | None = None,
-                    task_id: str | None = None, steps: list[dict] | None = None) -> str:
-    """One whole task run outside Claude Code (another platform, or a local model). `steps`, for a delegation run
-    step by step, lists each statement with the model it ran on, its time and tokens (`athos route` reads them)."""
+                    task_id: TaskId | None = None, steps: list[dict] | None = None) -> TaskId:
+    """Log a complete task that ran somewhere Athos has no hooks (another agent, a local model), start and end at
+    once, and judge it when `result` is given. `steps` lists, for a delegation run one statement at a time, each
+    statement's model, time and tokens; `athos route` reads them."""
     tid = task_id or new_task_id()
-    t = _iso(now())
-    append({"type": "task_start", "task_id": tid, "session_id": f"{platform}-{tid}", "platform": platform,
-            "model": model, "project": project, "at": t, **request_fields(request)})
-    end = {"type": "task_end", "task_id": tid, "at": t, "duration_s": round(duration_s, 1), "tokens": tokens,
-           "model": model, "pieces": pieces, "saved": []}
-    append({**end, "steps": steps} if steps else end)
-    if result:
-        mark(result, tid)
-    return tid
+    stamp = _iso(now())
+    append(_start_event(tid, f"{platform}-{tid}", platform, model, project, stamp, request))
+    closed = _end_event(tid, stamp, duration_s, tokens, model, pieces, [])
+    if steps:
+        closed["steps"] = steps
+    append(closed)
+    return mark(result, task_id=tid)[0] if result else tid
 
 
-def note_loaded(session_id: str, ids: list[str]) -> None:
-    state = session.load(session_id)
+def _add_to_open_task(sid: str, key: str, ids: Iterable[PieceId]) -> None:
+    state = session.load(sid)
     if state.get("task_id"):
-        state["task_loaded"] = sorted(set(state.get("task_loaded", [])) | set(ids))
-        session.save(session_id, state)
+        state[key] = sorted(set(state.get(key, [])).union(ids))
+        session.save(sid, state)
 
 
-def note_saved(session_id: str, piece_id: str) -> None:
-    state = session.load(session_id)
-    if state.get("task_id"):
-        state["task_saved"] = sorted(set(state.get("task_saved", [])) | {piece_id})
-        session.save(session_id, state)
+def note_loaded(session_id: str, ids: list[PieceId]) -> None:
+    """Remember that the open task loaded these pieces."""
+    _add_to_open_task(session_id, "task_loaded", ids)
 
 
-def last_task_id(session_id: str | None = None, project: str | None = None) -> str | None:
-    """The task a one-key mark is about: the one that ended last among this session's task and the tasks of this
-    project (a Codex task run in the same folder after a Claude Code session is the one meant); else the last one."""
-    ts = tasks()
-    if not ts:
-        return None
-    own = session.load(session_id).get("task_id") if session_id else None
-    cands = [t for t in ts if t["task_id"] == own or (project and t.get("project") == project)]
-    return max(cands or ts, key=lambda t: t.get("ended") or "")["task_id"]
+def note_saved(session_id: str, piece_id: PieceId) -> None:
+    """Remember that the open task saved (or improved) this piece."""
+    _add_to_open_task(session_id, "task_saved", [piece_id])
 
 
-def mark(result: str, task_id: str | None = None, session_id: str | None = None,
-         project: str | None = None) -> tuple[str, str]:
-    res = RESULTS.get(result.lower())
-    if res is None:
-        raise ValueError("result must be g (ok), c (corrected) or f (failed)")
-    tid = task_id or last_task_id(session_id, project)
-    if not tid:
-        raise LookupError("no task to mark yet")
-    append({"type": "mark", "task_id": tid, "result": res, "at": _iso(now())})
-    _keep_case(tid, res, session_id)
-    return tid, res
+# ================================================================================================ verdicts
+def last_task_id(session_id: str | None = None, project: str | None = None) -> TaskId | None:
+    """Which task a bare `athos mark` means. Candidates are this session's task and every task of this project
+    (so a Codex run in the same folder after a Claude Code session wins if it ended later); with no candidate,
+    the task that ended last anywhere."""
+    known = tasks()
+    sessions_task = session.load(session_id).get("task_id") if session_id and known else None
+    candidates = [t for t in known if t["task_id"] == sessions_task or (project and t.get("project") == project)]
+    pool = candidates or known
+    return max(pool, key=lambda t: t.get("ended") or "")["task_id"] if pool else None
 
 
-def _keep_case(tid: str, res: str, session_id: str | None, correction: str | None = None) -> None:
-    """A marked task that loaded a piece becomes a case (athos/cases.py). Keeping it must never stop the mark."""
+def mark(result: str, task_id: TaskId | None = None, session_id: str | None = None,
+         project: str | None = None) -> tuple[TaskId, str]:
+    """Log the person's verdict on a task (the given one, else the one `last_task_id` picks).
+    Returns (task id, verdict)."""
+    verdict = RESULTS.get(result.lower())
+    if verdict is None:
+        raise ValueError("unknown result: use g (ok), c (corrected) or f (failed)")
+    target = task_id or last_task_id(session_id, project)
+    if target is None or target == "":
+        raise LookupError("nothing to mark: no task has ended yet")
+    append({"type": "mark", "task_id": target, "result": verdict, "at": _iso(now())})
+    _keep_case(target, verdict, session_id)
+    return target, verdict
+
+
+def _keep_case(tid: TaskId, res: str, session_id: str | None, correction: str | None = None) -> None:
+    """Hand a judged task to athos/cases.py. Whatever goes wrong there, the verdict is already logged."""
     from athos import cases
     try:
         cases.on_mark(tid, res, session_id, correction)
@@ -287,45 +379,63 @@ def record(piece_id: str, tasks: list[dict]) -> dict:
             "marked": sum(t["result"] != "unevaluated" for t in used), "agents": agents}
 
 
-# ------------------------------------------------------------------------------------------------ report
-def tasks() -> list[dict]:
-    """One record per task: its start, its last end, and its last mark ("unevaluated" when never marked)."""
-    by: dict[str, dict] = {}
-    for e in events():
-        tid = e.get("task_id")
-        if not tid:
-            continue
-        t = by.setdefault(tid, {"task_id": tid, "result": "unevaluated", "pieces": [], "saved": []})
-        if e["type"] == "task_start":
-            t.update(started=e.get("at"), platform=e.get("platform", "unknown"), model=e.get("model", "unknown"),
-                     project=e.get("project"), request=e.get("request", ""),
-                     request_chars=e.get("request_chars"), scratch=bool(e.get("scratch")))
-        elif e["type"] == "task_end":
-            # Time and tokens stop at the first end: later ends of the same task are the capture Athos asked for,
-            # which must not inflate a baseline. Pieces loaded and saved accumulate over all ends.
-            if "ended" not in t:
-                t.update(duration_s=e.get("duration_s"), tokens=e.get("tokens"))
-                if e.get("steps"):
-                    t["steps"] = e["steps"]
-            t.update(ended=e.get("at"), pieces=sorted(set(t["pieces"]) | set(e.get("pieces", []))),
-                     saved=sorted(set(t["saved"]) | set(e.get("saved", []))))
-            if e.get("model") and e["model"] != "unknown":
-                t["model"] = e["model"]
-        elif e["type"] == "mark":
-            t["result"] = e.get("result", "unevaluated")
-    return [t for t in by.values() if "ended" in t]
+# ================================================================================================ folding the log
+def _on_start(task: Task, line: Event) -> None:
+    task.update(started=line.get("at"), platform=line.get("platform", "unknown"),
+                model=line.get("model", "unknown"), project=line.get("project"), request=line.get("request", ""),
+                request_chars=line.get("request_chars"), scratch=bool(line.get("scratch")))
 
 
-def _rate(ts: list[dict]) -> tuple[float | None, int]:
-    ev = [t for t in ts if t["result"] != "unevaluated"]
-    if not ev:
-        return None, 0
-    return sum(1 for t in ev if t["result"] == "ok") / len(ev), len(ev)
+def _on_end(task: Task, line: Event) -> None:
+    # The first stop fixes time and tokens; any later stop is the capture Athos asked for and would only make
+    # the baseline look dearer. The pieces loaded and saved, though, gather across every stop.
+    if "ended" not in task:
+        task["duration_s"], task["tokens"] = line.get("duration_s"), line.get("tokens")
+        if line.get("steps"):
+            task["steps"] = line["steps"]
+    task["ended"] = line.get("at")
+    task["pieces"] = sorted(set(task["pieces"]).union(line.get("pieces", [])))
+    task["saved"] = sorted(set(task["saved"]).union(line.get("saved", [])))
+    if line.get("model") not in (None, "", "unknown"):
+        task["model"] = line["model"]
 
 
-def _mean(xs: list[float]) -> float | None:
-    xs = [x for x in xs if x is not None]
-    return sum(xs) / len(xs) if xs else None
+def _on_mark(task: Task, line: Event) -> None:
+    task["result"] = line.get("result", UNMARKED)        # a later verdict replaces an earlier one
+
+
+_FOLD = {"task_start": _on_start, "task_end": _on_end, "mark": _on_mark}
+
+
+def tasks() -> list[Task]:
+    """The log folded into one dict per finished task (one that has stopped at least once), in the order the
+    tasks first appear: its start, its stops, and its latest verdict (`unevaluated` when there is none)."""
+    folded: dict[TaskId, Task] = {}
+    for line in filter(lambda e: e.get("task_id"), events()):
+        task = folded.setdefault(line["task_id"],
+                                 {"task_id": line["task_id"], "result": UNMARKED, "pieces": [], "saved": []})
+        handler = _FOLD.get(line.get("type"))
+        if handler:
+            handler(task, line)
+    return [task for task in folded.values() if "ended" in task]
+
+
+# ================================================================================================ statistics
+def _rate(group: list[Task]) -> tuple[float | None, int]:
+    """(share judged ok, number judged) over the tasks someone judged; (None, 0) when nobody judged any."""
+    judged = [t["result"] for t in group if t["result"] != UNMARKED]
+    share = judged.count("ok") / len(judged) if judged else None
+    return share, len(judged)
+
+
+def _mean(values: list[float | None]) -> float | None:
+    """Average of the values that are present, or None when none are."""
+    present = [v for v in values if v is not None]
+    return sum(present) / len(present) if present else None
+
+
+def _minus(before, after):
+    return None if before is None or after is None else before - after
 
 
 def _shorter(base: dict | None, uses: list[dict]) -> float | None:
@@ -335,55 +445,82 @@ def _shorter(base: dict | None, uses: list[dict]) -> float | None:
     return (first - mean) / first if first and mean is not None else None
 
 
-def _tok(t: dict) -> int | None:
-    return (t.get("tokens") or {}).get("total")
+def _tok(task: Task) -> int | None:
+    """A task's total tokens, when they were counted."""
+    counted = task.get("tokens") or {}
+    return counted.get("total")
+
+
+def _baseline(pid: PieceId, ts: list[Task]) -> Task | None:
+    """The first task that saved the piece without having loaded it: the run done without the know-how."""
+    return next((t for t in ts if pid in t["saved"] and pid not in t["pieces"]), None)
+
+
+def _idle_days(last: str, today: _dt.date) -> int | None:
+    try:
+        return (today - _dt.date.fromisoformat(last)).days if last else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _review_flags(idle: int | None, rate: float | None, judged: int) -> list[str]:
+    stale = idle is None or idle > STALE_DAYS
+    failing = rate is not None and judged >= MIN_EVALUATED and rate < LOW_SUCCESS
+    return [flag for flag, raised in ((f"not used in {STALE_DAYS} days", stale), ("low success", failing)) if raised]
+
+
+def _piece_row(pid: PieceId, piece, ts: list[Task], today: _dt.date) -> dict:
+    uses = [t for t in ts if pid in t["pieces"]]            # a task that loaded and improved it still used it
+    base = _baseline(pid, ts)
+    rate, judged = _rate(uses)
+    mean_s = _mean([t.get("duration_s") for t in uses])
+    mean_tok = _mean([_tok(t) for t in uses])
+    dates = [t["ended"][:10] for t in uses]
+    if piece is not None:
+        dates.append(piece.last_used)
+    last = max(dates, default="")
+    row = {"piece": pid, "title": piece.title if piece is not None else "(deleted)",
+           "uses": len(uses), "evaluated": judged, "success_rate": rate, "baseline": None,
+           "mean_duration_s": mean_s, "mean_tokens": mean_tok, "time_saved_s": None, "tokens_saved": None,
+           "prompt_saved": _shorter(base, uses), "last_used": last or None,
+           "review": _review_flags(_idle_days(last, today), rate, judged)}
+    if base:
+        row["baseline"] = {"task_id": base["task_id"], "duration_s": base.get("duration_s"), "tokens": _tok(base)}
+        row["time_saved_s"] = _minus(base.get("duration_s"), mean_s)
+        row["tokens_saved"] = _minus(_tok(base), mean_tok)
+    return row
+
+
+def _where(task: Task) -> tuple[str, str]:
+    return task.get("platform", "unknown"), task.get("model", "unknown")
+
+
+def _model_rows(ts: list[Task]) -> list[dict]:
+    groups: dict[tuple[str, str], list[Task]] = {}
+    for t in ts:
+        groups.setdefault(_where(t), []).append(t)
+    rows = []
+    for (platform, model), group in sorted(groups.items()):
+        rate, judged = _rate(group)
+        rows.append({"platform": platform, "model": model, "tasks": len(group), "evaluated": judged,
+                     "success_rate": rate, "with_know_how": sum(1 for t in group if t["pieces"]),
+                     "mean_duration_s": _mean([t.get("duration_s") for t in group]),
+                     "mean_tokens": _mean([_tok(t) for t in group])})
+    return rows
 
 
 def report(today: _dt.date | None = None) -> dict:
+    """Everything `athos report` shows: one row per piece (known or merely mentioned in the log) and one per
+    platform and model, plus the ids of the pieces worth a review."""
     today = today or _dt.date.today()
     ts = tasks()
-    pieces = {p.id: p for p in store.all_pieces()}
-    per_piece = []
-    for pid in sorted(set(pieces) | {x for t in ts for x in t["pieces"] + t["saved"]}):
-        uses = [t for t in ts if pid in t["pieces"]]                                  # improving it is a use too
-        base = next((t for t in ts if pid in t["saved"] and pid not in t["pieces"]), None)   # the run without it
-        rate, n_ev = _rate(uses)
-        mean_d, mean_tok = _mean([t.get("duration_s") for t in uses]), _mean([_tok(t) for t in uses])
-        last = max([t["ended"][:10] for t in uses] + ([pieces[pid].last_used] if pid in pieces else []), default="")
-        try:
-            idle = (today - _dt.date.fromisoformat(last)).days if last else None
-        except ValueError:
-            idle = None
-        flags = []
-        if idle is None or idle > STALE_DAYS:
-            flags.append(f"not used in {STALE_DAYS} days")
-        if rate is not None and n_ev >= MIN_EVALUATED and rate < LOW_SUCCESS:
-            flags.append("low success")
-        per_piece.append({
-            "piece": pid, "title": pieces[pid].title if pid in pieces else "(deleted)",
-            "uses": len(uses), "evaluated": n_ev, "success_rate": rate,
-            "baseline": {"task_id": base["task_id"], "duration_s": base.get("duration_s"), "tokens": _tok(base)}
-            if base else None,
-            "mean_duration_s": mean_d, "mean_tokens": mean_tok,
-            "time_saved_s": (base["duration_s"] - mean_d) if base and mean_d is not None
-            and base.get("duration_s") is not None else None,
-            "tokens_saved": (_tok(base) - mean_tok) if base and mean_tok is not None and _tok(base) is not None
-            else None,
-            "prompt_saved": _shorter(base, uses),
-            "last_used": last or None, "review": flags})
-    per_model = []
-    for (platform, model) in sorted({(t.get("platform", "unknown"), t.get("model", "unknown")) for t in ts}):
-        mt = [t for t in ts if (t.get("platform", "unknown"), t.get("model", "unknown")) == (platform, model)]
-        rate, n_ev = _rate(mt)
-        per_model.append({"platform": platform, "model": model, "tasks": len(mt), "evaluated": n_ev,
-                          "success_rate": rate, "with_know_how": sum(1 for t in mt if t["pieces"]),
-                          "mean_duration_s": _mean([t.get("duration_s") for t in mt]),
-                          "mean_tokens": _mean([_tok(t) for t in mt])})
+    known = {p.id: p for p in store.all_pieces()}
+    mentioned = {pid for t in ts for pid in t["pieces"] + t["saved"]}
+    rows = [_piece_row(pid, known.get(pid), ts, today) for pid in sorted(known.keys() | mentioned)]
     return {"generated": _iso(now()), "tasks": len(ts),
-            "evaluated": sum(1 for t in ts if t["result"] != "unevaluated"),
-            "pieces": per_piece, "models": per_model,
-            "review": [p["piece"] for p in per_piece if p["review"]]}
-
+            "evaluated": sum(1 for t in ts if t["result"] != UNMARKED),
+            "pieces": rows, "models": _model_rows(ts),
+            "review": [row["piece"] for row in rows if row["review"]]}
 
 
 # ------------------------------------------------------------------------------------------------ bars
@@ -452,40 +589,51 @@ def bar_line(row: dict, width: int = 20) -> tuple[str, str]:
                      else f"{-row['prompt_saved'] * 100:.0f}% longer prompt")
     return bar, " · ".join(words)
 
-def _pct(x):
-    return "—" if x is None else f"{x * 100:.0f}%"
+
+# ================================================================================================ the text report
+_DASH = "—"
 
 
-def _num(x, unit=""):
-    return "—" if x is None else f"{x:,.0f}{unit}"
+def _pct(share: float | None) -> str:
+    """A share as a whole percentage, or a dash when there is nothing to show."""
+    return _DASH if share is None else format(share, ".0%")
 
 
-def _signed(x, unit=""):
-    return "—" if x is None else f"{x:+,.0f}{unit}"
+def _num(value: float | None, unit: str = "") -> str:
+    """A number with thousands separators and an optional unit, or a dash."""
+    return _DASH if value is None else format(value, ",.0f") + unit
 
 
-def render(r: dict) -> str:
-    out = [f"Athos report · {r['tasks']} task(s), {r['evaluated']} evaluated · local data only", ""]
-    out.append("Know-how pieces")
-    if not r["pieces"]:
-        out.append("  (none yet)")
-    for p in r["pieces"]:
-        out.append(f"  {p['piece']}  uses {p['uses']}  success {_pct(p['success_rate'])} "
-                   f"({p['evaluated']} evaluated)")
-        if p["baseline"]:
-            if p.get("prompt_saved") is not None:
-                out.append(f"    vs the first run, which taught it: requests {p['prompt_saved'] * 100:.0f}% shorter")
-        if p["review"]:
-            out.append(f"    review: {', '.join(p['review'])}")
-    out += ["", "Models on your tasks"]
-    if not r["models"]:
-        out.append("  (none yet)")
-    for m in r["models"]:
-        out.append(f"  {m['platform']} / {m['model']}  tasks {m['tasks']}  success {_pct(m['success_rate'])} "
-                   f"({m['evaluated']} evaluated)  with know-how {m['with_know_how']}  "
-                   f"avg {_num(m['mean_duration_s'], ' s')}, {_num(m['mean_tokens'])} tokens")
-    unev = r["tasks"] - r["evaluated"]
-    if unev:
-        out += ["", f"{unev} task(s) not evaluated yet: mark the last one with `athos mark g|c|f` "
-                    "(good, corrected, failed)."]
-    return "\n".join(out)
+def _piece_lines(p: dict) -> list[str]:
+    lines = [f"  {p['piece']}  uses {p['uses']}  success {_pct(p['success_rate'])} ({p['evaluated']} evaluated)"]
+    if p["baseline"] and p.get("prompt_saved") is not None:
+        lines.append(f"    vs the first run, which taught it: requests {p['prompt_saved'] * 100:.0f}% shorter")
+    if p["review"]:
+        lines.append("    review: " + ", ".join(p["review"]))
+    return lines
+
+
+def _model_line(m: dict) -> str:
+    who = f"{m['platform']} / {m['model']}"
+    outcome = f"tasks {m['tasks']}  success {_pct(m['success_rate'])} ({m['evaluated']} evaluated)"
+    cost = f"avg {_num(m['mean_duration_s'], ' s')}, {_num(m['mean_tokens'])} tokens"
+    return f"  {who}  {outcome}  with know-how {m['with_know_how']}  {cost}"
+
+
+def _section(title: str, rows: list[str]) -> list[str]:
+    return [title, *(rows or ["  (none yet)"])]
+
+
+_HOW_TO_MARK = "mark the last one with `athos mark g|c|f` (good, corrected, failed)."
+
+
+def render(report: dict) -> str:
+    """`athos report` as plain text. Every figure comes from `report`; a missing one is printed as a dash."""
+    piece_rows = [line for p in report["pieces"] for line in _piece_lines(p)]
+    lines = [f"Athos report · {report['tasks']} task(s), {report['evaluated']} evaluated · local data only", ""]
+    lines += _section("Know-how pieces", piece_rows)
+    lines += [""] + _section("Models on your tasks", [_model_line(m) for m in report["models"]])
+    pending = report["tasks"] - report["evaluated"]
+    if pending:
+        lines += ["", f"{pending} task(s) not evaluated yet: {_HOW_TO_MARK}"]
+    return "\n".join(lines)
