@@ -30,6 +30,11 @@ _ATHOS_COMMAND = re.compile(r"(^|[\s/])athos(\s|$)")
 CHECKLIST = re.compile(r"check[- ]?lists?\b|lista de (verificaci[oó]n|control|chequeo|comprobaci[oó]n)"
                        r"|\bprotocol[oe]?s?\b", re.IGNORECASE)
 LIST_ITEM = re.compile(r"^\s*(?:[-*•]|\d{1,2}[.)]|\[[ xX]\])\s+\S", re.MULTILINE)
+# The person teaching their own way in the request ("como lo hago yo: primero…", "the way I do it"): the steps that
+# follow are their know-how, like a typed list (2026-11-01: the welcome's own example request offered no save).
+TEACHING = re.compile(r"\bcomo (?:lo )?hago yo\b|\ba mi manera\b|\bcomo yo lo hago\b|\bte explico (?:los|c[oó]mo)"
+                      r"|\bthe way i do (?:it|this)\b|\bhow i do (?:it|this)\b|\bi'?ll walk you through\b",
+                      re.IGNORECASE)
 # A checklist file the request names ("con mi checklist (mi-checklist.md)") is the person's own, like a typed list.
 CHECKLIST_FILE = re.compile(r"[\w./-]*check[-_ ]?list[\w-]*\.(?:md|txt|docx?|pdf|csv|xlsx?)\b", re.IGNORECASE)
 
@@ -302,8 +307,14 @@ def is_save_prompt(text: str) -> bool:
 
 
 def mentions_checklist(text: str) -> bool:
-    """A checklist in the request: named as such, or three or more list items the person typed or pasted."""
-    return bool(CHECKLIST.search(text or "")) or len(LIST_ITEM.findall(text or "")) >= 3
+    """A checklist in the request: named as such, three or more list items the person typed or pasted, or the person
+    teaching their own way of doing it."""
+    return bool(CHECKLIST.search(text or "")) or len(LIST_ITEM.findall(text or "")) >= 3 or teaches(text)
+
+
+def teaches(text: str) -> bool:
+    """The request teaches the person's own way ("como lo hago yo", "the way I do it")."""
+    return bool(TEACHING.search(text or ""))
 
 
 def note_request(event: dict) -> None:
@@ -312,7 +323,8 @@ def note_request(event: dict) -> None:
     # Per request, like the rest of capture. A list the person typed is new know-how even when a piece was loaded:
     # their own checklist on top of a generic one is exactly what the piece should learn.
     session.update(event.get("session_id", "default"), checklist=mentions_checklist(prompt),
-                   checklist_typed=len(LIST_ITEM.findall(prompt)) >= 3 or bool(CHECKLIST_FILE.search(prompt)),
+                   checklist_typed=len(LIST_ITEM.findall(prompt)) >= 3 or bool(CHECKLIST_FILE.search(prompt))
+                   or teaches(prompt),
                    saved_in_request=False, offer=None)
 
 

@@ -1,6 +1,6 @@
 {
   "name": "athos",
-  "version": "0.1.92",
+  "version": "0.1.93",
   "description": "Your AI know-how, from Claude Code to Codex: the same pieces, loaded when they match, measured on your own tasks.",
   "author": { "name": "Athos", "url": "https://github.com/athos-agent/athos" },
   "homepage": "https://github.com/athos-agent/athos",

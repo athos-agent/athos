@@ -82,15 +82,24 @@ def set_selection(mode: str, values: list[str] | None = None) -> dict:
     return selection
 
 
-def describe(sel: dict | None = None) -> str:
-    """One human line for `athos load` and `athos list`: what is being loaded right now."""
+def describe(sel: dict | None = None, lang: str = "en") -> str:
+    """One human line for `athos load` and `athos list`: what is being loaded right now, in the person's language."""
     selection = sel or get()
     mode = selection["mode"]
-    labels = {
-        "project": lambda: "project " + selection.get("project", "(the current one)"),
-        "pieces": lambda: "pieces " + ", ".join(selection.get("pieces", [])),
-        "auto": lambda: "auto (this project's pieces, the untagged ones, and another project's when the request names it)",
-    }
+    if lang == "es":
+        labels = {
+            "project": lambda: "proyecto " + selection.get("project", "(el actual)"),
+            "pieces": lambda: "formas de trabajar " + ", ".join(selection.get("pieces", [])),
+            "auto": lambda: "auto (las de este proyecto, las generales, y las de otro proyecto cuando el pedido lo "
+                            "nombra)",
+        }
+    else:
+        labels = {
+            "project": lambda: "project " + selection.get("project", "(the current one)"),
+            "pieces": lambda: "pieces " + ", ".join(selection.get("pieces", [])),
+            "auto": lambda: "auto (this project's pieces, the untagged ones, and another project's when the request "
+                            "names it)",
+        }
     return labels[mode]() if mode in labels else mode
 
 

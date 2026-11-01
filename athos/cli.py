@@ -294,7 +294,7 @@ def cmd_list(args: argparse.Namespace) -> int | None:
     from athos import start
     pieces = sorted(store.all_pieces(), key=lambda p: p.last_used, reverse=True)
     enabled = {p.id for p in load.enabled(os.getcwd())}
-    where, choice = paths.know_how(), control.describe()
+    where, choice = paths.know_how(), control.describe(lang=start.lang())
     if start.lang() == "es":
         print(f"{len(pieces)} forma(s) de trabajar en {where} · se cargan: {choice}")
     else:
@@ -1236,7 +1236,8 @@ def cmd_start(args) -> int:
         except EOFError:
             return default
         return options[int(ans) - 1] if ans.isdigit() and 1 <= int(ans) <= len(options) else default
-    language = args.lang or pick(start.TEXT["en"]["ask_lang"], start.LANGS, start.lang() if start.config() else "es")
+    default_lang = start.lang() if start.config() else "es"
+    language = args.lang or pick(start.TEXT[default_lang]["ask_lang"], start.LANGS, default_lang)
     profile = args.profile or pick(start.TEXT[language]["ask_profile"], start.PROFILES, "other")
     start.save_choice(language, profile)
     added, skipped = start.install(language, profile)

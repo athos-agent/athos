@@ -459,8 +459,12 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
         recent = journal.text(paths.project_of(event["cwd"]))
         if recent:
             text = (text + "\n\n" if text else "") + recent
-    if text and capture.enabled():               # with the guide given here, the Stop hook only needs one line
-        text += "\n\n" + capture.guide(cmd)
+    # With the guide given here, the Stop hook only needs one line. On an empty store it is the whole opening: the
+    # first task drafts its steps on the trail and can be saved as the first way of working (2026-11-01: a first run
+    # opened with nothing, so the first task's trail stayed empty). "none" keeps Athos quiet.
+    first_run = not text and not store.all_pieces() and control.get()["mode"] != "none"
+    if (text or first_run) and capture.enabled():
+        text = (text + "\n\n" if text else "") + capture.guide(cmd)
         session.update(sid, guide=True)
     from athos import replay
     offer = replay.offer_text(None, cmd)        # a cheaper model proven on a piece: told once, at the session's start

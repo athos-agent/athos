@@ -39,8 +39,10 @@ class SessionStartAndPrompt(TempHome):
         load.on_session_start({"session_id": "s2", "model": {"id": "muse-spark", "display_name": "Muse Spark"}})
         self.assertEqual(recorded("s2", "model"), "muse-spark")
 
-    def test_an_empty_store_says_nothing_at_session_start(self):
-        self.assertEqual(load.on_session_start({"session_id": "empty"}), "")
+    def test_an_empty_store_opens_with_the_saving_guide_only(self):
+        opening = load.on_session_start({"session_id": "empty"})
+        self.assertIn("Saving know-how", opening)
+        self.assertNotIn("know-how are available", opening)
         self.assertIsNone(recorded("empty", "model"))
 
     def test_a_request_gets_only_the_page_that_fits(self):
