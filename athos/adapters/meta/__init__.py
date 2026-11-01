@@ -24,17 +24,24 @@ MAX_TOKENS = 4000        # a reasoning model: with a small cap it spends it all 
 REASONING = "low"
 
 
-def api_key() -> str | None:
-    if os.environ.get("MODEL_API_KEY"):
-        return os.environ["MODEL_API_KEY"]
+def env_key(name: str) -> str | None:
+    """The person's key `name`: from the environment, else from a `NAME=...` line in the store's `.env` or
+    `~/.athos/.env`. Never printed. Every hosted backend reads its key this way (Meta's `MODEL_API_KEY`, Baseten's
+    `BASETEN_API_KEY`)."""
+    if os.environ.get(name):
+        return os.environ[name]
     # The key is the person's, not one store's: a store of its own (a demo, ATHOS_HOME) still finds ~/.athos/.env.
     for f in dict.fromkeys([paths.home() / ".env", Path.home() / ".athos" / ".env"]):
         if f.is_file():
             for line in f.read_text().splitlines():
                 k, _, v = line.strip().removeprefix("export ").partition("=")
-                if k.strip() == "MODEL_API_KEY" and v.strip():
+                if k.strip() == name and v.strip():
                     return v.strip().strip("'\"")
     return None
+
+
+def api_key() -> str | None:
+    return env_key("MODEL_API_KEY")
 
 
 def to_openai(messages: list[dict]) -> list[dict]:
@@ -78,18 +85,25 @@ def from_openai(r: dict) -> dict:
 
 def chat(model: str, messages: list[dict], timeout: float = 300, urlopen=urllib.request.urlopen,
          tools: bool = True) -> dict:
-    """One Chat Completions call. `tools=False` sends none: a plain answer, for replaying a case."""
-    from athos.delegate import TOOLS
+    """One Chat Completions call to Meta Model API. `tools=False` sends none: a plain answer, for replaying a case."""
     key = api_key()
     if not key:
         raise PermissionError(f"no Meta Model API key: set MODEL_API_KEY, or put a MODEL_API_KEY=... line in "
                               f"{paths.home() / '.env'}")
-    req_body = {"model": model, "messages": to_openai(messages), "max_tokens": MAX_TOKENS,
-                "reasoning_effort": REASONING}
+    return post_chat(BASE, key, model, messages, timeout, urlopen, tools,
+                     {"max_tokens": MAX_TOKENS, "reasoning_effort": REASONING})
+
+
+def post_chat(base: str, key: str, model: str, messages: list[dict], timeout: float = 300,
+              urlopen=urllib.request.urlopen, tools: bool = True, extra: dict | None = None) -> dict:
+    """One OpenAI-compatible Chat Completions call to `base` (Meta's, Baseten's), taking and returning the loop's
+    shape. `extra` adds to the request body (max_tokens, reasoning_effort)."""
+    from athos.delegate import TOOLS
+    req_body = {"model": model, "messages": to_openai(messages), **(extra or {})}
     if tools:
         req_body["tools"] = TOOLS
     body = json.dumps(req_body).encode()
-    req = urllib.request.Request(BASE + "/chat/completions", data=body,
+    req = urllib.request.Request(base + "/chat/completions", data=body,
                                  headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
     with urlopen(req, timeout=timeout) as resp:
         return from_openai(json.loads(resp.read()))

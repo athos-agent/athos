@@ -76,6 +76,9 @@ def backend(name: str = "ollama", model: str | None = None):
     if name == "meta":
         from athos.adapters import meta
         chat, default, platform = meta.chat, meta.DEFAULT_MODEL, "meta"
+    elif name == "baseten":
+        from athos.adapters import baseten
+        chat, default, platform = baseten.chat, baseten.DEFAULT_MODEL, "baseten"
     else:
         from athos import delegate
         chat, default, platform = delegate.chat, delegate.DEFAULT_MODEL, "local"
@@ -304,7 +307,7 @@ def offer_text(piece_ids: list[str] | None = None, cmd: str = "athos") -> str:
     for h in handoffs():
         if h["told"] or (piece_ids is not None and h["piece"] not in piece_ids):
             continue
-        flag = " --backend meta" if h["platform"] == "meta" else ""
+        flag = f" --backend {h['platform']}" if h["platform"] in ("meta", "baseten") else ""
         lines.append(f"- \"{sentence(h, lang)}\" (if they say yes, such tasks run with "
                      f"`{cmd} delegate {h['piece']} \"<request>\"{flag} --model {h['model']}`)")
         ev.append({"type": "handoff_told", "piece": h["piece"], "model": h["model"], "at": ev._iso(ev.now())})
