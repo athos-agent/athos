@@ -449,3 +449,25 @@ any answer that is not one clean statement falls back to the best record. The dr
 `~/.athos/guild/<id>.merged.md` (`--out` to choose); `--apply` saves it with a history note naming the sources, and
 `athos revert <id>` undoes it. In Claude Desktop's chat the same merge is the `athos_merge` tool ("merge my lease
 review with Ana's version in this folder"): it proposes first and applies only when asked.
+
+### Your know-how as a fine-tuning dataset (Fireworks AI, OpenAI)
+
+`athos export --dataset FILE` writes your statements and marked tasks as JSON lines. With `--format fireworks` it
+writes them instead as the chat JSONL that Fireworks AI's supervised fine-tuning reads (and OpenAI's, which is the same
+shape, so `--format openai` writes the same rows): one `{"messages": [system, user, assistant]}` per line. For each
+piece, the user turn is a situation it is for (its **When**, and the request of every task you marked good that used
+it) and the assistant turn is its statements in order (when, do, because). Tasks marked corrected or failed, and
+unmarked ones, give no row. Every row is checked before the file is written (valid JSON, user and assistant turns
+alternating and ending on the assistant, no empty message), and Athos prints how many rows it wrote and where:
+
+```
+athos export --dataset know-how.fireworks.jsonl --format fireworks
+firectl dataset create my-know-how know-how.fireworks.jsonl
+firectl sftj create --base-model <MODEL_ID> --dataset my-know-how --output-model my-know-how-model
+```
+
+Fireworks wants at least 3 rows (OpenAI at least 10; Athos warns below that) and cuts each example at the model's
+context length (32,768 tokens by default). Older `firectl` builds spell the first command `firectl create dataset`.
+To train without uploading a dataset, the Serverless Training starter in Fireworks' cookbook (`fw-ai/cookbook`,
+`examples.sft.muse_glimmer_starter`, shown in the hackathon's Muse open models session) takes the same file with
+`--file`. The file holds your requests as you typed them: nothing leaves this machine until you upload it.

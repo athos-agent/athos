@@ -27,6 +27,7 @@ Everyday commands (`athos <command> --help` has the details of each):
     athos mcp                          your know-how as an MCP server (stdio), for Claude Desktop's chat
     athos wiki [--json]                rebuild Index.md and check the links between pieces (pages of a wiki)
     athos export --dataset FILE        your statements and marked tasks as JSON lines (evals, training data)
+    athos export --dataset FILE --format fireworks|openai   the same know-how as chat JSONL for fine-tuning
     athos export --guild <folder> [--as NAME] [--piece ID]   pieces + per-statement counts, for colleagues to merge
     athos merge <id> <file-or-folder>... [--apply] [--backend ollama|meta --model M]   one team version of a piece
     athos wiki agents [--install]      the trajectory subagents (a walk across pages); --install puts them in
@@ -419,10 +420,34 @@ def _export_guild(args: argparse.Namespace) -> int | None:
           "counts only (how many of your tasks walked each step, and how you marked them): no request, no client.")
 
 
+CHAT_MIN_ROWS = {"fireworks": 3, "openai": 10}      # the fewest examples each service's fine-tuning accepts
+
+
+def _export_chat_dataset(dest: Path, fmt: str) -> int | None:
+    """Supervised fine-tuning rows in the chat format Fireworks AI and OpenAI share: one {"messages": [...]} per line,
+    each checked before anything is written."""
+    from athos import wiki
+    lines = [json.dumps(r, ensure_ascii=False) for r in wiki.chat_dataset()]
+    for n, line in enumerate(lines, 1):
+        why = wiki.check_chat_row(json.loads(line))
+        if why:
+            return _fail(f"row {n} would be refused ({why}); nothing written")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text("".join(line + "\n" for line in lines))
+    print(f"{len(lines)} rows to {dest} ({fmt} chat JSONL: system, user = a situation, assistant = your way of working "
+          "for it; tasks marked corrected or failed left out). It holds your requests as you typed them: it stays on "
+          "this machine unless you upload it.")
+    if len(lines) < CHAT_MIN_ROWS[fmt]:
+        print(f"note: {fmt} fine-tuning needs at least {CHAT_MIN_ROWS[fmt]} rows; mark more tasks good "
+              "(`athos mark g`) or save more pieces first.", file=sys.stderr)
+
+
 def _export_dataset(args: argparse.Namespace) -> int | None:
     from athos import wiki
-    rows = wiki.dataset()
     dest = Path(args.dataset).expanduser()
+    if args.format != "athos":
+        return _export_chat_dataset(dest, args.format)
+    rows = wiki.dataset()
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
     n_st = sum(r["kind"] == "statement" for r in rows)
@@ -1224,6 +1249,9 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--muse", action="store_true", help="the same skills for Muse Code, which reads ~/.agents/skills too")
     s.add_argument("--dataset", metavar="FILE", help="your statements and marked tasks as JSON lines, to evaluate or "
                    "specialise a model on")
+    s.add_argument("--format", choices=["athos", "fireworks", "openai"], default="athos",
+                   help="with --dataset: athos (statements and marked tasks, the default), or fireworks / openai "
+                   "(chat JSONL for supervised fine-tuning; both services read the same shape)")
     s.add_argument("--guild", metavar="FOLDER", help="each piece and its stats (counts only) for a colleague's "
                    "`athos merge`")
     s.add_argument("--piece", action="append", help="with --guild: only this piece (repeatable)")
