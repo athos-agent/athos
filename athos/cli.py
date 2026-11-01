@@ -276,7 +276,17 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
 
 
 # ==================================================================== commands
-def cmd_list(_args) -> int:
+#
+# Each `cmd_*` handler receives the parsed arguments. A handler returns an exit status when it has one to give (1 on
+# failure, through `_fail`); one that simply runs to its end has succeeded, and `main` turns that into 0.
+
+def _here() -> tuple[str, dict]:
+    """The folder a command runs in, and the session the hooks last noted for it."""
+    folder = os.getcwd()
+    return folder, _current_session(folder)
+
+
+def cmd_list(args: argparse.Namespace) -> int | None:
     """Every piece, most recently used first; ● marks the pieces allowed to load in this folder, ○ the others."""
     from athos import start
     pieces = sorted(store.all_pieces(), key=lambda p: p.last_used, reverse=True)
@@ -290,19 +300,17 @@ def cmd_list(_args) -> int:
         dot = "●" if p.id in enabled else "○"
         print(f"{dot} {p.id}  v{p.version}  {p.title}")
         print(f"    when: {p.when}  · last used {p.last_used}")
-    return 0
 
 
-def cmd_show(args) -> int:
+def cmd_show(args: argparse.Namespace) -> int | None:
     """Print one piece as stored. Run inside a session, reading it counts as loading it there."""
     piece = store.get(args.id)
     if piece is None:
         return _fail(f"no piece {args.id}")
-    sid = _current_session(os.getcwd()).get("session_id")
+    sid = _here()[1].get("session_id")
     if sid:
         load.mark_loaded(sid, [piece.id])
     sys.stdout.write(store.render(piece))
-    return 0
 
 
 def _unwritable_store_hint() -> str:
@@ -313,18 +321,15 @@ def _unwritable_store_hint() -> str:
             "~/.codex/config.toml.")
 
 
-def cmd_save(_args) -> int:
+def cmd_save(args: argparse.Namespace) -> int | None:
     """Store the piece written on stdin: a new page, or a new version of the page its `id:` names. The lines printed
     afterwards are read by the model, which reports them and fixes what the save broke in the wiki."""
-    cwd = os.getcwd()
-    here = _current_session(cwd)
-    sid = here.get("session_id", "default")
+    folder, noted = _here()
+    sid = noted.get("session_id", "default")
     try:
-        piece, diff = capture.save_text(sys.stdin.read(), sid, cwd, here.get("transcript_path"))
-    except PermissionError:
-        return _fail(_unwritable_store_hint())
-    except ValueError as reason:
-        return _fail(f"not saved: {reason}")
+        piece, diff = capture.save_text(sys.stdin.read(), sid, folder, noted.get("transcript_path"))
+    except (PermissionError, ValueError) as refused:          # a sandboxed store, or a page that doesn't parse
+        return _fail(_unwritable_store_hint() if isinstance(refused, PermissionError) else f"not saved: {refused}")
     if not diff:
         print(f"saved {piece.id} ({piece.path})")
     else:
@@ -345,7 +350,6 @@ def cmd_save(_args) -> int:
         print("\nwiki: other pages say what to do at the same moment. Check they agree; if one is wrong or "
               "outdated, fix it with `athos save` (id: of that page), or link them if they apply together:\n  "
               + "\n  ".join(same[:10]))
-    return 0
 
 
 def cmd_wiki(args) -> int:
@@ -390,7 +394,7 @@ def cmd_wiki(args) -> int:
     return 0 if not (lint["broken"] or lint["duplicate_ids"]) else 1
 
 
-def cmd_load(args) -> int:
+def cmd_load(args: argparse.Namespace) -> int | None:
     """With no words, say what may load; otherwise set it: `all`, `project [name]`, `pieces <id>...` or `none`."""
     if args.what:
         mode, *values = args.what
@@ -402,10 +406,9 @@ def cmd_load(args) -> int:
         print(f"loading: {control.describe(chosen)} ({enabled} piece(s) enabled)")
     else:
         print(f"loading: {control.describe()}")
-    return 0
 
 
-def _export_guild(args) -> int:
+def _export_guild(args: argparse.Namespace) -> int | None:
     from athos import guild
     dest = Path(args.guild).expanduser()
     try:
@@ -414,10 +417,9 @@ def _export_guild(args) -> int:
         return _fail(e)
     print(f"{len(ids)} piece(s) with their stats to {dest}, for your colleagues' `athos merge`. The stats are "
           "counts only (how many of your tasks walked each step, and how you marked them): no request, no client.")
-    return 0
 
 
-def _export_dataset(args) -> int:
+def _export_dataset(args: argparse.Namespace) -> int | None:
     from athos import wiki
     rows = wiki.dataset()
     dest = Path(args.dataset).expanduser()
@@ -426,29 +428,27 @@ def _export_dataset(args) -> int:
     n_st = sum(r["kind"] == "statement" for r in rows)
     print(f"{n_st} statements and {len(rows) - n_st} marked tasks to {dest} (JSON lines). It holds your requests "
           "as you typed them: it stays on this machine unless you move it.")
-    return 0
 
 
-def _export_skills(args) -> int:
+def _export_skills(args: argparse.Namespace) -> int | None:
     """Each piece as an agent skill. Muse Code reads the same ~/.agents/skills folder Codex does."""
     from athos.adapters import codex
     target = codex.skills_dir() if not args.dir else Path(args.dir).expanduser()
     count, stale = codex.export_skills(target)
     who = "Codex and Muse Code" if args.muse else "Codex"
     print(f"exported {count} piece(s) as skills for {who} to {target}" + (f" (removed {stale} stale)" if stale else ""))
-    return 0
 
 
-def _export_folder(args) -> int:
+def _export_folder(folder: str | None) -> int | None:
     """A plain copy of every piece file, for a backup or to read elsewhere."""
-    if not args.dir:
-        return _fail("name a folder to export to")
-    target = Path(args.dir).expanduser()
-    print(f"exported {store.export(target)} piece(s) to {target}")
-    return 0
+    if folder:
+        target = Path(folder).expanduser()
+        print(f"exported {store.export(target)} piece(s) to {target}")
+        return None
+    return _fail("name a folder to export to")
 
 
-def cmd_export(args) -> int:
+def cmd_export(args: argparse.Namespace) -> int | None:
     """Take the know-how out of the store, in the form the flags ask for (a plain folder copy without any)."""
     if args.guild:
         return _export_guild(args)
@@ -456,7 +456,7 @@ def cmd_export(args) -> int:
         return _export_dataset(args)
     if args.codex or args.muse:
         return _export_skills(args)
-    return _export_folder(args)
+    return _export_folder(args.dir)
 
 
 def cmd_merge(args) -> int:
@@ -497,12 +497,12 @@ def cmd_merge(args) -> int:
     return 0
 
 
-def cmd_codex(args) -> int:
+def cmd_codex(args: argparse.Namespace) -> int | None:
     """Wire Athos's hooks into Codex (keeping a backup of the hooks file it replaces), or take them out."""
     from athos.adapters import codex
     if args.action == "uninstall":
         print("Athos hooks removed from Codex" if codex.uninstall() else "no Codex hooks file")
-        return 0
+        return None
     hooks_file, backup = codex.install(ROOT)
     home = paths.home()
     note = f" (the previous one is kept as {backup.name})" if backup else ""
@@ -511,7 +511,6 @@ def cmd_codex(args) -> int:
     print(f"Codex's workspace-write sandbox also needs {home} among its writable roots for saves to reach the "
           "store; in ~/.codex/config.toml:\n\n"
           f"  [sandbox_workspace_write]\n  writable_roots = [\"{home}\"]")
-    return 0
 
 
 def cmd_opencode(args) -> int:
@@ -562,14 +561,13 @@ def cmd_dismiss(args) -> int:
     return 0
 
 
-def cmd_revert(args) -> int:
+def cmd_revert(args: argparse.Namespace) -> int | None:
     """Bring back an earlier version of a piece. The history only grows: the old text returns as a new version."""
     try:
         piece = store.revert(args.id, args.to)
     except (KeyError, FileNotFoundError) as missing:
         return _fail(f"cannot revert: {missing}")
     print(f"reverted {piece.id} (now v{piece.version})")
-    return 0
 
 
 def _delegation_backend(args):
@@ -603,7 +601,7 @@ def _delegation_lines(args, r: dict, platform: str, model: str) -> str:
             f"{r['task_id']}. Mark it with `athos mark g|c|f`; `athos route {args.id}` learns from the marks.")
 
 
-def cmd_delegate(args) -> int:
+def cmd_delegate(args: argparse.Namespace) -> int | None:
     """Run a task the person already masters on a smaller model, following one piece, and record it as a task."""
     from athos import delegate
     import urllib.error
@@ -622,7 +620,6 @@ def cmd_delegate(args) -> int:
     except urllib.error.URLError as silent:               # nothing answered
         return _fail(_unreachable(platform, model, silent.reason))
     print(_delegation_lines(args, r, platform, model))
-    return 0
 
 
 def cmd_route(args) -> int:
@@ -661,40 +658,37 @@ def import_other_agents() -> list[str]:
 _VERDICT_ES = {"ok": "salió bien", "corrected": "lo corregí", "failed": "falló"}
 
 
-def cmd_mark(args) -> int:
+def cmd_mark(args: argparse.Namespace) -> int | None:
     """Record the person's verdict (g good, c corrected, f failed) on a task: the one named, else the last one here."""
-    cwd = os.getcwd()
-    sid = _current_session(cwd).get("session_id")
-    if not args.task:
+    folder, noted = _here()
+    named = args.task or None                          # an empty id means the last task, as no id does
+    if named is None:
         import_other_agents()                          # a Codex or Muse Code task just finished here may be the one meant
     try:
-        task_id, result = ev.mark(args.result, args.task, sid, paths.project_of(cwd))
+        task_id, result = ev.mark(args.result, named, noted.get("session_id"), paths.project_of(folder))
     except (ValueError, LookupError) as refused:
         return _fail(refused)
     from athos import start
     spanish = start.lang() == "es"
     # The plugin's pane shows the English line as it is (hooks/ui.tsx): keep its wording.
     print(f"tarea marcada: {_VERDICT_ES.get(result, result)}" if spanish else f"task {task_id} marked {result}")
-    return 0
 
 
-def cmd_import(args) -> int:
+def cmd_import(args: argparse.Namespace) -> int | None:
     """Record the tasks Codex or Muse Code ran, from that agent's own session logs."""
     from athos.adapters import codex, muse
     name, adapter = ("Muse Code", muse) if args.platform == "muse" else ("Codex", codex)
     folder = Path(args.sessions).expanduser() if args.sessions else None
     got = adapter.import_sessions(folder, args.include_tmp)
     print(f"{name}: {got['imported']} task(s) imported from {got['files']} session file(s) ({got['skipped']} skipped)")
-    return 0
 
 
-def cmd_report(args) -> int:
+def cmd_report(args: argparse.Namespace) -> int | None:
     """What each piece and each model adds to the person's work, as text or (--json) as the numbers themselves."""
     for failed in import_other_agents():              # Codex's and Muse Code's tasks are always in the report
         print(f"(sessions not imported: {failed})", file=sys.stderr)
     numbers = ev.report()
     print(json.dumps(numbers, indent=1, ensure_ascii=False) if args.json else ev.render(numbers))
-    return 0
 
 
 def cmd_bench(args) -> int:
@@ -892,11 +886,9 @@ def status() -> dict:
     """Everything the plugin's status line and band draw: the store, what this folder's session loaded and is
     following, and how its last task went. Its keys are read by hooks/ui.tsx and the other panels."""
     from athos import start
-    cwd = os.getcwd()
-    sid = _current_session(cwd).get("session_id")
-    state = session.load(sid) if sid else {}
-    tasks = ev.tasks()
-    lang = start.lang()
+    cwd, noted = _here()
+    sid = noted.get("session_id")
+    state, tasks, lang = (session.load(sid) if sid else {}), ev.tasks(), start.lang()
     current_offer = state.get("offer") if (state.get("offer") or {}).get("task_id") == state.get("task_id") else None
     return {"pieces": len(store.all_pieces()), "lang": lang, "enabled": len(load.enabled(cwd)),
             "bars": ev.bars(paths.project_of(cwd)),
@@ -954,17 +946,16 @@ def cmd_add(args) -> int:
     return 0
 
 
-def cmd_status(args) -> int:
+def cmd_status(args: argparse.Namespace) -> int | None:
     """A one-line summary for a terminal; with --json, the whole `status()` the panels draw from."""
-    s = status()
-    if args.json:
-        line = json.dumps(s, ensure_ascii=False)
-    elif s["lang"] == "es":
-        line = f"athos · {s['pieces']} formas de trabajar · {len(s['loaded'])} en uso · {s['to_mark']} por marcar"
-    else:
-        line = f"athos · {s['pieces']} ways of working · {len(s['loaded'])} in use · {s['to_mark']} to mark"
-    print(line)
-    return 0
+    snapshot = status()
+    print(json.dumps(snapshot, ensure_ascii=False) if args.json else _status_line(snapshot))
+
+
+def _status_line(s: dict) -> str:
+    if s["lang"] == "es":
+        return f"athos · {s['pieces']} formas de trabajar · {len(s['loaded'])} en uso · {s['to_mark']} por marcar"
+    return f"athos · {s['pieces']} ways of working · {len(s['loaded'])} in use · {s['to_mark']} to mark"
 
 
 def _model_error(e: Exception, platform: str, model: str) -> str | None:
@@ -1210,7 +1201,7 @@ def _parser() -> argparse.ArgumentParser:
     """Every subcommand and its arguments. Which function runs each one is `_HANDLERS`, below."""
     ap = argparse.ArgumentParser(prog="athos", description="Your AI know-how: yours to move between agents, and quick "
                                                            "to run on small models.")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd", required=True, metavar="<command>")
     s = sub.add_parser("start", help="first run: your language, your profession, example ways of working")
     s.add_argument("--lang", choices=["es", "en"])
     s.add_argument("--profile", choices=["law", "sports", "ops", "journalism", "science", "finance", "other"])
@@ -1392,7 +1383,7 @@ def main(argv: list[str] | None = None) -> int:
         print(start.t("hello"))
         return 0
     args = _parser().parse_args(argv)
-    return _HANDLERS[args.cmd](args)
+    return _HANDLERS[args.cmd](args) or 0           # a handler that ran to its end succeeded
 
 
 if __name__ == "__main__":
