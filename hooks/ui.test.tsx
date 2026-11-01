@@ -212,7 +212,7 @@ test('the trail reads like thinking: the piece, its steps done, now and ahead, t
   expect(trailRows({ ...TRAIL, pieces: [] } as never, words(null))[0].text).toMatch(/No know-how for this task yet/)
 })
 
-test('the pane shows the trail and [Adjust step] puts the step in the prompt for the person to finish', async ($, on) => {
+test('the pane shows the trail and [Change this step] puts the step in the prompt for the person to finish', async ($, on) => {
   const status = { ...STATUS, last: null, trail: TRAIL }
   const filled: string[] = []
   fakeEngine(on, always(status))

@@ -99,6 +99,14 @@ def trail_frame(cwd: str | None = None, color: bool = True, width: int = 72) -> 
     t = p["trail"]
     out = [c("38;5;173;1", "ATHOS") + "  " + c("2", p["greeting"]), ""]
     piece = t["pieces"][0] if t["pieces"] else None
+    if not piece and t["new"]:
+        # A task no way of working covers (a first run): the steps it drafts are the way of working to keep.
+        out += [c("2", "  ▾ " + ("Cómo lo estoy resolviendo" if es else "How I am going about it")),
+                c("2", "    " + ("No hay una forma de trabajar para esto todavía: anoto los pasos para que la guardes."
+                                 if es else "No way of working for this yet: I'm noting the steps so you can keep it.")),
+                "", c("2", "  " + ("PASOS NUEVOS" if es else "NEW STEPS"))]
+        out += ["  " + c("38;5;179", "+ " + textwrap.shorten(n, width - 8, placeholder="…")) for n in t["new"]]
+        return "\n".join(out + _no_buttons(c, es, now=False, new=True, width=width))
     if not piece:
         out.append(c("2", "  Acá se ve la trayectoria de la próxima tarea." if es else "  The next task's trail shows here."))
         return "\n".join(out)
@@ -128,7 +136,22 @@ def trail_frame(cwd: str | None = None, color: bool = True, width: int = 72) -> 
         line = (f"✎ Editaste {x['name']}: respondé «sí» para guardar la regla" if es
                 else f"✎ You edited {x['name']}: answer \"yes\" to keep the rule")
         out.append("  " + c("38;5;179", textwrap.shorten(line, width - 4, placeholder="…")))
-    return "\n".join(out)
+    return "\n".join(out + _no_buttons(c, es, now=i >= 0, new=bool(t["new"]), width=width))
+
+
+def _no_buttons(c, es: bool, now: bool, new: bool, width: int) -> list[str]:
+    """What the panel's buttons do, said as words to type to the agent: a terminal beside Codex or Muse Code has no
+    buttons, and the person did not know they could just say it."""
+    import textwrap
+    tips = []
+    if now:
+        tips.append("Para cambiar este paso, decíselo al agente: «cambiá este paso: …»." if es
+                    else "To change this step, tell the agent: \"change this step: …\".")
+    if new:
+        tips.append("Para guardar estos pasos: «guardalo como forma de trabajar»." if es
+                    else "To keep these steps: \"save this as a way of working\".")
+    lines = [c("2", "  " + w) for tip in tips for w in textwrap.wrap(tip, width - 2)]
+    return ([""] + lines) if lines else []
 
 
 def run_trail(cwd: str | None = None) -> int:

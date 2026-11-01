@@ -76,7 +76,7 @@ Good morning, Ana
  + new: check the guarantee
 Subagents: …   Skills: …
 
-[ Adjust step ]  [ Save new steps ]                       [ Keep beside ]  [ Full screen ]
+[ Change this step ]  [ Save as a way of working ]  [ Keep beside ]  [ Full screen ]
 ```
 
 - **✓** step done, **▶** the step Claude is on now (with what it does), **○** what's left.
@@ -89,10 +89,10 @@ The panel speaks the language you write in, English or Spanish.
 
 ## 5. Correct and improve without commands
 
-- **[Adjust step]**: a field opens under the panel. Write how the step Claude is on should change (for example *"also
+- **[Change this step]**: a field opens under the panel. Write how the step Claude is on should change (for example *"also
   compare against the CPI"*) and press **Send**. It goes to the chat as your message; Claude improves your way of
   working (a new version is kept) and goes on with the change.
-- **[Save new steps]**: shows when there were **+ new** steps. Claude saves the task with them included.
+- **[Save as a way of working]**: shows when there were **+ new** steps. Claude saves the task with them included.
 - **[Keep beside]** and **[Full screen]**: show only if your Claude Desktop lets the panel move. With **Keep beside**
   the panel stays in view while you keep talking.
 
