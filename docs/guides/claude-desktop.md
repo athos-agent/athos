@@ -78,7 +78,7 @@ Buen día, Matías
  + nuevo: verificar la garantía
 Subagentes: …   Skills: …
 
-[ Ajustar paso ]  [ Guardar pasos nuevos ]          [ Fijar al costado ]  [ Pantalla completa ]
+[ Cambiar este paso ]  [ Guardar como forma de trabajar ]  [ Fijar al costado ]  [ Pantalla completa ]
 ```
 
 - **✓** paso hecho, **▶** el paso en el que está Claude ahora (con lo que hace), **○** lo que falta.
@@ -91,10 +91,10 @@ El panel habla el idioma en el que escribís, español o inglés.
 
 ## 5. Corregir y mejorar sin escribir comandos
 
-- **[Ajustar paso]**: se abre un campo debajo del panel. Escribí cómo tiene que cambiar el paso en el que está Claude
+- **[Cambiar este paso]**: se abre un campo debajo del panel. Escribí cómo tiene que cambiar el paso en el que está Claude
   (por ejemplo *«además, comparar con el índice ICL»*) y tocá **Enviar**. Va al chat como mensaje tuyo; Claude mejora
   tu forma de trabajar (queda una versión nueva) y sigue la tarea con el cambio.
-- **[Guardar pasos nuevos]**: aparece cuando hubo pasos **+ nuevo**. Claude guarda la tarea con esos pasos incluidos.
+- **[Guardar como forma de trabajar]**: aparece cuando hubo pasos **+ nuevo**. Claude guarda la tarea con esos pasos incluidos.
 - **[Fijar al costado]** y **[Pantalla completa]**: aparecen solo si tu versión de Claude Desktop permite mover el
   panel. Con **Fijar al costado** el panel queda a la vista mientras seguís conversando.
 

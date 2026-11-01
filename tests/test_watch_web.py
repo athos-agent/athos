@@ -50,3 +50,15 @@ class WatchWebTest(TempHome):
         self.assertIn("I'm following «Cut a release».", text)
         self.assertIn("▶ Bump the version", text)
         self.assertIn("○ Tag it", text)
+        self.assertIn('"change this step: …"', text)
+
+    def test_a_first_task_shows_the_steps_it_drafts_in_a_terminal(self):
+        from athos import watch
+        cli._remember_session({"session_id": "m3", "cwd": self.home})
+        session.update("m3", task_id="t3", task_request="the weekly summary, the way I do it",
+                       trail=[{"kind": "new", "text": "sum the hours per person"},
+                              {"kind": "new", "text": "flag anyone over 10 hours"}])
+        text = watch.trail_frame(self.home, color=False)
+        self.assertIn("+ sum the hours per person", text)
+        self.assertIn("+ flag anyone over 10 hours", text)
+        self.assertIn('"save this as a way of working"', text)

@@ -370,8 +370,8 @@ Extensions). It runs `athos mcp` against your own `~/.athos`.
 
 In the chat, Athos finds the know-how for each request (`athos_find`) and opens its **trail panel** in the
 conversation (MCP Apps): a greeting, the piece the task walks with each step ✓ done, ▶ now and ○ ahead as the model
-reports it (`athos_step`), the steps your know-how lacks, and two buttons: **Adjust step** (you write how the step
-changes; the piece is improved) and **Save new steps**. **Keep beside** pins the panel where the host allows it. In a
+reports it (`athos_step`), the steps your know-how lacks, and two buttons: **Change this step** (you write how the step
+changes; the piece is improved) and **Save as a way of working**. **Keep beside** pins the panel where the host allows it. In a
 chat without MCP Apps, the same tools answer as text.
 
 Step by step, for people who don't program: [docs/guides/claude-desktop-en.md](guides/claude-desktop-en.md)
