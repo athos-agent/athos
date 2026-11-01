@@ -1,5 +1,5 @@
 ---
-description: Bring your know-how to Codex: your pieces as Codex skills, and hooks so Codex's tasks show up in your report
+description: "Bring your know-how to Codex: your pieces as Codex skills, and hooks so Codex's tasks show up in your report"
 allowed-tools: Bash(python3:*)
 ---
 !`python3 "${CLAUDE_PLUGIN_ROOT}/bin/athos" export --codex && python3 "${CLAUDE_PLUGIN_ROOT}/bin/athos" codex install`
