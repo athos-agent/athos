@@ -18,7 +18,9 @@ new code:
 
 - **Meta's models and agents:** Athos in Meta's Muse Code (the same plugin) and in OpenCode on Muse Spark,
   `athos delegate --backend meta` on Muse Spark, and `athos bench`, where Muse Spark with your know-how did 19 of 20
-  runs right and 2 of 20 without it.
+  runs right and 2 of 20 without it. Meta's open-weights Muse Spark Open on Baseten (`--backend baseten`), a way of
+  working dictated aloud and transcribed by Muse Voice Transcribe (`athos save --from-audio`), and your know-how as a
+  fine-tuning dataset for Fireworks (`athos export --dataset --format fireworks`).
 - **Your way of working, visible:** pages of steps with branches that open only when the case needs them, followed
   and ticked step by step in Claude Desktop's chat (an MCP app), Claude Code, Codex, Muse Code and OpenCode; *change
   this step* and *save as a way of working* from the panel; a hand edit becomes a proposed rule.
