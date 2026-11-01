@@ -34,14 +34,6 @@
   "experiment": {
    "en": "analyse-an-experiment-reproducibly",
    "es": "analizar-un-experimento-de-forma-reproducible"
-  },
-  "training": {
-   "en": "plan-the-training-week",
-   "es": "planificar-la-semana-de-entrenamiento"
-  },
-  "match": {
-   "en": "write-the-post-match-report",
-   "es": "escribir-el-informe-post-partido"
   }
  },
  "cases": [
@@ -380,102 +372,6 @@
    "lang": "es",
    "kind": "paraphrase",
    "topic": "experiment"
-  },
-  {
-   "request": "Plan next week's training for the U17 team",
-   "lang": "en",
-   "kind": "direct",
-   "topic": "training"
-  },
-  {
-   "request": "Build Maria's training week from her session log",
-   "lang": "en",
-   "kind": "direct",
-   "topic": "training"
-  },
-  {
-   "request": "Our marathoner races in three weeks, what should her workouts look like from Monday?",
-   "lang": "en",
-   "kind": "paraphrase",
-   "topic": "training"
-  },
-  {
-   "request": "Given the minutes and effort the squad logged, how hard do we go in the coming days?",
-   "lang": "en",
-   "kind": "paraphrase",
-   "topic": "training"
-  },
-  {
-   "request": "Planificá la semana de entrenamiento del equipo sub 17",
-   "lang": "es",
-   "kind": "direct",
-   "topic": "training"
-  },
-  {
-   "request": "Armá la semana de entrenamiento de María a partir de su registro de sesiones",
-   "lang": "es",
-   "kind": "direct",
-   "topic": "training"
-  },
-  {
-   "request": "Nuestra maratonista corre en tres semanas, ¿cómo deberían ser sus pasadas desde el lunes?",
-   "lang": "es",
-   "kind": "paraphrase",
-   "topic": "training"
-  },
-  {
-   "request": "Con los minutos y el esfuerzo que cargó el plantel, ¿qué tan fuerte vamos en los próximos días?",
-   "lang": "es",
-   "kind": "paraphrase",
-   "topic": "training"
-  },
-  {
-   "request": "Write the post-match report from Saturday's stats",
-   "lang": "en",
-   "kind": "direct",
-   "topic": "match"
-  },
-  {
-   "request": "Prepare the match report for the coach from these notes",
-   "lang": "en",
-   "kind": "direct",
-   "topic": "match"
-  },
-  {
-   "request": "We lost 2-1 on Sunday, here are the numbers, put together the debrief for the staff",
-   "lang": "en",
-   "kind": "paraphrase",
-   "topic": "match"
-  },
-  {
-   "request": "Sum up how the final went for the coaching staff using the video notes",
-   "lang": "en",
-   "kind": "paraphrase",
-   "topic": "match"
-  },
-  {
-   "request": "Escribí el informe post partido con las estadísticas del sábado",
-   "lang": "es",
-   "kind": "direct",
-   "topic": "match"
-  },
-  {
-   "request": "Prepará el informe del partido para el entrenador con estas notas",
-   "lang": "es",
-   "kind": "direct",
-   "topic": "match"
-  },
-  {
-   "request": "Perdimos 2 a 1 el domingo, acá están los números, armá la devolución para el cuerpo técnico",
-   "lang": "es",
-   "kind": "paraphrase",
-   "topic": "match"
-  },
-  {
-   "request": "Resumí cómo salió la final para el cuerpo técnico usando las notas del video",
-   "lang": "es",
-   "kind": "paraphrase",
-   "topic": "match"
   },
   {
    "request": "what time is it",

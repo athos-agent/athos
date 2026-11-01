@@ -60,7 +60,7 @@ proposes how to tidy it, turning your corrections into rules, always waiting for
 
 ## [2:05–2:30] The return: small models, your standard
 
-VISUAL: title card with the two public numbers: «Muse Spark with the know-how: 22 of 23 runs right (2 of 23
+VISUAL: title card with the two public numbers: «Muse Spark with the know-how: 19 of 20 runs right (2 of 20
 without it)» · «8 to 24× cheaper per run than Claude Code». Then the gallery page and «Use in Athos».
 
 VOICE:

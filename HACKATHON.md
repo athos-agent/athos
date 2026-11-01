@@ -107,6 +107,7 @@ from what was built during the event.
 - [#90](https://github.com/athos-agent/athos/pull/90) A word counts with its endings when picking the know-how (publish / published, publicar / publicado): a newsroom tip that asked "can we publish it?" loaded a contract checklist instead of "Verify a source"; and `athos doctor` measures against the newest release, not the copy running it (0.1.84)
 - [#91](https://github.com/athos-agent/athos/pull/91) README: the published gallery, a gallery entry (the due diligence of a small company in Latin America) added to Claude Desktop with one paste and run, and the per-project memory (journal, curating, scope) as GIFs (0.1.85)
 - [#92](https://github.com/athos-agent/athos/pull/92) The Meta video (3 min, made with HyperFrames from the real takes) replaces the talk in the README; its script in demo/SCRIPT_META.md (0.1.86)
+- [#93](https://github.com/athos-agent/athos/pull/93) The sports examples leave Athos, following the hackathon's guidance on sports coaches (the `sports` profile, its starters, gallery pages, guides, the `training-week` bench case and the coach demo); the bench number is now Muse Spark 19 of 20 with the know-how and 2 of 20 without, and the router bench is measured again without them; the README opens with what existed before the event and what was built during it (0.1.87)
 
 ## Meta models used
 

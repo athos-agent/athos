@@ -71,7 +71,7 @@ class GalleryEntriesTest(TempHome):
             self.assertTrue(any(b["if"] for s in e["steps"] for b in s["branches"]) or e["calls"], e["id"])
         per = {lang: sorted(e["profession"] for e in entries if e["lang"] == lang) for lang in gallery.LANGS}
         self.assertEqual(per["en"], per["es"])
-        self.assertEqual(set(per["en"]), {"law", "ops", "journalism", "science", "sports", "finance"})
+        self.assertEqual(set(per["en"]), {"law", "ops", "journalism", "science", "finance"})
         dd = next(e for e in entries if e["id"] == "due-diligence-of-a-latam-sme")
         profs = {next(x for x in cat["entries"] if x["id"] == c)["profession"] for c in dd["calls"]}
         self.assertEqual(profs, {"finance", "law"})             # several specialists' pages

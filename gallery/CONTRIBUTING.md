@@ -46,7 +46,7 @@ lang: en
 **Because:** readers can't judge an anonymous source, so the newsroom must have judged it for them.
 ```
 
-- `profession` is one of `law`, `finance`, `journalism`, `science`, `ops`, `sports`, `other`.
+- `profession` is one of `law`, `finance`, `journalism`, `science`, `ops`, `other`.
 - Each step (`## #step_id`) has **When** and **Do**; **Because** and **Links** when they help.
 - Every page a step links to or hands over to must be in the gallery too, in the same language.
 

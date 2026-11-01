@@ -7,6 +7,25 @@ Your AI know-how. Free to move, fast to run.
 **Athos turns how you work (your criteria, your steps, your checklists) into a living, local and portable memory, so
 any AI agent works by your rules without you explaining them twice.**
 
+## Built at the Meta hackathon
+
+Athos is entered in the [Meta Global AI Developer Hackathon](https://cerebralvalley.ai/e/meta-ai-developer-hackathon/details)
+(Oct 26 – Nov 4, 2026). **Before the event** there was a one-day prototype (Oct 25–26, tag
+[`pre-hackathon`](https://github.com/athos-agent/athos/tree/pre-hackathon)): a Claude Code plugin that saved a way of
+working as a markdown file and loaded it for a matching request, a Codex adapter, a local task report and
+`athos delegate` to a local model. **During the event** we built the rest:
+
+- **Meta's models and agents:** Athos in Meta's Muse Code (the same plugin) and in OpenCode on Muse Spark,
+  `athos delegate --backend meta` on Muse Spark, and `athos bench`, where Muse Spark with your know-how did 19 of 20
+  runs right and 2 of 20 without it.
+- **Your way of working, visible:** pages of steps with branches that open only when the case needs them, followed
+  and ticked step by step in Claude Desktop's chat (an MCP app), Claude Code, Codex, Muse Code and OpenCode; *change
+  this step* and *save as a way of working* from the panel; a hand edit becomes a proposed rule.
+- **For professionals:** a first use that asks your profession, a public [gallery](https://athos-agent.github.io/athos/)
+  of ways of working, one memory per project, a journal of what happened lately and curating for your yes.
+
+Every change is a pull request listed in [HACKATHON.md](HACKATHON.md).
+
 **Ask as you always do. Claude follows *your* way of working, and you watch it, step by step.**
 
 ![Claude Desktop (not the Code tab). An advisor pastes a fictional fund prospectus and asks to analyse the investment for a client, with no word about Athos. Athos's panel shows the advisor's own way of working as a page with nine steps. Because the investor, the asset and the vehicle are in three countries, the step "Note in which countries…" hands over to another way of working, the cross-border tax check, whose three steps appear nested under it. All nine tick in order as Claude works, and the answer ends by leaving the recommendation to the advisor.](demo/desktop-finance-en.gif)
@@ -16,8 +35,7 @@ no word about Athos. Claude picks up the advisor's own way of working, "Analyse 
 rules", and Athos's panel shows it as a page with its steps ticked as Claude does them. One step hands over to
 another way of working only when the case needs it: the investor is in Argentina, the warehouses in Texas and the fund
 in Luxembourg, so the cross-border tax check runs right there, as nested steps (↳), and the walk comes back to the
-numbers. The recommendation is left to the advisor. Waits are hidden, not sped up.
-[A coach's week in the same panel](demo/athos-desktop-en.png) ([en español](demo/athos-desktop-es.png)).*
+numbers. The recommendation is left to the advisor. Waits are hidden, not sped up.*
 
 ![The same way of working, with its branch, checked in Claude Desktop, Codex, Muse Code and OpenCode: the same nine steps in order in all four, a hand edit of the answer makes the agent propose the rule, and one click keeps it in that step.](docs/athos-results.jpg)
 
@@ -37,11 +55,11 @@ nine steps as Muse reports them:
 
 *Muse Code on Muse Spark (fictional prospectus). Waits are hidden, not sped up. The same case in
 [Codex](demo/codex-finance-en.gif) and in [OpenCode's sidebar](demo/opencode-finance-en.gif); other professions:
-[a lawyer in Codex](demo/codex-lawyer-en.gif), [a coach in Muse Code](demo/muse-coach-en.gif). In OpenCode, **Athos:
+[a lawyer in Codex](demo/codex-lawyer-en.gif). In OpenCode, **Athos:
 change this step** and **Athos: save as a way of working** are in its command palette (ctrl+p).*
 
 **A gallery of ways of working.** [Browse examples](https://athos-agent.github.io/athos/) from law, finance,
-journalism, science, operations and sports, each with the branches it takes when the case needs them, and take one
+journalism, science and operations, each with the branches it takes when the case needs them, and take one
 into your own Athos with **Use in Athos**. Have a checklist you are proud of? [Add it to the
 gallery](gallery/CONTRIBUTING.md) ([en español](gallery/CONTRIBUIR.md)).
 
@@ -84,8 +102,8 @@ expensive model to a cheap or local one, and check it keeps up.
   and Athos turns that into a way of working, with versions, that you reuse.
 - **From tool calls to your own steps.** Instead of technical API calls, you see a task list of your own steps,
   ticked as the agent does them.
-- **A small model with your know-how can do the job.** On our bench, Meta's Muse Spark went from 2 of 23 runs right
-  without the know-how to 22 of 23 with it, at 8 to 24 times less per run than Claude Code.
+- **A small model with your know-how can do the job.** On our bench, Meta's Muse Spark went from 2 of 20 runs right
+  without the know-how to 19 of 20 with it, at 8 to 24 times less per run than Claude Code.
 
 Athos is a musketeer: free, and on its own two feet. Three minutes on why, and Athos at work in Claude Desktop,
 OpenCode on Meta's Muse Spark, and its memory (no sound; fictional data):
@@ -93,7 +111,6 @@ OpenCode on Meta's Muse Spark, and its memory (no sound; fictional data):
 [![Athos: your AI know-how, free to move, fast to run (YouTube, 3 min)](https://img.youtube.com/vi/mAsmreBVtYw/maxresdefault.jpg)](https://youtu.be/mAsmreBVtYw)
 
 **Guides:** [Claude Desktop](docs/guides/claude-desktop-en.md) ([en español](docs/guides/claude-desktop.md)) · [for lawyers](docs/guides/lawyer.md) ([en español](docs/guides/abogado.md)) ·
-[for coaches](docs/guides/coach.md) ([en español](docs/guides/entrenador.md)) ·
 [your checklist is know-how](docs/guides/checklist-en.md) ([en español](docs/guides/checklist.md)) · why this should
 exist and what isn't solved: [WHY.md](WHY.md).
 
@@ -118,19 +135,18 @@ has done so far and which words loaded it, with **Didn't apply** when it didn't 
 **Save** when the task is worth keeping, so the AI is not asked after every task; and **Good / Corrected / Failed**.
 Plain words count too: "ok excelente, …" marks the last task good. Only the last week's tasks wait for a mark.
 
-**It starts to pay off on a cheaper model.** On five public bench tasks in five domains (code, data, devices, a
-planning method, sports coaching), Meta's Muse Spark did 22 of 23 runs right with the know-how and 2 of 23 without it,
+**It starts to pay off on a cheaper model.** On four public bench tasks in four domains (code, data, devices, a
+planning method), Meta's Muse Spark did 19 of 20 runs right with the know-how and 2 of 20 without it,
 at 8 to 24 times less per run than Claude Code where we compared. Small cases written for the bench, 3 to 5 runs each;
 [how to reproduce](docs/REFERENCE.md#use).
 
 ## For professionals, not only programmers
 
-On first use, ask *"set up Athos for a lawyer"* (or *"para un entrenador"*): Athos adds example ways of working to
-start from, in English or Spanish: **law** (build the argument of a brief, review a contract against your checklist), **sports coaching** (plan
-the training week, write the post-match report), **engineering on call** (triage a production incident),
+On first use, ask *"set up Athos for a lawyer"* (or *"para una periodista"*): Athos adds example ways of working to
+start from, in English or Spanish: **law** (build the argument of a brief, review a contract against your checklist), **engineering on call** (triage a production incident),
 **journalism** (verify a lead before publishing), **science** (analyse an experiment so another lab can repeat it) and
 **finance and tax advice** (analyse an investment with your committee's rules). They leave every professional decision to you and ask before
-touching client, source or athlete data. No terminal needed: Claude Desktop's Code tab runs the plugin. Start with the
+touching client or source data. No terminal needed: Claude Desktop's Code tab runs the plugin. Start with the
 [overview for professionals](docs/PROFESSIONALS.md) ([en español](docs/PROFESIONALES.md)) or the guides above.
 
 **Checklists are know-how.** When a task follows a checklist (you name it, paste it as a list, or the agent opens a

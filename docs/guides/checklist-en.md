@@ -3,7 +3,7 @@
 *En español: [checklist.md](checklist.md)*
 
 Almost every professional job has a checklist: what a lawyer checks in a contract, what an accountant closes at month
-end, what HR prepares before someone starts, what a coach looks at before raising the load. That checklist is the most
+end, what HR prepares before someone starts, what an editor checks before publishing. That checklist is the most
 valuable thing you can teach an AI, and the easiest to lose: it stays in one chat, and next time you explain it again.
 
 Athos notices it and keeps it.

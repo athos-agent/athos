@@ -2,7 +2,7 @@
 
 **What it is for** (one line, in the words a professional would use):
 
-**Profession:** law · finance · journalism · science · ops · sports · other
+**Profession:** law · finance · journalism · science · ops · other
 
 **The branch it shows** (which step hands over to which page, and when):
 

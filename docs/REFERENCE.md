@@ -33,7 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/athos-agent/athos/main/install.sh |
 athos opencode install       then restart OpenCode
 ```
 
-Then `athos start` asks your language and profession and adds example ways of working (law and sports coaching today).
+Then `athos start` asks your language and profession and adds example ways of working (law, finance, journalism, science and engineering on call today).
 
 Requires Python 3.11+ (the installer picks the newest one you have). No other dependencies. Your know-how lives in
 `~/.athos/know-how`, the same for every agent.
@@ -71,7 +71,7 @@ times on each agent and model, with and without the know-how, and checks what ea
 the files) instead of taking the agent's word:
 
 ```
-athos bench --list                                         the cases: code, data, devices, a planning method, sports, law, literature
+athos bench --list                                         the cases: code, data, devices, a planning method, law, literature
 athos bench all --agents claude,meta,local --runs 5 --without --max-usd 5
 athos bench report                                         success, time, tokens and cost per agent; the cheapest that keeps up
 ```
@@ -174,23 +174,23 @@ athos bench route --json
 ```
 
 The cases (`athos/bench/route_cases.json`, fictional) are requests in English and Spanish for each starter (law,
-sports, ops, journalism, science, finance), worded plainly and as paraphrases with few shared words, plus requests that
+ops, journalism, science, finance), worded plainly and as paraphrases with few shared words, plus requests that
 need no know-how ("what time is it", "write a haiku"). It reports hit@1 (the first piece loaded is the expected one),
 missed (nothing loaded), wrong (a piece loaded that the request didn't call for; the pages an expected piece hands over
 to don't count) and "none ok" (a request that needs nothing loaded nothing), with the time per request including
 reading the store. `--from-store` uses the request that started each task you marked good and the pieces it used, and
-prints only totals, never a request. Measured on 2026-10-31 (embeddinggemma through a local Ollama):
+prints only totals, never a request. Measured on 2026-10-31 without the sports starters (embeddinggemma through a local Ollama):
 
 | router | store | hit@1 | wrong | none ok | ms/request |
 |---|---|---|---|---|---|
-| words | starters, en+es (18 pages) | 47/72 | 6 | 19/24 | 1.4 |
-| words + meaning | starters, en+es | 57/72 | 6 | 19/24 | 17 |
-| words | Spanish requests, English starters | 0/36 | 0 | 12/12 | 0.7 |
-| words + meaning | Spanish requests, English starters | 9/36 | 0 | 12/12 | 24 |
-| words | English requests, Spanish starters | 0/36 | 0 | 12/12 | 0.8 |
-| words + meaning | English requests, Spanish starters | 15/36 | 0 | 12/12 | 13 |
-| words | en+es, 300 pages | 44/72 | 18 | 21/24 | 13 |
-| words + meaning | en+es, 300 pages | 54/72 | 21 | 19/24 | 33 |
+| words | starters, en+es (14 pages) | 34/56 | 2 | 23/24 | 1.3 |
+| words + meaning | starters, en+es | 43/56 | 2 | 23/24 | 17 |
+| words | Spanish requests, English starters | 0/28 | 0 | 12/12 | 0.6 |
+| words + meaning | Spanish requests, English starters | 6/28 | 0 | 12/12 | 20 |
+| words | English requests, Spanish starters | 0/28 | 0 | 12/12 | 0.7 |
+| words + meaning | English requests, Spanish starters | 10/28 | 0 | 12/12 | 14 |
+| words | en+es, 300 pages | 33/56 | 7 | 23/24 | 15 |
+| words + meaning | en+es, 300 pages | 40/56 | 11 | 21/24 | 36 |
 
 `athos embed on` adds meaning to the words, with a local embedding model through Ollama (default `embeddinggemma`,
 `athos embed on --model <name>` for another; `ollama pull embeddinggemma` first). It is off by default, and with it
@@ -202,7 +202,7 @@ request, when the words already found one clear piece nothing else happens; othe
 any request: this is what lets a Spanish request find an English piece. [Didn't apply] holds for these loads too.
 `athos embed` shows whether it is on and how many pieces are indexed; `athos status --json` has `embed`. Nothing leaves
 your machine. On the bench above it rescues cross-language and paraphrased requests without new wrong loads on the
-starters, but on the 300-page store it adds three wrong loads, so it stays opt-in.
+starters, but on the 300-page store it adds four wrong loads, so it stays opt-in.
 
 ### Learning from your own edits
 
@@ -353,7 +353,7 @@ Without the extension, the server can also be added by hand in Settings → Deve
 The panel also sets Athos up, one click at a time; nothing changes your setup without one.
 
 - **First use**: with no ways of working yet, the panel asks what you do (law, finance, journalism, science, engineering
-  on call, sports coaching, something else) in your language. A click adds that profession's example ways of working,
+  on call, something else) in your language. A click adds that profession's example ways of working,
   exactly as `athos start` does, says in one line what it added, and offers a first request to try.
 - **Use Athos in your other agents too**: the panel lists Codex, OpenCode and Muse Code when they are on this computer
   (their command on PATH, or their config folder), each with **Connect**. Codex runs the same code as

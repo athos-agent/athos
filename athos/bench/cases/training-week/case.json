@@ -1,6 +1,0 @@
-{
-  "title": "Plan an athlete's training week",
-  "domain": "sports",
-  "when": "planning next week's training for the athlete in athlete.json from the last four weeks in log.csv",
-  "request": "Plan next week's training for the athlete in athlete.json. Write plan.json with weekly_loads, acwr, target_load, sessions (each with day Mon..Sun, type, minutes, rpe) and open_decisions, and a PLAN.md for the athlete."
-}
