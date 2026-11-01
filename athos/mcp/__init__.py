@@ -103,6 +103,18 @@ TOOLS = [
          "id": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}},
          "as_id": {"type": "string", "description": "the id the colleagues' copies have, if it differs"},
          "apply": {"type": "boolean"}}, "required": ["id", "paths"]}},
+    {"name": "athos_share", "description": "Share one of the person's ways of working with Athos's public gallery, "
+     "through a web form, when they ask (\"share my lease review with the gallery\"). First call it with `id` (and "
+     "`profession`): it returns the draft pages and what looks private. Rewrite every flagged item and anything else "
+     "that could identify a real client, person, company or case with fictional data, and pass the rewritten pages "
+     "in `pages` ({page id: full markdown}). Show the person the title, the number of steps and what you took out, "
+     "ask the name to credit (or anonymous) and whether to send. Only on their yes call it with `send: true` and "
+     "`author`: the gallery's form opens in their browser, filled in, and they press Submit themselves.",
+     "inputSchema": {"type": "object", "properties": {
+         "id": {"type": "string"}, "profession": {"type": "string",
+                                                  "enum": ["law", "finance", "journalism", "science", "ops", "other"]},
+         "pages": {"type": "object", "additionalProperties": {"type": "string"}},
+         "author": {"type": "string"}, "send": {"type": "boolean"}}, "required": ["id"]}},
     {"name": "athos_add", "description": "Add a way of working from Athos's public gallery (only from the athos-agent/"
      "athos repository) and the pages it calls, when the person asks for it, e.g. by pasting \"Athos · add from "
      "gallery: <id>\". Pages they already have are left as they are. `preview: true` only shows what would be added.",
@@ -276,6 +288,16 @@ def call(name: str, args: dict, session_id: str = SESSION) -> str:
         except OSError as e:
             raise LookupError(f"couldn't reach Athos's gallery ({e}); nothing was added") from None
         return gallery.summary(r, start.lang())
+    if name == "athos_share":
+        from athos import share, start
+        lang, pid = start.lang(), args.get("id", "")
+        for page, text in (args.get("pages") or {}).items():
+            share.write_draft(pid, page, text)
+        if args.get("send"):
+            return share.send_text(share.send(pid, author=(args.get("author") or "").strip(), lang=lang), lang)
+        r = share.prepare(pid, args.get("profession") or "other", author=(args.get("author") or "").strip())
+        drafts = "\n\n".join(f"===== {p['id']} =====\n" + Path(p["file"]).read_text() for p in r["pages"])
+        return share.report_text(r, lang) + "\n\n" + drafts
     if name == "athos_start":
         from athos import start
         r = start.from_panel(args.get("lang") or start.lang(), args.get("profile", ""))

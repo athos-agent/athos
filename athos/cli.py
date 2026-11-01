@@ -26,6 +26,7 @@ Everyday commands (`athos <command> --help` has the details of each):
                                        cheapest one that never ended corrected or failed
     athos mark g|c|f [task]            how the last task went, in your words: good, corrected or failed
     athos report [--json]              the value each piece and each model adds to your own work
+    athos share <id> [--send --as NAME]  share a way of working with the public gallery (a form; you press Submit)
     athos mcp                          your know-how as an MCP server (stdio), for Claude Desktop's chat
     athos wiki [--json]                rebuild Index.md and check the links between pieces (pages of a wiki)
     athos export --dataset FILE        your statements and marked tasks as JSON lines (evals, training data)
@@ -68,7 +69,7 @@ ME = ROOT / "bin" / "athos"                         # its launcher: hooks, shims
 STEP_SINCE = (0, 1, 75)                 # the first `athos step` that answers ok inside a sandbox (Muse Code)
 
 
-def _cmd() -> str:
+def _cmd(since: tuple | None = None) -> str:
     """The spelling of the command in every line an agent runs or a person reads.
 
     Plain `athos` whenever the shell resolves it to this installation (the plugin puts its bin on PATH, the installer
@@ -77,12 +78,12 @@ def _cmd() -> str:
     if not ME.exists():
         return "athos"
     on_path = shutil.which("athos")
-    if on_path and _runs_me(on_path):
+    if on_path and _runs_me(on_path, since):
         return "athos"
     return shlex.quote(str(ME))
 
 
-def _runs_me(path: str) -> bool:
+def _runs_me(path: str, since: tuple | None = None) -> bool:
     """Whether the `athos` on PATH is this installation: the plugin's own bin, or a launcher pointing at it. An older
     install on PATH (~/.local/bin → ~/.athos/app) lacked `athos step`, so Muse Code's model called a command that
     didn't exist (2026-10-30)."""
@@ -101,7 +102,7 @@ def _runs_me(path: str) -> bool:
     # brings the full path back while the terminal's athos is one version behind (2026-10-30).
     target = re.search(r'"([^"]+/bin/athos)"', head)
     root = Path(target.group(1)).parents[1] if target else Path(os.path.realpath(path)).parents[1]
-    return _version(root) >= STEP_SINCE
+    return _version(root) >= (since or STEP_SINCE)
 
 
 def _version(root: Path) -> tuple:
@@ -190,7 +191,7 @@ def _on_prompt(event: dict, platform: str) -> None:
             session.update(sid, offer=None)
         _add_context("UserPromptSubmit", capture.SAVE_CONTEXT.format(cmd=_cmd()))
         return
-    from athos import gallery
+    from athos import gallery, share
     if ref := gallery.requested(prompt):
         # The person pasted [Use in Athos] from the gallery: the agent adds it, in sight, with one command.
         _add_context("UserPromptSubmit", (
@@ -218,6 +219,11 @@ def _on_prompt(event: dict, platform: str) -> None:
         # The person's hand edits of files the agent wrote: a rule of their way of working, offered once.
         learned = edits.on_prompt(event, _cmd())
         context = (context + "\n" + learned) if context and learned else (context or learned)
+    if share.asked(prompt):
+        # The person asked to share a way of working with the gallery: a draft, anonymised by the agent in sight,
+        # sent through the gallery's form, filled in, on their yes.
+        sharing = share.SHARE_CONTEXT.format(cmd=_cmd(since=share.SINCE))
+        context = (sharing + "\n\n" + context) if context else sharing
     if context:
         _add_context("UserPromptSubmit", context)
 
@@ -1016,6 +1022,21 @@ def cmd_add(args) -> int:
     return 0
 
 
+def cmd_share(args) -> int:
+    from athos import share, start
+    lang = start.lang()
+    try:
+        if args.send:
+            r = share.send(args.id, author=(args.owner or "").strip(), lang=lang)
+            print(share.send_text(r, lang))
+            return 0 if r.get("sent") else 1
+        print(share.report_text(share.prepare(args.id, args.profession, args.lang, (args.owner or "").strip()), lang))
+        return 0
+    except (LookupError, OSError) as e:
+        print(f"athos share: {e}", file=sys.stderr)
+        return 1
+
+
 def cmd_status(args: argparse.Namespace) -> int | None:
     """A one-line summary for a terminal; with --json, the whole `status()` the panels draw from."""
     snapshot = status()
@@ -1440,6 +1461,13 @@ def _parser() -> argparse.ArgumentParser:
     s = sub.add_parser("add", help="add a way of working from Athos's public gallery")
     s.add_argument("ref", help="the gallery id, or its raw URL in the athos-agent/athos repository")
     s.add_argument("--dry-run", action="store_true", help="only show what would be added")
+    s = sub.add_parser("share", help="share a way of working with the public gallery: a draft with what "
+                       "looks private flagged, then --send opens the gallery's form filled in with it")
+    s.add_argument("id", help="the way of working to share")
+    s.add_argument("--send", action="store_true", help="open the gallery's form, filled in with the draft (you press Submit)")
+    s.add_argument("--as", dest="owner", metavar="NAME", help="the name to credit (anonymous if left out)")
+    s.add_argument("--profession", default="other", choices=["law", "finance", "journalism", "science", "ops", "other"])
+    s.add_argument("--lang", choices=["es", "en"], help="the language it is written in (guessed if left out)")
     s = sub.add_parser("hook", help="(for the agents' hook configuration) handle one event read as JSON on stdin")
     s.add_argument("event", choices=list(_HOOK_HANDLERS), help="which moment of the session the event marks")
     s.add_argument("--platform", default="claude-code", help="the agent sending it (default claude-code)")
@@ -1453,7 +1481,7 @@ _HANDLERS = {
     "library": cmd_library, "delegate": cmd_delegate, "route": cmd_route, "mark": cmd_mark, "import": cmd_import,
     "report": cmd_report, "bench": cmd_bench, "embed": cmd_embed, "wiki": cmd_wiki, "mcp": cmd_mcp,
     "watch": cmd_watch, "connector": cmd_connector, "desktop": cmd_desktop, "step": cmd_step, "test": cmd_test,
-    "shadow": cmd_shadow, "status": cmd_status, "doctor": cmd_doctor, "gallery": cmd_gallery, "add": cmd_add,
+    "shadow": cmd_shadow, "status": cmd_status, "doctor": cmd_doctor, "gallery": cmd_gallery, "add": cmd_add, "share": cmd_share,
     "hook": cmd_hook,
 }
 
