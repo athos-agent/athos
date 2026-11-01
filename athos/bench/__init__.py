@@ -27,11 +27,13 @@ from pathlib import Path
 from athos import paths
 
 CASES = Path(__file__).parent / "cases"
-AGENTS = ("claude", "codex", "muse", "opencode", "meta", "local")
+AGENTS = ("claude", "codex", "muse", "opencode", "meta", "baseten", "local")
 TIMEOUT = 900
 # Meta Model API list price for muse-spark-1.3 (US$ per 1M tokens, input / output), from third-party sources.
 MUSE_SPARK_PRICE = (1.25, 4.25)
 DEFAULT_MODELS = {"meta": "muse-spark-1.3", "muse": "muse-spark-1.3", "opencode": "muse-spark-1.3", "local": "gemma4:12b"}
+# Baseten's list price is not checked here, so a `baseten` run's cost stays unknown (and --max-usd doesn't count it).
+DEFAULT_MODELS["baseten"] = "meta-models/muse-spark-open-1026"
 CLAUDE_TOOLS = "Bash Read Edit Write Glob Grep"
 
 
@@ -292,6 +294,9 @@ def _run_delegate(case, ws, home, with_piece, model, platform):
         if platform == "meta":
             from athos.adapters import meta
             chat_fn, model = meta.chat, model or meta.DEFAULT_MODEL
+        elif platform == "baseten":
+            from athos.adapters import baseten
+            chat_fn, model = baseten.chat, model or baseten.DEFAULT_MODEL
         else:
             chat_fn, model = delegate.chat, model or delegate.DEFAULT_MODEL
         r = delegate.delegate(p.id, case["request"], model, cwd=ws, yes=True, out=lambda *_: None,
@@ -312,12 +317,16 @@ def run_meta(case, ws, home, with_piece, model=None):
     return _run_delegate(case, ws, home, with_piece, model, "meta")
 
 
+def run_baseten(case, ws, home, with_piece, model=None):
+    return _run_delegate(case, ws, home, with_piece, model, "baseten")
+
+
 def run_local(case, ws, home, with_piece, model=None):
     return _run_delegate(case, ws, home, with_piece, model, "local")
 
 
 RUNNERS = {"claude": run_claude, "codex": run_codex, "muse": run_muse, "opencode": run_opencode, "meta": run_meta,
-           "local": run_local}
+           "baseten": run_baseten, "local": run_local}
 
 
 def run_once(name: str, case: dict, agent: str, with_piece: bool = True, model: str | None = None,

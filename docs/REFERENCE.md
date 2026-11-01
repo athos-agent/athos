@@ -66,6 +66,32 @@ other. Nothing is delegated unless you run `athos delegate`. The default is `gem
 not enough for a release task, and the 12B one did it in about a minute and a half but still needed a correction.
 `--yes` runs the model's commands without asking: use it only in a folder you can throw away.
 
+Meta's open-weights model also runs on [Baseten](https://www.baseten.co) Model APIs (`--backend baseten`), through
+Baseten's OpenAI-compatible endpoint (`https://inference.baseten.co/v1`), in the same loop as `--backend meta`. Create
+an API key at [app.baseten.co/settings/api_keys](https://app.baseten.co/settings/api_keys) (Organization settings →
+API keys → Create API key; copy it at once, Baseten shows it only then) and put it on a line of `~/.athos/.env` (or
+export it as `BASETEN_API_KEY`); Athos reads it only to send the request and never prints it:
+
+```
+BASETEN_API_KEY=<your key>
+```
+
+```
+athos delegate <piece> "<request>" --backend baseten     meta-models/muse-spark-open-1026, recorded as `baseten`
+athos delegate <piece> "<request>" --backend baseten --model meta-models/muse-spark-open
+athos test <piece> --backend baseten                     your corrections as tests, on Baseten
+athos shadow on --backend baseten                        the background comparison, on Baseten
+athos merge <piece> <their-files>... --backend baseten   a model merges differing texts, on Baseten
+athos bench <case> --agents baseten,meta,local --runs 3
+```
+
+The default model is the slug the Meta hackathon names; Baseten's model page lists `meta-models/muse-spark-open`, so
+use `--model` if your account shows another (`GET https://inference.baseten.co/v1/models` lists them). The model
+always reasons; Athos asks for `reasoning_effort: low` (Baseten's default is `xhigh`). With `--by-step`, a statement
+whose `**Model:**` is `baseten` or `baseten:<model>` runs there, with `--allow-meta` as for Meta. Like `--backend
+meta`, it sends the request and the files the model reads to a hosted service; nothing goes there unless you choose it.
+In `athos bench`, a Baseten run's cost shows as unknown.
+
 To see what the know-how is worth before trusting a cheaper model with it, `athos bench` runs the same task several
 times on each agent and model, with and without the know-how, and checks what each run left behind (git, the tests,
 the files) instead of taking the agent's word:
@@ -96,6 +122,16 @@ Your know-how lives in `~/.athos/know-how/`, one markdown page per piece, as a w
 (when / do / because / links), the links follow the order things are done in a task, and `Index.md` says where each
 kind of task starts. Walks that cross pages become subagents that improve with the pages. See [docs/WIKI.md](WIKI.md). Choose what may load with
 `/athos:load auto | all | project <name> | pieces <id>... | none`, and copy everything out with `/athos:export <folder>`.
+
+A way of working can also be dictated. Record yourself explaining how you do a task (a voice memo is enough) and run
+`athos save --from-audio memo.m4a [--lang es|en]`: Meta's Muse Voice Transcribe (`muse-voice-transcribe-1.0`, Meta
+Model API's file endpoint) writes down what you said, and Muse Spark (`muse-spark-1.3`) turns it into a draft piece in
+the format above, one statement per step, keeping your words and leaving out what you did not say. You see the draft
+and it is saved only when you answer yes; `--yes` saves it without asking, and without a terminal (an agent running
+the command) the draft is printed with the `athos save` command that stores it. The endpoint takes a mono 16-bit WAV
+at 16 or 24 kHz of up to 10 minutes; any other recording is converted first with `afconvert` (macOS) or `ffmpeg` when
+one of them is installed, and nothing is installed for you. The recording and its transcript go to Meta only when you
+run this command, with your `MODEL_API_KEY`.
 
 ### One memory per project
 
@@ -449,3 +485,25 @@ any answer that is not one clean statement falls back to the best record. The dr
 `~/.athos/guild/<id>.merged.md` (`--out` to choose); `--apply` saves it with a history note naming the sources, and
 `athos revert <id>` undoes it. In Claude Desktop's chat the same merge is the `athos_merge` tool ("merge my lease
 review with Ana's version in this folder"): it proposes first and applies only when asked.
+
+### Your know-how as a fine-tuning dataset (Fireworks AI, OpenAI)
+
+`athos export --dataset FILE` writes your statements and marked tasks as JSON lines. With `--format fireworks` it
+writes them instead as the chat JSONL that Fireworks AI's supervised fine-tuning reads (and OpenAI's, which is the same
+shape, so `--format openai` writes the same rows): one `{"messages": [system, user, assistant]}` per line. For each
+piece, the user turn is a situation it is for (its **When**, and the request of every task you marked good that used
+it) and the assistant turn is its statements in order (when, do, because). Tasks marked corrected or failed, and
+unmarked ones, give no row. Every row is checked before the file is written (valid JSON, user and assistant turns
+alternating and ending on the assistant, no empty message), and Athos prints how many rows it wrote and where:
+
+```
+athos export --dataset know-how.fireworks.jsonl --format fireworks
+firectl dataset create my-know-how know-how.fireworks.jsonl
+firectl sftj create --base-model <MODEL_ID> --dataset my-know-how --output-model my-know-how-model
+```
+
+Fireworks wants at least 3 rows (OpenAI at least 10; Athos warns below that) and cuts each example at the model's
+context length (32,768 tokens by default). Older `firectl` builds spell the first command `firectl create dataset`.
+To train without uploading a dataset, the Serverless Training starter in Fireworks' cookbook (`fw-ai/cookbook`,
+`examples.sft.muse_glimmer_starter`, shown in the hackathon's Muse open models session) takes the same file with
+`--file`. The file holds your requests as you typed them: nothing leaves this machine until you upload it.

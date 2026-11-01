@@ -29,7 +29,7 @@ def fake_api(*replies):
             return False
 
     def urlopen(req, timeout=None):
-        sent.append({"headers": dict(req.header_items()), "body": json.loads(req.data)})
+        sent.append({"url": req.full_url, "headers": dict(req.header_items()), "body": json.loads(req.data)})
         return Resp(json.dumps(replies[len(sent) - 1]).encode())
     return urlopen, sent
 

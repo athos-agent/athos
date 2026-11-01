@@ -6,6 +6,7 @@ Everyday commands (`athos <command> --help` has the details of each):
     athos list                         every piece in the store; a filled dot marks the ones allowed to load here
     athos show <id>                    print a piece (inside a session, that also counts as loading it)
     athos save                         read a piece on stdin and store it: new, or a new version of the `id:` it names
+    athos save --from-audio FILE       a recording of how you do a task, drafted by Meta's models; saved once you confirm
     athos load [all | project [name] | pieces <id>... | none]   choose what may load; bare, it prints the choice
     athos export <dir>                 a plain copy of every piece into a folder
     athos export --codex [dir]         every piece as a skill Codex reads (default ~/.agents/skills)
@@ -19,6 +20,7 @@ Everyday commands (`athos <command> --help` has the details of each):
     athos delegate <id> "<request>"    hand a task you already master to a small model on this machine (Ollama),
                                        recorded under the `local` platform
     athos delegate <id> "<request>" --backend meta   the same on Meta Model API (muse-spark-1.3), recorded as `meta`
+    athos delegate <id> "<request>" --backend baseten   on Baseten (Meta's open-weights Muse Spark Open), as `baseten`
     athos delegate <id> "<request>" --by-step   statement by statement, each on its `**Model:**` (local, meta, …)
     athos route <id> [--apply]         per step, which models ran it and how those tasks ended; --apply writes the
                                        cheapest one that never ended corrected or failed
@@ -27,6 +29,7 @@ Everyday commands (`athos <command> --help` has the details of each):
     athos mcp                          your know-how as an MCP server (stdio), for Claude Desktop's chat
     athos wiki [--json]                rebuild Index.md and check the links between pieces (pages of a wiki)
     athos export --dataset FILE        your statements and marked tasks as JSON lines (evals, training data)
+    athos export --dataset FILE --format fireworks|openai   the same know-how as chat JSONL for fine-tuning
     athos export --guild <folder> [--as NAME] [--piece ID]   pieces + per-statement counts, for colleagues to merge
     athos merge <id> <file-or-folder>... [--apply] [--backend ollama|meta --model M]   one team version of a piece
     athos wiki agents [--install]      the trajectory subagents (a walk across pages); --install puts them in
@@ -323,11 +326,43 @@ def _unwritable_store_hint() -> str:
 
 def cmd_save(args: argparse.Namespace) -> int | None:
     """Store the piece written on stdin: a new page, or a new version of the page its `id:` names. The lines printed
-    afterwards are read by the model, which reports them and fixes what the save broke in the wiki."""
+    afterwards are read by the model, which reports them and fixes what the save broke in the wiki. With
+    `--from-audio`, the piece is a recording the person dictated, drafted by Meta's models (athos/adapters/meta/voice)."""
+    if getattr(args, "from_audio", None):
+        return _save_from_audio(args)
+    return _save(sys.stdin.read())
+
+
+def _save_from_audio(args: argparse.Namespace) -> int | None:
+    """Transcribe the recording, draft it as a piece, show the draft, and save it only once the person says yes."""
+    from athos.adapters.meta import voice
+    try:
+        print(f"transcribing {Path(args.from_audio).name} with {voice.TRANSCRIBE_MODEL}…", file=sys.stderr)
+        transcript = voice.transcribe(Path(args.from_audio), args.lang)
+        print(f"drafting the way of working with {voice.DRAFT_MODEL}…", file=sys.stderr)
+        draft = voice.draft(transcript, args.lang)
+    except (voice.VoiceError, PermissionError, OSError) as refused:
+        return _fail(f"not saved: {refused}")
+    if not args.yes and not sys.stdin.isatty():      # nobody to ask: show the draft and how to keep it
+        print(f"Draft, not saved yet. To save it, run:\n\n{_cmd()} save <<'EOF'\n{draft.rstrip()}\nEOF")
+        return None
+    print(draft.rstrip() + "\n")
+    if not args.yes:
+        try:
+            answer = input("Save this way of working? [y/N] ").strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in ("y", "yes", "s", "si", "sí"):
+            print("not saved.")
+            return None
+    return _save(draft)
+
+
+def _save(text: str) -> int | None:
     folder, noted = _here()
     sid = noted.get("session_id", "default")
     try:
-        piece, diff = capture.save_text(sys.stdin.read(), sid, folder, noted.get("transcript_path"))
+        piece, diff = capture.save_text(text, sid, folder, noted.get("transcript_path"))
     except (PermissionError, ValueError) as refused:          # a sandboxed store, or a page that doesn't parse
         return _fail(_unwritable_store_hint() if isinstance(refused, PermissionError) else f"not saved: {refused}")
     if not diff:
@@ -419,10 +454,34 @@ def _export_guild(args: argparse.Namespace) -> int | None:
           "counts only (how many of your tasks walked each step, and how you marked them): no request, no client.")
 
 
+CHAT_MIN_ROWS = {"fireworks": 3, "openai": 10}      # the fewest examples each service's fine-tuning accepts
+
+
+def _export_chat_dataset(dest: Path, fmt: str) -> int | None:
+    """Supervised fine-tuning rows in the chat format Fireworks AI and OpenAI share: one {"messages": [...]} per line,
+    each checked before anything is written."""
+    from athos import wiki
+    lines = [json.dumps(r, ensure_ascii=False) for r in wiki.chat_dataset()]
+    for n, line in enumerate(lines, 1):
+        why = wiki.check_chat_row(json.loads(line))
+        if why:
+            return _fail(f"row {n} would be refused ({why}); nothing written")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text("".join(line + "\n" for line in lines))
+    print(f"{len(lines)} rows to {dest} ({fmt} chat JSONL: system, user = a situation, assistant = your way of working "
+          "for it; tasks marked corrected or failed left out). It holds your requests as you typed them: it stays on "
+          "this machine unless you upload it.")
+    if len(lines) < CHAT_MIN_ROWS[fmt]:
+        print(f"note: {fmt} fine-tuning needs at least {CHAT_MIN_ROWS[fmt]} rows; mark more tasks good "
+              "(`athos mark g`) or save more pieces first.", file=sys.stderr)
+
+
 def _export_dataset(args: argparse.Namespace) -> int | None:
     from athos import wiki
-    rows = wiki.dataset()
     dest = Path(args.dataset).expanduser()
+    if args.format != "athos":
+        return _export_chat_dataset(dest, args.format)
+    rows = wiki.dataset()
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
     n_st = sum(r["kind"] == "statement" for r in rows)
@@ -468,6 +527,9 @@ def cmd_merge(args) -> int:
         if args.backend == "meta":
             from athos.adapters import meta
             chat_fn, model = meta.chat, args.model or meta.DEFAULT_MODEL
+        elif args.backend == "baseten":
+            from athos.adapters import baseten
+            chat_fn, model = baseten.chat, args.model or baseten.DEFAULT_MODEL
         else:
             chat_fn, model = delegate.chat, args.model or delegate.DEFAULT_MODEL
     try:
@@ -572,18 +634,26 @@ def cmd_revert(args: argparse.Namespace) -> int | None:
 
 def _delegation_backend(args):
     """(platform, model, chat function) for a delegation: Ollama on this machine, recorded as `local`, unless
-    --backend meta sends it to Meta Model API."""
+    --backend meta sends it to Meta Model API, --backend baseten to Baseten Model APIs."""
     from athos import delegate
+    if args.backend == "baseten":
+        from athos.adapters import baseten
+        return "baseten", args.model or baseten.DEFAULT_MODEL, baseten.chat
     if args.backend != "meta":
         return "local", args.model or delegate.DEFAULT_MODEL, delegate.chat
     from athos.adapters import meta
     return "meta", args.model or meta.DEFAULT_MODEL, meta.chat
 
 
+def _hosted_name(platform: str) -> str | None:
+    """The hosted API a platform's model runs on, as the person reads it; None for Ollama on this machine."""
+    return {"meta": "Meta Model API", "baseten": "Baseten Model APIs"}.get(platform)
+
+
 def _unreachable(platform: str, model: str, reason: object) -> str:
     """What to say when the model's server did not answer at all, with the way to start it when it is local."""
-    if platform == "meta":
-        return f"cannot reach Meta Model API ({reason})."
+    if _hosted_name(platform):
+        return f"cannot reach {_hosted_name(platform)} ({reason})."
     from athos import delegate
     return (f"cannot reach Ollama at {delegate.host()} ({reason}). Start it (`ollama serve`) and pull the "
             f"model (`ollama pull {model}`).")
@@ -609,7 +679,7 @@ def cmd_delegate(args: argparse.Namespace) -> int | None:
     try:
         if args.by_step:
             r = delegate.by_step(args.id, args.request, (platform, model), yes=args.yes, max_steps=args.max_steps,
-                                 allow_hosted=platform == "meta" or args.allow_meta)
+                                 allow_hosted=bool(_hosted_name(platform)) or args.allow_meta)
         else:
             r = delegate.delegate(args.id, args.request, model, yes=args.yes, max_steps=args.max_steps,
                                   chat_fn=chat_fn, platform=platform)
@@ -963,13 +1033,13 @@ def _model_error(e: Exception, platform: str, model: str) -> str | None:
     import urllib.error
     if isinstance(e, urllib.error.HTTPError):
         # Ollama answers 404 for a model it hasn't pulled; this said "Meta Model API" for it (2026-10-31).
-        if platform != "meta" and e.code == 404:
+        if not _hosted_name(platform) and e.code == 404:
             return f"Ollama has no model {model}: `ollama pull {model}`, or choose one you have with --model."
-        who = "Meta Model API" if platform == "meta" else "Ollama"
+        who = _hosted_name(platform) or "Ollama"
         return f"{who} refused the request (HTTP {e.code}): {e.read().decode(errors='ignore')[:300]}"
     if isinstance(e, urllib.error.URLError):
-        if platform == "meta":
-            return f"cannot reach Meta Model API ({e.reason})."
+        if _hosted_name(platform):
+            return f"cannot reach {_hosted_name(platform)} ({e.reason})."
         from athos import delegate
         return (f"cannot reach Ollama at {delegate.host()} ({e.reason}). Start it (`ollama serve`) and pull the "
                 f"model (`ollama pull {model}`).")
@@ -1001,7 +1071,7 @@ def cmd_shadow(args) -> int:
     lang = start.lang()
     if args.action in ("on", "off"):
         s = replay.set_shadow(args.action == "on", args.backend, args.model)
-        where = "Meta Model API" if s["backend"] == "meta" else "Ollama (local)"
+        where = _hosted_name(s["backend"]) or "Ollama (local)"
         if lang == "es":
             print(f"comparación en segundo plano: {'activada' if s['on'] else 'desactivada'} · {where}")
         else:
@@ -1208,7 +1278,11 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("list", help="every piece in the store; ● marks the ones allowed to load here")
     s = sub.add_parser("show", help="print one piece")
     s.add_argument("id", help="the piece's id (its file name without .md)")
-    sub.add_parser("save", help="store the piece written on stdin (a new version when its id: already exists)")
+    s = sub.add_parser("save", help="store the piece written on stdin (a new version when its id: already exists)")
+    s.add_argument("--from-audio", metavar="FILE", help="a recording of how you do a task: Meta's Muse Voice "
+                   "Transcribe and Muse Spark draft it as a way of working, saved once you confirm")
+    s.add_argument("--lang", choices=["es", "en"], help="with --from-audio: the language spoken and of the draft")
+    s.add_argument("--yes", action="store_true", help="with --from-audio: save the draft without asking")
     s = sub.add_parser("curate", help="tidy your ways of working: tag pages with the projects they are used in, "
                        "archive unused ones, spot near-duplicates, broken links and work with no page yet")
     s.add_argument("action", nargs="?", choices=["list", "apply", "dismiss", "ignore", "restore"], default="list")
@@ -1224,6 +1298,9 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--muse", action="store_true", help="the same skills for Muse Code, which reads ~/.agents/skills too")
     s.add_argument("--dataset", metavar="FILE", help="your statements and marked tasks as JSON lines, to evaluate or "
                    "specialise a model on")
+    s.add_argument("--format", choices=["athos", "fireworks", "openai"], default="athos",
+                   help="with --dataset: athos (statements and marked tasks, the default), or fireworks / openai "
+                   "(chat JSONL for supervised fine-tuning; both services read the same shape)")
     s.add_argument("--guild", metavar="FOLDER", help="each piece and its stats (counts only) for a colleague's "
                    "`athos merge`")
     s.add_argument("--piece", action="append", help="with --guild: only this piece (repeatable)")
@@ -1235,8 +1312,9 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--as-id", help="the id their copies have, when it differs from yours")
     s.add_argument("--apply", action="store_true", help="save the merge as a new version of your piece")
     s.add_argument("--out", metavar="FILE", help="where to write the proposal (default ~/.athos/guild/<id>.merged.md)")
-    s.add_argument("--backend", choices=["ollama", "meta"],
-                   help="merge differing texts with a model: ollama on this machine, or meta (Meta Model API)")
+    s.add_argument("--backend", choices=["ollama", "meta", "baseten"],
+                   help="merge differing texts with a model: ollama on this machine, meta (Meta Model API) or "
+                        "baseten (Baseten Model APIs)")
     s.add_argument("--model", help="the model for --backend (Ollama by default)")
     s = sub.add_parser("codex", help="wire Athos's hooks into Codex (~/.codex/hooks.json), or remove them")
     s.add_argument("action", choices=["install", "uninstall"], help="add the hooks, or take them out")
@@ -1258,10 +1336,12 @@ def _parser() -> argparse.ArgumentParser:
     s = sub.add_parser("delegate", help="hand a task you master to a smaller model, following one piece")
     s.add_argument("id", help="the piece the task follows")
     s.add_argument("request", help="the request, as you would type it to the agent")
-    s.add_argument("--backend", choices=["ollama", "meta"], default="ollama",
-                   help="where the model runs: ollama on this machine (default), or meta (Meta Model API)")
+    s.add_argument("--backend", choices=["ollama", "meta", "baseten"], default="ollama",
+                   help="where the model runs: ollama on this machine (default), meta (Meta Model API) or "
+                        "baseten (Baseten Model APIs)")
     s.add_argument("--model", help="the model: an Ollama one (default gemma4:12b), or with --backend meta "
-                                   "muse-spark-1.3 (default) or muse-wonder-1.0")
+                                   "muse-spark-1.3 (default) or muse-wonder-1.0, or with --backend baseten "
+                                   "meta-models/muse-spark-open-1026 (default)")
     s.add_argument("--yes", action="store_true", help="don't ask before each command the model wants to run")
     s.add_argument("--max-steps", type=int, default=20, help="stop after this many model turns (default 20)")
     s.add_argument("--by-step", action="store_true",
@@ -1292,7 +1372,7 @@ def _parser() -> argparse.ArgumentParser:
                    help="with transfer-report: score the kept reviews again with the case's current check")
     s.add_argument("--list", action="store_true", help="the cases")
     s.add_argument("--agents", default="claude,meta",
-                   help="claude, codex, muse, opencode, meta, local (comma-separated)")
+                   help="claude, codex, muse, opencode, meta, baseten, local (comma-separated)")
     s.add_argument("--runs", type=int, default=5)
     s.add_argument("--without", action="store_true", help="also run each agent without the know-how, to compare")
     s.add_argument("--only-without", action="store_true", help="only without the know-how")
@@ -1337,13 +1417,15 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--new", help="a step the task needed that your know-how doesn't have yet")
     s = sub.add_parser("test", help="re-check a piece against the corrections you made on it before")
     s.add_argument("id", help="the piece")
-    s.add_argument("--backend", choices=["ollama", "meta"], default="ollama",
-                   help="where the model runs: ollama on this machine (default), or meta (Meta Model API)")
+    s.add_argument("--backend", choices=["ollama", "meta", "baseten"], default="ollama",
+                   help="where the model runs: ollama on this machine (default), meta (Meta Model API) or "
+                        "baseten (Baseten Model APIs)")
     s.add_argument("--model", help="the model (default gemma4:12b, or muse-spark-1.3 with --backend meta)")
     s = sub.add_parser("shadow", help="compare a cheaper model with the answers you approved; on|off after each task")
     s.add_argument("action", nargs="?", choices=["on", "off"])
-    s.add_argument("--backend", choices=["ollama", "meta"],
-                   help="ollama on this machine (default), or meta (Meta Model API, only if you choose it)")
+    s.add_argument("--backend", choices=["ollama", "meta", "baseten"],
+                   help="ollama on this machine (default), meta (Meta Model API) or baseten (Baseten), only if you "
+                        "choose it")
     s.add_argument("--model", help="the model (default gemma4:12b, or muse-spark-1.3 with --backend meta)")
     s.add_argument("--limit", type=int, help="at most this many approved tasks")
     s.add_argument("--quiet", action="store_true", help=argparse.SUPPRESS)

@@ -1,6 +1,6 @@
 {
   "name": "athos",
-  "version": "0.1.89",
+  "version": "0.1.90",
   "description": "Your AI know-how, free to move and fast to run: how you work with AI, kept as markdown files you own, improved as you go, and loaded only when a task needs it.",
   "author": { "name": "Matías Molinas", "url": "https://github.com/matiasmolinas" },
   "homepage": "https://github.com/athos-agent/athos#readme",
