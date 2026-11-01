@@ -1,12 +1,19 @@
-/** What `athos status --json` reports: the store, this session's pieces and its last task. */
-export type Status = {
-  pieces: number
+/** How the person judged a task; `unevaluated` until they mark it (`athos mark g|c|f`). */
+export type Verdict = 'unevaluated' | 'ok' | 'corrected' | 'failed'
+
+/** The latest finished task: its verdict, the pieces it used, and the ones it saved or improved. */
+export type LastTask = { task_id: string; result: Verdict; pieces: string[]; saved: string[]; improved: string[] }
+
+/** The counts behind the status line: pieces in the store, how many may load, tasks still without a verdict. */
+export type Counts = { pieces: number; enabled: number; to_mark: number }
+
+/** The loading mode `athos load` set, and the ids this session has loaded so far. */
+export type Loading = { loading: string; loaded: string[] }
+
+/** Everything `athos status --json` prints on its last line, which the hooks module reads after each event. */
+export type Status = Counts & Loading & {
   /** The language the person chose with `athos start`: what they read follows it. */
   lang?: 'en' | 'es'
-  enabled: number
-  loading: string
-  loaded: string[]
-  to_mark: number
   /** The piece this session saved or improved last, and the agents where it is ready. */
   /** `recheck`: an improved piece the person corrected before, in their words ("2 past corrections to re-check"). */
   last_saved: { id: string; title: string; version: number; platforms: string[]; tests?: number; recheck?: string } | null
@@ -32,13 +39,7 @@ export type Status = {
   greeting?: string
   /** What [Save] submits: the save, in the person's language. */
   save_prompt?: string
-  last: {
-    task_id: string
-    result: 'unevaluated' | 'ok' | 'corrected' | 'failed'
-    pieces: string[]
-    saved: string[]
-    improved: string[]
-  } | null
+  last: LastTask | null
 }
 
 /** What the trail pane draws (`athos status --json` → `trail`). */
@@ -81,10 +82,16 @@ export type Bar = {
   prompt_saved: number | null
 }
 
+// The engine types each plugin's atoms through this interface; Athos's live under its own name, one per atom in
+// hooks/ui.tsx.
 declare module 'claude-code' {
   interface PluginState {
     athos: {
-      snap: Status | null; dismissed: string | null; offered: string | null; misfired: string | null
+      /** The last `athos status --json` read. */
+      snap: Status | null
+      /** The task whose verdict question the person skipped, whose save offer they answered, and the
+       * `task:piece` they said didn't apply. */
+      dismissed: string | null; offered: string | null; misfired: string | null
       /** The session has had its first request: the greeting is gone. */
       greeted: boolean
       /** The task whose trail the pane was opened for (once per task, unasked). */

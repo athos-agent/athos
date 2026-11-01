@@ -3,30 +3,58 @@ import { expect, test } from 'claude-code/testing'
 import { announceText, barText, followingText, savedText, statusText, stepsText, trailRows, trailText, whyText, words }
   from './ui'
 
-const BAND = { plugin: 'athos', component: 'AbovePrompt', props: { hasSurvey: false } } as const
+type Body = Extract<Parameters<typeof test>[1], (...a: never[]) => unknown>
+type Harness = Parameters<Body>[0]
+type On = Parameters<Body>[1]
 
+// The store most tests start from: three pieces, one in use, and a last task that improved it and has no verdict yet.
+const PIECE = 'cut-a-release'
 const STATUS = {
-  pieces: 3,
-  enabled: 3,
-  loading: 'all',
-  loaded: ['cut-a-release'],
-  to_mark: 1,
-  last: { task_id: 't1', result: 'unevaluated', pieces: ['cut-a-release'], saved: [], improved: ['cut-a-release'] },
-  bars: null,
-  last_saved: null,
-  following: [],
+  pieces: 3, enabled: 3, loading: 'all', loaded: [PIECE], to_mark: 1,
+  last: { task_id: 't1', result: 'unevaluated', pieces: [PIECE], saved: [], improved: [PIECE] },
+  bars: null, last_saved: null, following: [],
 }
+
+/** The engine around the hooks, as these tests fake it: the session's folder is /work, `athos` answers with
+ * `cli(args)` (args are what follows `python3 bin/athos`), toasts go nowhere, and what the status line is set to is
+ * pushed to `statusLines` when a test passes one. Any other answer a test needs is registered beside it, before
+ * `start`. */
+function fakeEngine(on: On, cli: (args: string[]) => string, statusLines?: unknown[]): void {
+  on('session.root', () => ({ value: '/work' }))
+  on('process.run', (_, e) => {
+    const stdout = cli((e as unknown as { argv: string[] }).argv.slice(2))
+    return { value: { exitCode: 0, stdout, stderr: '' } }
+  })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.status', (_, e) => { statusLines?.push(e); return { value: undefined } })
+  on('ui.toast', () => ({ value: undefined }))
+}
+
+/** `athos` answering every command with this status, as `athos status --json` would. */
+const always = (status: object) => () => JSON.stringify(status)
+
+/** An interactive terminal session in /work. */
+const start = ($: Harness) => $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+
+/** The band above the prompt, in the terminal, with no survey of the engine's own on screen. */
+const mountBand = ($: Harness) =>
+  $.ui.mount({ plugin: 'athos', component: 'AbovePrompt', surface: 'terminal', props: { hasSurvey: false } })
 
 const CLAUDE = { platform: 'claude-code', label: 'Claude Code', uses: 5, evaluated: 5, ok: 4, success_rate: 0.8,
   mean_request_chars: 80, prompt_saved: 0.85 }
 const CODEX = { platform: 'codex', label: 'Codex', uses: 0, evaluated: 0, ok: 0, success_rate: null,
   mean_request_chars: null, prompt_saved: null }
 
-test('the status line counts pieces, loaded and unmarked tasks', () => {
+test('the status line: the know-how, what is in use, and what still waits for a verdict', () => {
   expect(statusText(STATUS as never)).toBe('3 ways of working · 1 in use · 1 to mark')
   expect(statusText({ ...STATUS, to_mark: 0 } as never)).toBe('3 ways of working · 1 in use')
-  expect(statusText(null)).toBe(undefined)
-  expect(savedText(STATUS as never)).toBe('improved cut-a-release')
+  expect([statusText(null), savedText(null)]).toEqual([undefined, ''])
+})
+
+test('what the last task changed reads as one line', () => {
+  expect(savedText(STATUS as never)).toBe(`improved ${PIECE}`)
+  expect(savedText({ ...STATUS, last: { ...STATUS.last, saved: ['draft-a-memo'] } } as never))
+    .toBe(`saved draft-a-memo · improved ${PIECE}`)
 })
 
 test('a save is one line: what, which version, where it is ready', () => {
@@ -49,40 +77,41 @@ test('while a task runs, one line says which know-how it follows', () => {
   expect(followingText(STATUS as never)).toBe(undefined)
 })
 
-test('an unmarked task gets one-key marking above the prompt', async ($, on) => {
-  const calls: string[][] = []
-  on('session.root', () => ({ value: '/work' }))
-  on('process.run', (_, e) => {
-    const argv = (e as unknown as { argv: string[] }).argv
-    calls.push(argv.slice(2))
-    const marked = calls.some(a => a[0] === 'mark')
-    const out = argv[2] === 'mark' ? 'task t1 marked ok'
-      : JSON.stringify(marked ? { ...STATUS, to_mark: 0, last: { ...STATUS.last, result: 'ok' } } : STATUS)
-    return { value: { exitCode: 0, stdout: out, stderr: '' } }
+test('a task with no verdict is marked with one key from the band', async ($, on) => {
+  // Before the mark the status still asks; once `athos mark` ran, the last task reads ok.
+  const ran: string[] = []
+  const afterMark = { ...STATUS, to_mark: 0, last: { ...STATUS.last, result: 'ok' } }
+  fakeEngine(on, args => {
+    ran.push(args.join(' '))
+    if (args[0] === 'mark') return 'task t1 marked ok'
+    return JSON.stringify(ran.some(c => c.startsWith('mark ')) ? afterMark : STATUS)
   })
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('ui.status', () => ({ value: undefined }))
-  on('ui.toast', () => ({ value: undefined }))
-
-  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
-  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await start($)
+  const ui = await mountBand($)
   expect((await ui.find({ type: 'Text', text: /How did this task go/ }))?.text).toBeTruthy()
   await ui.press({ key: 'g' })
-  expect(calls.some(a => a.join(' ') === 'mark g')).toBe(true)
+  expect(ran).toContain('mark g')
   await ui.unmount()
+})
+
+test('when the status cannot be stored, the status line goes blank and the session still starts', async ($, on) => {
+  // `athos status` answers fine, but the engine refuses to store what it printed: the hook must not throw (that
+  // would show the person an error line) and the status line must not keep a count it could not store.
+  const lines: { text?: string }[] = []
+  fakeEngine(on, always(STATUS), lines)
+  on('state.set', () => ({ deny: 'state store unavailable' }))
+  await start($)
+  expect(lines).toEqual([{}])
 })
 
 test('a task worth keeping offers [Save], which sends the save, not a question to the model', async ($, on) => {
   const status = { ...STATUS, offer: { task_id: STATUS.last.task_id, reason: 'work' },
                    save_prompt: 'Athos · save: keep it' }
   const sent: string[] = []
-  on('session.root', () => ({ value: '/work' }))
-  on('process.run', () => ({ value: { exitCode: 0, stdout: JSON.stringify(status), stderr: '' } }))
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('ui.status', () => ({ value: undefined }))
+  fakeEngine(on, always(status))
   on('prompt.submit', (_, e) => { const text = (e as unknown as { text: string }).text; sent.push(text); return { text } })
-  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
-  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await start($)
+  const ui = await mountBand($)
   expect((await ui.find({ type: 'Text', text: /can become a way of working/ }))?.text).toBeTruthy()
   await ui.press({ key: 's' })
   expect(sent).toEqual(['Athos · save: keep it'])
@@ -92,23 +121,18 @@ test('a task worth keeping offers [Save], which sends the save, not a question t
 test('the band says which know-how the task used, why, how it has done, and takes a "didn\'t apply"', async ($, on) => {
   const status = { ...STATUS, loads: [{ id: 'cut-a-release', title: 'Cut a release', why: ['release', 'version'],
                                         record: { uses: 5, ok: 4, marked: 4, agents: ['Claude Code', 'Codex'] } }] }
-  const calls: string[][] = []
-  on('session.root', () => ({ value: '/work' }))
-  on('process.run', (_, e) => {
-    const argv = (e as unknown as { argv: string[] }).argv
-    calls.push(argv.slice(2))
-    return { value: { exitCode: 0, stdout: argv[2] === 'dismiss' ? 'ok' : JSON.stringify(status), stderr: '' } }
+  const ran: string[] = []
+  fakeEngine(on, args => {
+    ran.push(args.join(' '))
+    return args[0] === 'dismiss' ? 'ok' : JSON.stringify(status)
   })
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('ui.status', () => ({ value: undefined }))
-  on('ui.toast', () => ({ value: undefined }))
-  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
-  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await start($)
+  const ui = await mountBand($)
   const line = await ui.find({ type: 'Text', text: /used «Cut a release»/ })
   expect(line?.text).toContain('4/4 good in Claude Code, Codex')
   expect(line?.text).toContain('matched: release, version')
   await ui.press({ key: 'x' })
-  expect(calls.some(a => a.join(' ') === 'dismiss cut-a-release')).toBe(true)
+  expect(ran).toContain('dismiss cut-a-release')
   await ui.unmount()
 })
 
@@ -124,11 +148,8 @@ test('a bar fills with the success rate and says how much shorter the prompt is'
 
 test('the line under the prompt keeps its hint and adds one bar per agent', async ($, on) => {
   const status = { ...STATUS, bars: { piece: 'cut-a-release', title: 'Cut a release', baseline_request_chars: 520, agents: [CLAUDE, CODEX] } }
-  on('session.root', () => ({ value: '/work' }))
-  on('process.run', () => ({ value: { exitCode: 0, stdout: JSON.stringify(status), stderr: '' } }))
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('ui.status', () => ({ value: undefined }))
-  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  fakeEngine(on, always(status))
+  await start($)
   const ui = await $.ui.mount({ plugin: 'athos', component: 'PromptHint', surface: 'terminal',
     props: { hint: '? for shortcuts', isDraft: false, isWorking: false } })
   expect((await ui.find({ type: 'Text', text: /\? for shortcuts/ }))?.text).toBeTruthy()
@@ -194,12 +215,9 @@ test('the trail reads like thinking: the piece, its steps done, now and ahead, t
 test('the pane shows the trail and [Adjust step] puts the step in the prompt for the person to finish', async ($, on) => {
   const status = { ...STATUS, last: null, trail: TRAIL }
   const filled: string[] = []
-  on('session.root', () => ({ value: '/work' }))
-  on('process.run', () => ({ value: { exitCode: 0, stdout: JSON.stringify(status), stderr: '' } }))
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('ui.status', () => ({ value: undefined }))
+  fakeEngine(on, always(status))
   on('prompt.fill', (_, e) => { filled.push((e as unknown as { text: string }).text); return { isFilled: true } })
-  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  await start($)
   const ui = await $.ui.mount({ plugin: 'athos', component: 'Pane', requestId: 'athos-trail', surface: 'terminal',
                                 props: { title: 'athos · Trail', isFocused: true, bodyColumns: 80, placement: 'dock' } } as never)
   expect((await ui.find({ type: 'Text', text: /tag — tag and push/ }))?.text).toBeTruthy()
@@ -210,12 +228,9 @@ test('the pane shows the trail and [Adjust step] puts the step in the prompt for
 
 test('before the first request the band greets the person and says what is ready', async ($, on) => {
   const status = { ...STATUS, last: null, greeting: 'Buen día, Ana', lang: 'es' }
-  on('session.root', () => ({ value: '/work' }))
-  on('process.run', () => ({ value: { exitCode: 0, stdout: JSON.stringify(status), stderr: '' } }))
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('ui.status', () => ({ value: undefined }))
-  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
-  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  fakeEngine(on, always(status))
+  await start($)
+  const ui = await mountBand($)
   expect((await ui.find({ type: 'Text', text: /Buen día, Ana · 3 formas de trabajar listas/ }))?.text).toBeTruthy()
   await ui.unmount()
 })
@@ -223,14 +238,11 @@ test('before the first request the band greets the person and says what is ready
 test('when the pane is not on screen, the band says where the task is and opens it with one press', async ($, on) => {
   const status = { ...STATUS, last: null, trail: TRAIL }
   const opened: string[] = []
-  on('session.root', () => ({ value: '/work' }))
-  on('process.run', () => ({ value: { exitCode: 0, stdout: JSON.stringify(status), stderr: '' } }))
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('ui.status', () => ({ value: undefined }))
+  fakeEngine(on, always(status))
   on('ui.panes', () => ({ value: [] }))
   on('ui.open', (_, e) => { opened.push((e as unknown as { id: string }).id); return { value: { isPlaced: true } } })
-  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
-  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await start($)
+  const ui = await mountBand($)
   expect((await ui.find({ type: 'Text', text: /«Cut a release» · 1\/3 steps/ }))?.text).toBeTruthy()
   await ui.press({ key: 't' })
   expect(opened).toEqual(['athos-trail'])

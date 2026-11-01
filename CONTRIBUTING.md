@@ -1,26 +1,32 @@
-# Contributing to Athos
+# Contributing
 
-Thank you for helping. Athos is licensed under the Apache License 2.0.
+Thanks for wanting to improve Athos. Everything you contribute is released under the Apache License 2.0, the same as
+the rest of the project. To share a way of working for the gallery instead of code, see
+[gallery/CONTRIBUTING.md](gallery/CONTRIBUTING.md).
 
-## Developer Certificate of Origin (DCO)
+## Sign off every commit
 
-Every commit from an external contributor must be signed off, certifying the
-[Developer Certificate of Origin 1.1](https://developercertificate.org/):
+We use the [Developer Certificate of Origin 1.1](https://developercertificate.org/): each commit from an outside
+contributor carries a line stating that you wrote the change, or otherwise have the right to submit it:
 
 ```
-Signed-off-by: Your Name <you@example.com>
+Signed-off-by: Ada Lovelace <ada@example.com>
 ```
 
-`git commit -s` adds the line for you. Pull requests with commits that are not signed off cannot be merged.
+Commit with `git commit -s` and git writes that line from your name and email. A pull request with any commit that
+lacks it cannot be merged.
 
-## How to contribute
+## From idea to pull request
 
-1. Open an issue first for anything larger than a small fix.
-2. Fork the repository and work on a branch.
-3. Keep commits small: one capability per commit, with its tests.
-4. Make sure the tests pass and the gitleaks pre-commit hook is clean before you open a pull request.
+1. For anything beyond a small fix, open an issue first so we can agree on the approach.
+2. Fork the repository and make your change on a branch of its own.
+3. Keep each commit to one capability, and put its tests in the same commit.
+4. Before opening the pull request, run the tests and let the gitleaks pre-commit hook pass:
+   - Python: `HOME=$(mktemp -d) python3 -m unittest discover -s tests -t .` (a throwaway home, so your own `~/.athos`
+     is never touched)
+   - the Claude Code hooks module: `claude plugin test .`
 
-## Privacy
+## Keep the user's data on their machine
 
-Athos never sends a user's know-how off their machine without an explicit action. Do not add telemetry, remote
-logging or network calls without discussing it in an issue first.
+Athos sends nothing off a person's machine unless they explicitly ask. Telemetry, remote logging and new network
+calls need an issue and a discussion before any code.
