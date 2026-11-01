@@ -7,6 +7,11 @@ Your AI know-how. Free to move, fast to run.
 **Athos turns how you work (your criteria, your steps, your checklists) into a living, local and portable memory, so
 any AI agent works by your rules without you explaining them twice.**
 
+An accountant reviews expense claims every month with rules nobody wrote down: the card fee on foreign receipts, the
+meal cap, which exceptions she accepts. Each new chat forgets them, so she explains them again, or fixes the answer by
+hand. With Athos she teaches them once; from then on **Meta's Muse Spark follows them: 25 of 25 runs right on five
+tasks, against 2 of 25 without them** ([the runs](docs/bench/README.md)), in whichever agent she opens.
+
 ## Built at the Meta hackathon
 
 Athos is entered in the [Meta Global AI Developer Hackathon](https://cerebralvalley.ai/e/meta-ai-developer-hackathon/details)
@@ -28,6 +33,40 @@ new code:
   of ways of working, one memory per project, a journal of what happened lately and curating for your yes.
 
 Every change is a pull request listed in [HACKATHON.md](HACKATHON.md).
+
+### Meta models used, and what Athos builds on them
+
+| Meta model or agent | What Athos does with it | Where |
+|---|---|---|
+| **Muse Spark** (`muse-spark-1.3`) through Meta Model API | Runs a task with your way of working as its instructions (`athos delegate --backend meta`), is measured on your own tasks (`athos bench`), drafts a way of working from a recording, merges colleagues' versions | `athos/adapters/meta/`, `athos/bench/` |
+| **Muse Code** (Meta's coding agent) | Runs the same Athos plugin as Claude Code: your know-how loads for a matching request, each step is reported on the trail, new work offers a save | `.claude-plugin/`, `hooks/`, `athos/adapters/muse/` |
+| **OpenCode on Muse Spark** | An Athos plugin with its own sidebar: the trail, *change this step*, *save as a way of working* | `opencode/` |
+| **Muse Voice Transcribe** | `athos save --from-audio`: dictate how you do a task; Muse Spark turns the transcript into a way of working you confirm | `athos/adapters/meta/` |
+| **Muse Spark Open** (open weights, `meta-models/muse-spark-open-1026` on Baseten) | `--backend baseten` for delegate and merge: the same know-how on Meta's open-weights model | `athos/adapters/baseten/` |
+| **Fine-tuning on Muse open models** (Fireworks) | `athos export --dataset --format fireworks`: your statements and marked tasks as chat JSONL for supervised fine-tuning | `athos/cli.py`, `athos/eval/` |
+
+What it adds on top: the know-how as plain markdown pages with branches, a router that picks the right page for a
+request, the trail that shows each step as the agent takes it, the bench that checks each run by what it left behind,
+and a gallery to share ways of working. It is an agentic use case end to end: the agent walks the person's steps,
+reports each one, takes a branch only when the case calls for it, and asks before keeping anything new.
+
+### Try it in three minutes
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/athos-agent/athos/main/install.sh | sh
+athos start --lang en --profile finance     # example ways of working, as files in ~/.athos/know-how
+athos show analyse-an-investment-with-my-committee-rules
+```
+
+With a Meta Model API key (`export MODEL_API_KEY=...`), Muse Spark runs one bench case with and without the know-how,
+about $0.07:
+
+```sh
+athos bench expense-review --agents meta --runs 1 --without
+athos bench report
+```
+
+No key? Every run behind the numbers above is in [docs/bench](docs/bench/README.md), with what each run missed.
 
 **Ask as you always do. Claude follows *your* way of working, and you watch it, step by step.**
 

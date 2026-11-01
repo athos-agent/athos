@@ -41,3 +41,4 @@ demo/*.gif
 # local build output (the Desktop extension and the skill zip)
 dist/
 build/
+!docs/bench/*.jsonl
