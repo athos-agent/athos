@@ -37,3 +37,7 @@ demo/*.gif
 !demo/gallery-en.gif
 !demo/desktop-gallery-dd-en.gif
 !demo/memory-en.gif
+
+# local build output (the Desktop extension and the skill zip)
+dist/
+build/
