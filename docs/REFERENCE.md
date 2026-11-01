@@ -66,6 +66,32 @@ other. Nothing is delegated unless you run `athos delegate`. The default is `gem
 not enough for a release task, and the 12B one did it in about a minute and a half but still needed a correction.
 `--yes` runs the model's commands without asking: use it only in a folder you can throw away.
 
+Meta's open-weights model also runs on [Baseten](https://www.baseten.co) Model APIs (`--backend baseten`), through
+Baseten's OpenAI-compatible endpoint (`https://inference.baseten.co/v1`), in the same loop as `--backend meta`. Create
+an API key at [app.baseten.co/settings/api_keys](https://app.baseten.co/settings/api_keys) (Organization settings →
+API keys → Create API key; copy it at once, Baseten shows it only then) and put it on a line of `~/.athos/.env` (or
+export it as `BASETEN_API_KEY`); Athos reads it only to send the request and never prints it:
+
+```
+BASETEN_API_KEY=<your key>
+```
+
+```
+athos delegate <piece> "<request>" --backend baseten     meta-models/muse-spark-open-1026, recorded as `baseten`
+athos delegate <piece> "<request>" --backend baseten --model meta-models/muse-spark-open
+athos test <piece> --backend baseten                     your corrections as tests, on Baseten
+athos shadow on --backend baseten                        the background comparison, on Baseten
+athos merge <piece> <their-files>... --backend baseten   a model merges differing texts, on Baseten
+athos bench <case> --agents baseten,meta,local --runs 3
+```
+
+The default model is the slug the Meta hackathon names; Baseten's model page lists `meta-models/muse-spark-open`, so
+use `--model` if your account shows another (`GET https://inference.baseten.co/v1/models` lists them). The model
+always reasons; Athos asks for `reasoning_effort: low` (Baseten's default is `xhigh`). With `--by-step`, a statement
+whose `**Model:**` is `baseten` or `baseten:<model>` runs there, with `--allow-meta` as for Meta. Like `--backend
+meta`, it sends the request and the files the model reads to a hosted service; nothing goes there unless you choose it.
+In `athos bench`, a Baseten run's cost shows as unknown.
+
 To see what the know-how is worth before trusting a cheaper model with it, `athos bench` runs the same task several
 times on each agent and model, with and without the know-how, and checks what each run left behind (git, the tests,
 the files) instead of taking the agent's word:

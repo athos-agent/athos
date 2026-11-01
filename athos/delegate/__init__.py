@@ -257,19 +257,22 @@ def _log_run(piece_id: str, platform: str, model: str, elapsed: float, tokens: d
 
 # ------------------------------------------------------------------------------------------------ one model per step
 def parse_spec(spec: str) -> tuple[str, str] | None:
-    """A `**Model:**` line as (platform, model): `local`, `meta`, `ollama:<model>`, `meta:<model>`. None when it is
-    none of these, so a typo never sends a step somewhere unexpected."""
+    """A `**Model:**` line as (platform, model): `local`, `meta`, `baseten`, `ollama:<model>`, `meta:<model>`,
+    `baseten:<model>`. None when it is none of these, so a typo never sends a step somewhere unexpected."""
     from athos.adapters import meta
     spec = spec.strip().strip("`")
     if spec == "local":
         return "local", DEFAULT_MODEL
     if spec == "meta":
         return "meta", meta.DEFAULT_MODEL
+    if spec == "baseten":
+        from athos.adapters import baseten
+        return "baseten", baseten.DEFAULT_MODEL
     backend, _, model = spec.partition(":")
     if model and backend in ("ollama", "local"):
         return "local", model
-    if model and backend == "meta":
-        return "meta", model
+    if model and backend in ("meta", "baseten"):
+        return backend, model
     return None
 
 
@@ -278,6 +281,9 @@ def spec_of(platform: str, model: str) -> str:
     from athos.adapters import meta
     if platform == "meta":
         return "meta" if model == meta.DEFAULT_MODEL else f"meta:{model}"
+    if platform == "baseten":
+        from athos.adapters import baseten
+        return "baseten" if model == baseten.DEFAULT_MODEL else f"baseten:{model}"
     return "local" if model == DEFAULT_MODEL else f"ollama:{model}"
 
 
@@ -287,7 +293,8 @@ def plan(piece: store.Piece, default: tuple[str, str]) -> list[tuple[object, str
     out = []
     for s in wiki.statements(piece):
         if s.model and parse_spec(s.model) is None:
-            raise ValueError(f"#{s.id}: unknown model {s.model!r} (use local, meta, ollama:<model> or meta:<model>)")
+            raise ValueError(f"#{s.id}: unknown model {s.model!r} (use local, meta, baseten, ollama:<model>, "
+                             f"meta:<model> or baseten:<model>)")
         out.append((s, *(parse_spec(s.model) if s.model else default)))
     return out
 
@@ -303,11 +310,13 @@ def by_step(piece_id: str, request: str, default: tuple[str, str] = ("local", DE
     from athos.adapters import meta
     piece = _piece_or_fail(piece_id)
     steps = plan(piece, default)
-    hosted = [f"#{s.id}" for s, platform, _ in steps if platform == "meta"]
+    hosted = [f"#{s.id}" for s, platform, _ in steps if platform != "local"]
     if hosted and not allow_hosted:
-        raise PermissionError(f"{', '.join(hosted)} would run on Meta Model API, which sends the request and the files "
-                              f"it reads off this machine. Add --allow-meta to allow that.")
-    chat_fns = {"local": chat, "meta": meta.chat, **(chat_fns or {})}
+        raise PermissionError(f"{', '.join(hosted)} would run on a hosted model (Meta Model API / Baseten), which "
+                              f"sends the request and the files it reads off this machine. Add --allow-meta to allow "
+                              f"that.")
+    from athos.adapters import baseten
+    chat_fns = {"local": chat, "meta": meta.chat, "baseten": baseten.chat, **(chat_fns or {})}
     cwd = (cwd or Path.cwd()).resolve()
     confirm = _confirmer(yes)
     # The task's own session, pointed at by this folder, so the trail panels (`athos watch`) follow it step by step.

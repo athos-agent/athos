@@ -19,6 +19,7 @@ Everyday commands (`athos <command> --help` has the details of each):
     athos delegate <id> "<request>"    hand a task you already master to a small model on this machine (Ollama),
                                        recorded under the `local` platform
     athos delegate <id> "<request>" --backend meta   the same on Meta Model API (muse-spark-1.3), recorded as `meta`
+    athos delegate <id> "<request>" --backend baseten   on Baseten (Meta's open-weights Muse Spark Open), as `baseten`
     athos delegate <id> "<request>" --by-step   statement by statement, each on its `**Model:**` (local, meta, …)
     athos route <id> [--apply]         per step, which models ran it and how those tasks ended; --apply writes the
                                        cheapest one that never ended corrected or failed
@@ -468,6 +469,9 @@ def cmd_merge(args) -> int:
         if args.backend == "meta":
             from athos.adapters import meta
             chat_fn, model = meta.chat, args.model or meta.DEFAULT_MODEL
+        elif args.backend == "baseten":
+            from athos.adapters import baseten
+            chat_fn, model = baseten.chat, args.model or baseten.DEFAULT_MODEL
         else:
             chat_fn, model = delegate.chat, args.model or delegate.DEFAULT_MODEL
     try:
@@ -572,18 +576,26 @@ def cmd_revert(args: argparse.Namespace) -> int | None:
 
 def _delegation_backend(args):
     """(platform, model, chat function) for a delegation: Ollama on this machine, recorded as `local`, unless
-    --backend meta sends it to Meta Model API."""
+    --backend meta sends it to Meta Model API, --backend baseten to Baseten Model APIs."""
     from athos import delegate
+    if args.backend == "baseten":
+        from athos.adapters import baseten
+        return "baseten", args.model or baseten.DEFAULT_MODEL, baseten.chat
     if args.backend != "meta":
         return "local", args.model or delegate.DEFAULT_MODEL, delegate.chat
     from athos.adapters import meta
     return "meta", args.model or meta.DEFAULT_MODEL, meta.chat
 
 
+def _hosted_name(platform: str) -> str | None:
+    """The hosted API a platform's model runs on, as the person reads it; None for Ollama on this machine."""
+    return {"meta": "Meta Model API", "baseten": "Baseten Model APIs"}.get(platform)
+
+
 def _unreachable(platform: str, model: str, reason: object) -> str:
     """What to say when the model's server did not answer at all, with the way to start it when it is local."""
-    if platform == "meta":
-        return f"cannot reach Meta Model API ({reason})."
+    if _hosted_name(platform):
+        return f"cannot reach {_hosted_name(platform)} ({reason})."
     from athos import delegate
     return (f"cannot reach Ollama at {delegate.host()} ({reason}). Start it (`ollama serve`) and pull the "
             f"model (`ollama pull {model}`).")
@@ -609,7 +621,7 @@ def cmd_delegate(args: argparse.Namespace) -> int | None:
     try:
         if args.by_step:
             r = delegate.by_step(args.id, args.request, (platform, model), yes=args.yes, max_steps=args.max_steps,
-                                 allow_hosted=platform == "meta" or args.allow_meta)
+                                 allow_hosted=bool(_hosted_name(platform)) or args.allow_meta)
         else:
             r = delegate.delegate(args.id, args.request, model, yes=args.yes, max_steps=args.max_steps,
                                   chat_fn=chat_fn, platform=platform)
@@ -963,13 +975,13 @@ def _model_error(e: Exception, platform: str, model: str) -> str | None:
     import urllib.error
     if isinstance(e, urllib.error.HTTPError):
         # Ollama answers 404 for a model it hasn't pulled; this said "Meta Model API" for it (2026-10-31).
-        if platform != "meta" and e.code == 404:
+        if not _hosted_name(platform) and e.code == 404:
             return f"Ollama has no model {model}: `ollama pull {model}`, or choose one you have with --model."
-        who = "Meta Model API" if platform == "meta" else "Ollama"
+        who = _hosted_name(platform) or "Ollama"
         return f"{who} refused the request (HTTP {e.code}): {e.read().decode(errors='ignore')[:300]}"
     if isinstance(e, urllib.error.URLError):
-        if platform == "meta":
-            return f"cannot reach Meta Model API ({e.reason})."
+        if _hosted_name(platform):
+            return f"cannot reach {_hosted_name(platform)} ({e.reason})."
         from athos import delegate
         return (f"cannot reach Ollama at {delegate.host()} ({e.reason}). Start it (`ollama serve`) and pull the "
                 f"model (`ollama pull {model}`).")
@@ -1001,7 +1013,7 @@ def cmd_shadow(args) -> int:
     lang = start.lang()
     if args.action in ("on", "off"):
         s = replay.set_shadow(args.action == "on", args.backend, args.model)
-        where = "Meta Model API" if s["backend"] == "meta" else "Ollama (local)"
+        where = _hosted_name(s["backend"]) or "Ollama (local)"
         if lang == "es":
             print(f"comparación en segundo plano: {'activada' if s['on'] else 'desactivada'} · {where}")
         else:
@@ -1235,8 +1247,9 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--as-id", help="the id their copies have, when it differs from yours")
     s.add_argument("--apply", action="store_true", help="save the merge as a new version of your piece")
     s.add_argument("--out", metavar="FILE", help="where to write the proposal (default ~/.athos/guild/<id>.merged.md)")
-    s.add_argument("--backend", choices=["ollama", "meta"],
-                   help="merge differing texts with a model: ollama on this machine, or meta (Meta Model API)")
+    s.add_argument("--backend", choices=["ollama", "meta", "baseten"],
+                   help="merge differing texts with a model: ollama on this machine, meta (Meta Model API) or "
+                        "baseten (Baseten Model APIs)")
     s.add_argument("--model", help="the model for --backend (Ollama by default)")
     s = sub.add_parser("codex", help="wire Athos's hooks into Codex (~/.codex/hooks.json), or remove them")
     s.add_argument("action", choices=["install", "uninstall"], help="add the hooks, or take them out")
@@ -1258,10 +1271,12 @@ def _parser() -> argparse.ArgumentParser:
     s = sub.add_parser("delegate", help="hand a task you master to a smaller model, following one piece")
     s.add_argument("id", help="the piece the task follows")
     s.add_argument("request", help="the request, as you would type it to the agent")
-    s.add_argument("--backend", choices=["ollama", "meta"], default="ollama",
-                   help="where the model runs: ollama on this machine (default), or meta (Meta Model API)")
+    s.add_argument("--backend", choices=["ollama", "meta", "baseten"], default="ollama",
+                   help="where the model runs: ollama on this machine (default), meta (Meta Model API) or "
+                        "baseten (Baseten Model APIs)")
     s.add_argument("--model", help="the model: an Ollama one (default gemma4:12b), or with --backend meta "
-                                   "muse-spark-1.3 (default) or muse-wonder-1.0")
+                                   "muse-spark-1.3 (default) or muse-wonder-1.0, or with --backend baseten "
+                                   "meta-models/muse-spark-open-1026 (default)")
     s.add_argument("--yes", action="store_true", help="don't ask before each command the model wants to run")
     s.add_argument("--max-steps", type=int, default=20, help="stop after this many model turns (default 20)")
     s.add_argument("--by-step", action="store_true",
@@ -1292,7 +1307,7 @@ def _parser() -> argparse.ArgumentParser:
                    help="with transfer-report: score the kept reviews again with the case's current check")
     s.add_argument("--list", action="store_true", help="the cases")
     s.add_argument("--agents", default="claude,meta",
-                   help="claude, codex, muse, opencode, meta, local (comma-separated)")
+                   help="claude, codex, muse, opencode, meta, baseten, local (comma-separated)")
     s.add_argument("--runs", type=int, default=5)
     s.add_argument("--without", action="store_true", help="also run each agent without the know-how, to compare")
     s.add_argument("--only-without", action="store_true", help="only without the know-how")
@@ -1337,13 +1352,15 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--new", help="a step the task needed that your know-how doesn't have yet")
     s = sub.add_parser("test", help="re-check a piece against the corrections you made on it before")
     s.add_argument("id", help="the piece")
-    s.add_argument("--backend", choices=["ollama", "meta"], default="ollama",
-                   help="where the model runs: ollama on this machine (default), or meta (Meta Model API)")
+    s.add_argument("--backend", choices=["ollama", "meta", "baseten"], default="ollama",
+                   help="where the model runs: ollama on this machine (default), meta (Meta Model API) or "
+                        "baseten (Baseten Model APIs)")
     s.add_argument("--model", help="the model (default gemma4:12b, or muse-spark-1.3 with --backend meta)")
     s = sub.add_parser("shadow", help="compare a cheaper model with the answers you approved; on|off after each task")
     s.add_argument("action", nargs="?", choices=["on", "off"])
-    s.add_argument("--backend", choices=["ollama", "meta"],
-                   help="ollama on this machine (default), or meta (Meta Model API, only if you choose it)")
+    s.add_argument("--backend", choices=["ollama", "meta", "baseten"],
+                   help="ollama on this machine (default), meta (Meta Model API) or baseten (Baseten), only if you "
+                        "choose it")
     s.add_argument("--model", help="the model (default gemma4:12b, or muse-spark-1.3 with --backend meta)")
     s.add_argument("--limit", type=int, help="at most this many approved tasks")
     s.add_argument("--quiet", action="store_true", help=argparse.SUPPRESS)
