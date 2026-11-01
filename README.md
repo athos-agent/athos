@@ -17,8 +17,8 @@ working as a markdown file and loaded it for a matching request, a Codex adapter
 new code:
 
 - **Meta's models and agents:** Athos in Meta's Muse Code (the same plugin) and in OpenCode on Muse Spark,
-  `athos delegate --backend meta` on Muse Spark, and `athos bench`, where Muse Spark with your know-how did 19 of 20
-  runs right and 2 of 20 without it. Meta's open-weights Muse Spark Open on Baseten (`--backend baseten`), a way of
+  `athos delegate --backend meta` on Muse Spark, and `athos bench`, where Muse Spark with your know-how did 25 of 25
+  runs right and 2 of 25 without it, including a ten-stage expense review with a currency branch. Meta's open-weights Muse Spark Open on Baseten (`--backend baseten`), a way of
   working dictated aloud and transcribed by Muse Voice Transcribe (`athos save --from-audio`), and your know-how as a
   fine-tuning dataset for Fireworks (`athos export --dataset --format fireworks`).
 - **Your way of working, visible:** pages of steps with branches that open only when the case needs them, followed
@@ -105,8 +105,8 @@ expensive model to a cheap or local one, and check it keeps up.
   and Athos turns that into a way of working, with versions, that you reuse.
 - **From tool calls to your own steps.** Instead of technical API calls, you see a task list of your own steps,
   ticked as the agent does them.
-- **A small model with your know-how can do the job.** On our bench, Meta's Muse Spark went from 2 of 20 runs right
-  without the know-how to 19 of 20 with it, at 8 to 24 times less per run than Claude Code.
+- **A small model with your know-how can do the job.** On our bench, Meta's Muse Spark went from 2 of 25 runs right
+  without the know-how to 25 of 25 with it, at 8 to 24 times less per run than Claude Code.
 
 Athos is a musketeer: free, and on its own two feet. Three minutes on why, and Athos at work in Claude Desktop,
 OpenCode on Meta's Muse Spark, and its memory (no sound; fictional data):
@@ -138,10 +138,14 @@ has done so far and which words loaded it, with **Didn't apply** when it didn't 
 **Save** when the task is worth keeping, so the AI is not asked after every task; and **Good / Corrected / Failed**.
 Plain words count too: "ok excelente, …" marks the last task good. Only the last week's tasks wait for a mark.
 
-**It starts to pay off on a cheaper model.** On four public bench tasks in four domains (code, data, devices, a
-planning method), Meta's Muse Spark did 19 of 20 runs right with the know-how and 2 of 20 without it,
-at 8 to 24 times less per run than Claude Code where we compared. Small cases written for the bench, 3 to 5 runs each;
-[how to reproduce](docs/REFERENCE.md#use).
+**It starts to pay off on a cheaper model.** On five public bench tasks in five domains (code, data, devices, a
+planning method, finance operations), Meta's Muse Spark did 25 of 25 runs right with the know-how and 2 of 25 without
+it, at 8 to 24 times less per run than Claude Code where we compared. Without it, Muse got what anyone would work out
+(the sales totals, the floor area, the duplicate claims) and missed the rules only the person knows: the report's
+house format, the vent that is tiled over and the 10% for breakage, the card fee on foreign expenses and the meal cap.
+Every request names the files to write, so only the method differs; the first count (19 of 20 and 2 of 20, the one in
+the video) left two requests vague and is replaced by this one, measured on November 1. Small cases written for the
+bench, 5 runs each arm; [how to reproduce](docs/REFERENCE.md#use).
 
 ## For professionals, not only programmers
 
