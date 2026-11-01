@@ -1,4 +1,4 @@
-# Athos — the Meta video (3:00), v1: https://youtu.be/mAsmreBVtYw
+# Athos — the Meta video (3:00), v2: https://youtu.be/4JabA-KajK0
 
 Tone: cinematic, direct, a manifesto that turns into a fast product demo. Voice ~150 words/min (≈430 words).
 Everything shown is real and recorded (fictional data); numbers are the public ones in the README.
@@ -6,7 +6,11 @@ Built with HyperFrames (https://github.com/heygen-com/hyperframes): kinetic type
 
 ---
 
-## [0:00–0:25] The hook: rented intelligence forgets
+## [0:00–0:25] The hook: a new chat forgets
+
+OPENING LINE (v2, required by the hackathon FAQ): small, over the first 6 s: «Built during the Meta Global AI
+Developer Hackathon, Oct 26 – Nov 4, 2026 · Pre-existing: an early sketch, rewritten this week». On screen in v2:
+«A new chat forgets.» / «Close the tab: back to zero.» / «Your know-how adds up.» Meta's agents are listed first.
 
 VISUAL: split screen. Left: a chat tab closes, the screen goes black, «Session reset». Right: a local folder,
 `~/.athos`, lighting up page by page like a network that grows every day.
