@@ -216,6 +216,82 @@ def dataset(pieces: list[store.Piece] | None = None, tasks: list[dict] | None = 
     return rows
 
 
+CHAT_SYSTEM = ("You work the way this person works. Given a situation, answer with their way of working for it: the "
+               "steps in order, each with when it applies and why.")
+CHAT_ROLES = ("system", "user", "assistant")
+_WIKILINK = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]")
+
+
+def _plain(text: str) -> str:
+    """Wiki links as readable words: `[[page#step|Label]]` → `Label`, `[[page#step]]` → `page`."""
+    return _WIKILINK.sub(lambda m: (m.group(2) or m.group(1)).strip(), text).strip()
+
+
+def way_of_working(p: store.Piece) -> str:
+    """A page's statements in order, as the answer a model should learn to give: what to do, when, and why."""
+    sts = statements(p)
+    if len(sts) == 1 and sts[0].id == "steps":          # an older page: its body is the way of working
+        return f"{p.title}\n\n{_plain(sts[0].do)}".strip() if _plain(sts[0].do) else ""
+    lines = []
+    for st in sts:
+        do = _plain(st.do)
+        if not do:
+            continue
+        when, because = _plain(st.when), _plain(st.because)
+        line = f"{len(lines) + 1}. " + (f"When {when.rstrip('.')}: {do}" if when else do)
+        lines.append(line + (f" Because {because}" if because else ""))
+    return f"{p.title}\n\n" + "\n".join(lines) if lines else ""
+
+
+def chat_dataset(pieces: list[store.Piece] | None = None, tasks: list[dict] | None = None) -> list[dict]:
+    """The know-how as supervised fine-tuning rows in the chat format (Fireworks AI, OpenAI): one
+    `{"messages": [system, user, assistant]}` per situation a page is for. The user turn is the situation: the page's
+    **When**, and the request of every task marked good that used the page; the assistant turn is the page's
+    statements in order. Tasks marked corrected or failed, and unmarked ones, give no row: their outcome is not the
+    way of working."""
+    from athos import eval as ev
+    pieces = store.all_pieces() if pieces is None else pieces
+    tasks = ev.tasks() if tasks is None else tasks
+    good = sorted((t for t in tasks if t.get("result") == "ok"), key=lambda t: t.get("started") or "")
+    rows: list[dict] = []
+    for p in sorted(pieces, key=lambda p: p.id):
+        answer = way_of_working(p)
+        if not answer:
+            continue
+        seen: set[str] = set()
+        for situation in [p.when] + [t.get("request", "") for t in good if p.id in t.get("pieces", [])]:
+            situation = (situation or "").strip()
+            key = " ".join(situation.lower().split())
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            rows.append({"messages": [{"role": "system", "content": CHAT_SYSTEM},
+                                      {"role": "user", "content": situation},
+                                      {"role": "assistant", "content": answer}]})
+    return rows
+
+
+def check_chat_row(row: object) -> str | None:
+    """Why a chat row would be refused (None when it is fine): an object with a `messages` list, an optional system
+    message first, then user and assistant turns alternating from the user and ending on the assistant, each with
+    non-empty text."""
+    if not isinstance(row, dict) or not isinstance(row.get("messages"), list) or not row["messages"]:
+        return "not an object with a non-empty `messages` list"
+    roles = []
+    for m in row["messages"]:
+        if not isinstance(m, dict) or m.get("role") not in CHAT_ROLES:
+            return "a message without a system, user or assistant role"
+        if not isinstance(m.get("content"), str) or not m["content"].strip():
+            return f"an empty {m['role']} message"
+        roles.append(m["role"])
+    turns = roles[1:] if roles[0] == "system" else roles
+    if not turns or any(r != ("user", "assistant")[i % 2] for i, r in enumerate(turns)):
+        return "user and assistant turns do not alternate from the user"
+    if turns[-1] != "assistant":
+        return "it does not end on an assistant turn"
+    return None
+
+
 def index_text(pieces: list[store.Piece] | None = None) -> str:
     """`Index.md`: per project, each situation and the statement its walk starts at; then the trajectories."""
     pieces = store.all_pieces() if pieces is None else pieces
