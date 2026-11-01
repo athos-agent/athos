@@ -13,7 +13,7 @@ body:
     id: profession
     attributes:
       label: Profession
-      options: [Law, Finance, Journalism, Science, Operations / engineering on call, Sports coaching, Other]
+      options: [Law, Finance, Journalism, Science, Operations / engineering on call, Other]
     validations:
       required: true
   - type: input

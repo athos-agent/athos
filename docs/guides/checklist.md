@@ -3,8 +3,8 @@
 *English: [checklist-en.md](checklist-en.md)*
 
 Casi todo trabajo profesional tiene un checklist: lo que un abogado revisa en un contrato, lo que un contador cierra a
-fin de mes, lo que una persona de recursos humanos prepara antes de que alguien empiece, lo que un entrenador mira
-antes de subir la carga. Ese checklist es lo más valioso que le podés enseñar a una IA, y lo más fácil de perder: queda
+fin de mes, lo que una persona de recursos humanos prepara antes de que alguien empiece, lo que una editora chequea
+antes de publicar. Ese checklist es lo más valioso que le podés enseñar a una IA, y lo más fácil de perder: queda
 en un chat y la próxima vez hay que volver a explicarlo.
 
 Athos lo detecta y lo guarda.

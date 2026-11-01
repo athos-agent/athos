@@ -122,7 +122,7 @@ class PanelFirstUseTest(FakeAgents):
         p = mcp.panel()
         self.assertEqual(p["pieces"], 0)
         self.assertEqual([x[0] for x in p["setup"]["professions"]],
-                         ["law", "finance", "journalism", "science", "ops", "sports", "other"])
+                         ["law", "finance", "journalism", "science", "ops", "other"])
         self.assertEqual([a["id"] for a in p["setup"]["agents"]], ["codex"])
 
     def test_a_click_on_a_profession_installs_its_starters(self):

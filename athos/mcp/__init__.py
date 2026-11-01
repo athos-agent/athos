@@ -37,7 +37,7 @@ INSTRUCTIONS = ("The person's own know-how, kept by Athos as a wiki of pieces. B
                 "\"Athos · adjust\" or \"Athos · ajustar\" names <piece>#<statement> and how it should change: improve "
                 "that piece with athos_save (its id and a note), then go on. Answer those in one short line.")
 # How the model talks to the person once Athos's panel shows the method: in the chat, only the answer. The person
-# may be a lawyer or a coach, not the author of the notes in the piece (2026-10-30, Claude Desktop: the answer
+# may be a lawyer or a journalist, not the author of the notes in the piece (2026-10-30, Claude Desktop: the answer
 # narrated tools in English, cited "piece v7" and "checked live on 27/10" and pasted the piece's commands).
 ANSWER = ("How to answer: the person sees Athos's panel above your answer, with the way of working you follow and "
           "its steps, so your answer is only the answer. Write in the person's language, plainly, as a colleague who "

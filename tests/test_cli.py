@@ -173,7 +173,7 @@ class StartTest(TempHome):
     def test_every_starter_is_a_clean_wiki_page_that_leaves_decisions_to_the_person(self):
         from athos import start, wiki
         for lang in start.LANGS:
-            for prof in ("law", "sports"):
+            for prof in ("law", "finance"):
                 files = start.starters(lang, prof)
                 self.assertGreaterEqual(len(files), 2, (lang, prof))
                 for f in files:
@@ -181,7 +181,7 @@ class StartTest(TempHome):
                     self.assertTrue(meta.get("id") and meta.get("title") and meta.get("when"), f)
                     self.assertIn("## #", body)
         for lang in start.LANGS:
-            for prof in ("law", "sports"):
+            for prof in ("law", "finance"):
                 start.install(lang, prof)
         lint = wiki.lint()
         self.assertEqual((lint["broken"], lint["duplicate_ids"], lint["old_format"]), ([], [], []))
@@ -189,9 +189,9 @@ class StartTest(TempHome):
     def test_a_spanish_request_loads_its_piece_alone(self):
         from athos import load, start
         start.install("es", "law")
-        start.install("es", "sports")
-        got = [p.id for p in load.relevant("planificá la semana de entrenamiento de este atleta", store.all_pieces())]
-        self.assertEqual(got, ["planificar-la-semana-de-entrenamiento"])
+        start.install("es", "journalism")
+        got = [p.id for p in load.relevant("verificá esta pista antes de publicarla", store.all_pieces())]
+        self.assertEqual(got, ["verificar-una-pista-antes-de-publicar"])
 
 
 class CommandNameTest(TempHome):

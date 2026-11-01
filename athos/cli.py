@@ -1204,7 +1204,7 @@ def _parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="cmd", required=True, metavar="<command>")
     s = sub.add_parser("start", help="first run: your language, your profession, example ways of working")
     s.add_argument("--lang", choices=["es", "en"])
-    s.add_argument("--profile", choices=["law", "sports", "ops", "journalism", "science", "finance", "other"])
+    s.add_argument("--profile", choices=["law", "ops", "journalism", "science", "finance", "other"])
     sub.add_parser("list", help="every piece in the store; ● marks the ones allowed to load here")
     s = sub.add_parser("show", help="print one piece")
     s.add_argument("id", help="the piece's id (its file name without .md)")

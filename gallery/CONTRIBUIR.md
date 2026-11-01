@@ -45,7 +45,7 @@ lang: es
 **Because:** los lectores no pueden juzgar una fuente anónima, así que la redacción tiene que haberla juzgado por ellos.
 ```
 
-- `profession` es uno de `law`, `finance`, `journalism`, `science`, `ops`, `sports`, `other`.
+- `profession` es uno de `law`, `finance`, `journalism`, `science`, `ops`, `other`.
 - Cada paso (`## #id_del_paso`) tiene **When** y **Do**; **Because** y **Links** cuando ayudan. Los nombres de los
   campos van en inglés, el texto en tu idioma.
 - Cada página a la que un paso lleva o pasa tiene que estar también en la galería, en el mismo idioma.

@@ -29,7 +29,6 @@ venv/
 demo/*.gif
 !demo/athos-claude-to-codex.gif
 !demo/codex-lawyer-en.gif
-!demo/muse-coach-en.gif
 !demo/opencode-pii-en.gif
 !demo/desktop-finance-en.gif
 !demo/opencode-finance-en.gif
