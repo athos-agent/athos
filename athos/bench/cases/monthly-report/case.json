@@ -2,5 +2,5 @@
   "title": "Make the monthly sales report",
   "domain": "data",
   "when": "making the monthly sales report from the orders CSV in data/",
-  "request": "Make the October 2026 sales report."
+  "request": "Make the October 2026 sales report from data/orders-2026-10.csv. Write reports/2026-10.md (a title, then a table | Region | Orders | Revenue (USD) | and a Total row) and reports/2026-10.json as {\"regions\": {\"<region>\": {\"orders\": <n>, \"revenue\": <dollars>}}, \"total\": {\"orders\": <n>, \"revenue\": <dollars>}}."
 }

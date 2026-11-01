@@ -1,0 +1,6 @@
+{
+  "title": "Review expense claims the finance team's way",
+  "domain": "finance ops",
+  "when": "reviewing the month's employee expense claims in claims.csv, with the exchange rates in rates.csv, before they are paid",
+  "request": "Review the expense claims in claims.csv (exchange rates in rates.csv). Write REVIEW.md for the finance lead and review.json with: claims (one per claim: {\"claim_id\", \"decision\": \"approve\" | \"reject\" | \"ask\", \"reimburse_usd\", \"fx_rate\" (null for USD claims), \"reason\"}), totals (reimbursed USD per employee), total_usd and open_decisions (list of strings)."
+}

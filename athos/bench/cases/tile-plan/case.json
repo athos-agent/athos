@@ -2,5 +2,5 @@
   "title": "Plan a tiling job",
   "domain": "method",
   "when": "planning a tiling job for a room described in room.json, with the supplier price list in suppliers.csv",
-  "request": "Plan the tiling for the room in room.json."
+  "request": "Plan the tiling for the room in room.json, with the prices in suppliers.csv. Write PLAN.md for the client and plan.json with: stages (list), floor_m2, walls_net_m2, total_with_waste_m2, options (list of {\"sku\", \"boxes\", \"cost_usd\"}) and open_decisions (list of strings)."
 }

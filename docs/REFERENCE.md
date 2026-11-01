@@ -97,7 +97,7 @@ times on each agent and model, with and without the know-how, and checks what ea
 the files) instead of taking the agent's word:
 
 ```
-athos bench --list                                         the cases: code, data, devices, a planning method, law, literature
+athos bench --list                                         the cases: code, data, devices, a planning method, finance ops, law, literature
 athos bench all --agents claude,meta,local --runs 5 --without --max-usd 5
 athos bench report                                         success, time, tokens and cost per agent; the cheapest that keeps up
 ```

@@ -35,7 +35,7 @@ class Checks(Workspace):
 
     def test_every_case_is_complete(self):
         self.assertEqual(set(CASES), {"release", "monthly-report", "device-setup", "tile-plan",
-                                          "contract-transfer", "chapter-transfer"})
+                                          "expense-review", "contract-transfer", "chapter-transfer"})
         for name, c in CASES.items():
             for f in ("case.json", "piece.md", "setup.py", "check.py", "solve.py"):
                 self.assertTrue((c["dir"] / f).exists(), f"{name}/{f}")
@@ -99,6 +99,36 @@ class Checks(Workspace):
         self.assertEqual((plan["floor_m2"], plan["walls_net_m2"], plan["total_with_waste_m2"]), (4.32, 15.74, 22.07))
         self.assertEqual({o["sku"]: (o["boxes"], o["cost_usd"]) for o in plan["options"]},
                          {"A30": (16, 448.0), "B60": (16, 736.0), "C2060": (19, 665.0)})
+
+
+    def test_expense_review_numbers(self):
+        r = json.loads((self.ws("expense-review") / "review.json").read_text())
+        self.assertEqual((r["totals"], r["total_usd"]), ({"ana": 330.5, "ben": 193.98, "cara": 140.5}, 664.98))
+        got = {c["claim_id"]: (c["decision"], c["reimburse_usd"]) for c in r["claims"]}
+        self.assertEqual(got["C05"], ("approve", 133.98))      # September claim, September rate, plus the 1.5% fee
+        self.assertEqual(got["C11"], ("ask", 0.0))             # 70 EUR is under 75, but 76.73 USD is over it
+        self.assertEqual(got["C14"], ("reject", 0.0))          # duplicate of C09
+
+    def test_expense_review_traps(self):
+        ws = self.ws("expense-review")
+        p = ws / "review.json"
+        good = json.loads(p.read_text())
+
+        def with_claim(cid, **kw):
+            d = json.loads(json.dumps(good))
+            next(c for c in d["claims"] if c["claim_id"] == cid).update(kw)
+            p.write_text(json.dumps(d))
+            return self.verdict("expense-review", ws)
+
+        r = with_claim("C05", fx_rate=1.08, reimburse_usd=129.6)        # this month's rate, no fee
+        self.assertIn("foreign_currency", r["missed"])
+        r = with_claim("C01", fx_rate=1.0)                                # the branch opened for a USD claim
+        self.assertIn("foreign_currency", r["missed"])
+        r = with_claim("C11", decision="approve", reimburse_usd=76.73)  # limit compared in EUR
+        self.assertEqual((r["verdict"], r["invented"]), ("c", 1))
+        r = with_claim("C04", reimburse_usd=95.0)                        # the reviewer granted the exception
+        self.assertEqual(r["invented"], 1)
+        self.assertIn("meal_cap", r["missed"])
 
 
 class Runner(TempHome):
