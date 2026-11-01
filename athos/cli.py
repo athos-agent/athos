@@ -6,6 +6,7 @@ Everyday commands (`athos <command> --help` has the details of each):
     athos list                         every piece in the store; a filled dot marks the ones allowed to load here
     athos show <id>                    print a piece (inside a session, that also counts as loading it)
     athos save                         read a piece on stdin and store it: new, or a new version of the `id:` it names
+    athos save --from-audio FILE       a recording of how you do a task, drafted by Meta's models; saved once you confirm
     athos load [all | project [name] | pieces <id>... | none]   choose what may load; bare, it prints the choice
     athos export <dir>                 a plain copy of every piece into a folder
     athos export --codex [dir]         every piece as a skill Codex reads (default ~/.agents/skills)
@@ -325,11 +326,43 @@ def _unwritable_store_hint() -> str:
 
 def cmd_save(args: argparse.Namespace) -> int | None:
     """Store the piece written on stdin: a new page, or a new version of the page its `id:` names. The lines printed
-    afterwards are read by the model, which reports them and fixes what the save broke in the wiki."""
+    afterwards are read by the model, which reports them and fixes what the save broke in the wiki. With
+    `--from-audio`, the piece is a recording the person dictated, drafted by Meta's models (athos/adapters/meta/voice)."""
+    if getattr(args, "from_audio", None):
+        return _save_from_audio(args)
+    return _save(sys.stdin.read())
+
+
+def _save_from_audio(args: argparse.Namespace) -> int | None:
+    """Transcribe the recording, draft it as a piece, show the draft, and save it only once the person says yes."""
+    from athos.adapters.meta import voice
+    try:
+        print(f"transcribing {Path(args.from_audio).name} with {voice.TRANSCRIBE_MODEL}…", file=sys.stderr)
+        transcript = voice.transcribe(Path(args.from_audio), args.lang)
+        print(f"drafting the way of working with {voice.DRAFT_MODEL}…", file=sys.stderr)
+        draft = voice.draft(transcript, args.lang)
+    except (voice.VoiceError, PermissionError, OSError) as refused:
+        return _fail(f"not saved: {refused}")
+    if not args.yes and not sys.stdin.isatty():      # nobody to ask: show the draft and how to keep it
+        print(f"Draft, not saved yet. To save it, run:\n\n{_cmd()} save <<'EOF'\n{draft.rstrip()}\nEOF")
+        return None
+    print(draft.rstrip() + "\n")
+    if not args.yes:
+        try:
+            answer = input("Save this way of working? [y/N] ").strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in ("y", "yes", "s", "si", "sí"):
+            print("not saved.")
+            return None
+    return _save(draft)
+
+
+def _save(text: str) -> int | None:
     folder, noted = _here()
     sid = noted.get("session_id", "default")
     try:
-        piece, diff = capture.save_text(sys.stdin.read(), sid, folder, noted.get("transcript_path"))
+        piece, diff = capture.save_text(text, sid, folder, noted.get("transcript_path"))
     except (PermissionError, ValueError) as refused:          # a sandboxed store, or a page that doesn't parse
         return _fail(_unwritable_store_hint() if isinstance(refused, PermissionError) else f"not saved: {refused}")
     if not diff:
@@ -1245,7 +1278,11 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("list", help="every piece in the store; ● marks the ones allowed to load here")
     s = sub.add_parser("show", help="print one piece")
     s.add_argument("id", help="the piece's id (its file name without .md)")
-    sub.add_parser("save", help="store the piece written on stdin (a new version when its id: already exists)")
+    s = sub.add_parser("save", help="store the piece written on stdin (a new version when its id: already exists)")
+    s.add_argument("--from-audio", metavar="FILE", help="a recording of how you do a task: Meta's Muse Voice "
+                   "Transcribe and Muse Spark draft it as a way of working, saved once you confirm")
+    s.add_argument("--lang", choices=["es", "en"], help="with --from-audio: the language spoken and of the draft")
+    s.add_argument("--yes", action="store_true", help="with --from-audio: save the draft without asking")
     s = sub.add_parser("curate", help="tidy your ways of working: tag pages with the projects they are used in, "
                        "archive unused ones, spot near-duplicates, broken links and work with no page yet")
     s.add_argument("action", nargs="?", choices=["list", "apply", "dismiss", "ignore", "restore"], default="list")

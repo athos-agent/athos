@@ -123,6 +123,16 @@ Your know-how lives in `~/.athos/know-how/`, one markdown page per piece, as a w
 kind of task starts. Walks that cross pages become subagents that improve with the pages. See [docs/WIKI.md](WIKI.md). Choose what may load with
 `/athos:load auto | all | project <name> | pieces <id>... | none`, and copy everything out with `/athos:export <folder>`.
 
+A way of working can also be dictated. Record yourself explaining how you do a task (a voice memo is enough) and run
+`athos save --from-audio memo.m4a [--lang es|en]`: Meta's Muse Voice Transcribe (`muse-voice-transcribe-1.0`, Meta
+Model API's file endpoint) writes down what you said, and Muse Spark (`muse-spark-1.3`) turns it into a draft piece in
+the format above, one statement per step, keeping your words and leaving out what you did not say. You see the draft
+and it is saved only when you answer yes; `--yes` saves it without asking, and without a terminal (an agent running
+the command) the draft is printed with the `athos save` command that stores it. The endpoint takes a mono 16-bit WAV
+at 16 or 24 kHz of up to 10 minutes; any other recording is converted first with `afconvert` (macOS) or `ffmpeg` when
+one of them is installed, and nothing is installed for you. The recording and its transcript go to Meta only when you
+run this command, with your `MODEL_API_KEY`.
+
 ### One memory per project
 
 Each page says which projects it belongs to (`projects:` in its frontmatter; pages with none are general know-how).
