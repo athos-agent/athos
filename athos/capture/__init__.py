@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+from typing import NamedTuple
 
 from athos import eval as ev, paths, session, store
 
@@ -102,21 +103,26 @@ def _fields(text: str) -> tuple[dict, str, str, str, str]:
     return meta, title, when, piece_id, body.strip()
 
 
-def _write_piece(text: str, origin: dict, project: str) -> tuple[store.Piece, str | None, bool]:
-    """Create the piece, or improve the one its `id` names. Returns the piece, the diff (None for a new piece) and
-    whether it was an improvement."""
+class _Written(NamedTuple):
+    piece: store.Piece
+    diff: str | None             # None for a new piece
+    improved: bool
+
+
+def _write_piece(text: str, origin: dict, project: str) -> _Written:
+    """Create the piece, or improve the one its `id` names."""
     meta, title, when, piece_id, body = _fields(text)
     if piece_id and store.get(piece_id) is not None:
         if not any((body, title, when)):
             raise ValueError("nothing to change")
         piece, diff = store.update(piece_id, meta.get("note", ""), body=body or None, title=title or None,
                                    when=when or None, origin=origin, projects=[project])
-        return piece, diff, True
+        return _Written(piece, diff, True)
     absent = [name for name, value in (("title", title), ("when", when), ("body", body)) if not value]
     if absent:
         raise ValueError("missing " + ", ".join(absent))
     piece = store.create(title, when, body, projects=[project], origin=origin, piece_id=piece_id or None)
-    return piece, None, False
+    return _Written(piece, None, False)
 
 
 def _reset_counters(session_id: str, saved_id: str) -> None:
@@ -149,15 +155,19 @@ def _overlaps(piece: store.Piece) -> list:
 
 def save_text(text: str, session_id: str = "default", cwd: str | None = None,
               transcript_path: str | None = None) -> tuple[store.Piece, str | None]:
-    """Save a piece written by Claude. With an existing `id` it improves that piece (new version, history line,
-    diff returned); otherwise it creates a new one. Raises ValueError when title, when or body is missing."""
-    origin = origin_for(session_id, transcript_path)
-    piece, diff, improved = _write_piece(text, origin, paths.project_of(cwd))
+    """`athos save`: store the piece the agent wrote, tagged with this session's origin and the project of `cwd`.
+
+    A piece whose `id:` names one already in the store improves it (a new version and a history line, and the diff
+    comes back); any other is created, and the diff is None. ValueError when a new piece lacks title, when or body,
+    or an improvement changes nothing. Then the session's tallies reset, the wiki and exports refresh, and the
+    session learns what was saved for the band to show."""
+    written = _write_piece(text, origin_for(session_id, transcript_path), paths.project_of(cwd))
+    piece = written.piece
     _reset_counters(session_id, piece.id)
     rebuilt = _refresh_wiki()
     summary = {"id": piece.id, "title": piece.title, "version": piece.version,
                "platforms": ["Claude Code", *sync_other_agents()]}
-    if improved:
+    if written.improved:
         # The piece changed: the corrections the person made on it before are the tests of the new version.
         pending = recheck(piece.id)
         if pending:
@@ -165,7 +175,7 @@ def save_text(text: str, session_id: str = "default", cwd: str | None = None,
     wiki_state = rebuilt and {"broken": rebuilt["lint"]["broken"], "agents": rebuilt["agents"],
                               "overlaps": _overlaps(piece)}
     session.update(session_id, last_saved=summary, wiki=wiki_state)
-    return piece, diff
+    return written.piece, written.diff
 
 
 def recheck(piece_id: str) -> int:
@@ -204,7 +214,7 @@ def _command_of(event: dict) -> str:
     return str((event.get("tool_input") or {}).get("command", ""))
 
 
-def _counts(event: dict) -> bool:
+def _is_persons_work(event: dict) -> bool:
     """Whether a tool call belongs to the person's task. Subagents (background ones too) report under the parent's
     session id, so anything carrying an agent id is left out; so are Athos's own commands."""
     from_subagent = bool(event.get("agent_id"))
@@ -325,7 +335,7 @@ def count_tool(event: dict) -> None:
         session.update(sid, saved_in_request=True, tools_since_capture=0, work_since_capture=0, edits_since_capture=0,
                        checklist=False, checklist_typed=False)
         return
-    if _counts(event):
+    if _is_persons_work(event):
         tally = session.load(sid)
         if _opens_checklist_file(tool_input):
             tally["checklist"] = tally["checklist_typed"] = True
@@ -358,6 +368,19 @@ def _enough_work(state: dict) -> bool:
     """A file edited within enough tool calls, or several commands that changed something."""
     tools, work, edits = (state.get(k, 0) for k in ("tools_since_capture", "work_since_capture", "edits_since_capture"))
     return bool(edits and tools >= THRESHOLD) or work >= WORK_MIN
+
+
+def _grounds_to_ask(state: dict) -> str:
+    """Why the Stop hook should ask about this request: "checklist", "work", or "" for no reason at all.
+
+    Nothing to ask when the request already saved, or when it only followed know-how the person has (a pasted
+    contract's numbered clauses once read as the person's own checklist and asked: Codex, 2026-10-30). Otherwise a
+    checklist the task followed, or real work, earns the question; reads and checks end quietly."""
+    if state.get("saved_in_request") or _walked_known_way(state):
+        return ""
+    if _followed_checklist(state):
+        return "checklist"
+    return "work" if _enough_work(state) else ""
 
 
 # The one line the Stop hook says when the session guide is already in context, by language and by whether the
@@ -397,30 +420,20 @@ def stop_decision(event: dict, cmd: str = "athos", offer: bool = False) -> dict 
     """The Stop hook's answer: `{"decision": "block", "reason": ...}` asks Claude to capture; None lets it stop.
     With `offer`, the model is not asked: the task is recorded as worth offering to save, and the band above the
     prompt shows the person a [Save] button (interactive Claude Code)."""
-    if not enabled() or event.get("stop_hook_active"):
-        return None
-    sid = event.get("session_id", "default")
-    state = session.load(sid)
-    # Nothing to ask when this request already saved, or when it only followed know-how the person has (a pasted
-    # contract's numbered clauses once read as the person's own checklist and asked: Codex, 2026-10-30).
-    if state.get("saved_in_request") or _walked_known_way(state):
-        return None
-    # Real work, or a checklist the task followed, is what earns the question; reads and checks end quietly.
-    checklist = _followed_checklist(state)
-    if not (checklist or _enough_work(state)):
-        return None
-    if offer:
-        state["offer"] = {"task_id": state.get("task_id"), "reason": "checklist" if checklist else "work"}
-        session.save(sid, state)
-        return None
+    if event.get("stop_hook_active") or not enabled():
+        return None                      # never inside its own continuation, nor when the person turned it off
+    session_id = event.get("session_id", "default")
+    state = session.load(session_id)
+    grounds = _grounds_to_ask(state)
+    if grounds and offer:
+        session.update(session_id, offer={"task_id": state.get("task_id"), "reason": grounds})
+    if not grounds or offer:
+        return None                      # quiet, or the band offers [Save] instead of asking the model
     # Asked once per stretch of work: the tallies start over.
-    state.update(tools_since_capture=0, work_since_capture=0, edits_since_capture=0, checklist=False,
-                 checklist_typed=False, asked=state.get("asked", 0) + 1)
-    session.save(sid, state)
+    session.update(session_id, tools_since_capture=0, work_since_capture=0, edits_since_capture=0, checklist=False,
+                   checklist_typed=False, asked=state.get("asked", 0) + 1)
     # With the guide given at session start (out of the user's sight, and again after a compaction), one line is
     # enough; otherwise the request carries the whole format.
-    if state.get("guide"):
-        reason = _short_ask(cmd, checklist)
-    else:
-        reason = _full_ask(cmd, checklist, state.get("loaded", []))
-    return {"decision": "block", "reason": reason}
+    followed = grounds == "checklist"
+    text = _short_ask(cmd, followed) if state.get("guide") else _full_ask(cmd, followed, state.get("loaded", []))
+    return dict(decision="block", reason=text)

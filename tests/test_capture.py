@@ -1,4 +1,5 @@
 import os
+from unittest import mock
 
 from athos import capture, session, store
 from tests.helpers import TempHome
@@ -24,6 +25,11 @@ def shell(sid: str, command: str) -> None:
     capture.count_tool({"session_id": sid, "tool_name": "Bash", "tool_input": {"command": command}})
 
 
+def tally(sid: str) -> int:
+    """Tool calls counted since the last capture."""
+    return session.load(sid).get("tools_since_capture", 0)
+
+
 def ask(sid: str, **event):
     """What the Stop hook answers for session `sid`."""
     return capture.stop_decision({"session_id": sid, **event})
@@ -31,9 +37,9 @@ def ask(sid: str, **event):
 
 class SavingTest(TempHome):
     def test_a_new_piece_keeps_its_origin_and_project(self):
-        session.update("s1", model="claude-opus-5-5")
-        piece, diff = capture.save_text(FLAKY_PIECE, "s1", cwd=self.home)
-        self.assertIsNone(diff)
+        session.update("new", model="claude-opus-5-5")
+        piece, diff = capture.save_text(FLAKY_PIECE, "new", cwd=self.home)
+        self.assertIsNone(diff, "a new piece has no diff")
         stored = store.get(piece.id)
         self.assertEqual(
             (stored.when, stored.origin, stored.projects),
@@ -48,8 +54,7 @@ class SavingTest(TempHome):
 
     def test_improving_a_piece_needs_something_to_change(self):
         piece, _ = capture.save_text(FLAKY_PIECE, "s1")
-        with self.assertRaises(ValueError):
-            capture.save_text(f"---\nid: {piece.id}\n---\n", "s1")
+        self.assertRaises(ValueError, capture.save_text, f"---\nid: {piece.id}\n---\n", "s1")
         better, diff = capture.save_text(f"---\nid: {piece.id}\nnote: tighter\n---\nRun it 50 times.", "s1")
         self.assertEqual((better.id, better.version), (piece.id, 2))
         self.assertTrue(diff)
@@ -57,7 +62,7 @@ class SavingTest(TempHome):
     def test_saving_starts_the_tally_over(self):
         edits("s1", 7)
         capture.save_text(FLAKY_PIECE, "s1")
-        self.assertEqual(session.load("s1")["tools_since_capture"], 0)
+        self.assertEqual(tally("s1"), 0)
 
 
 class StopHookTest(TempHome):
@@ -78,12 +83,9 @@ class StopHookTest(TempHome):
 
     def test_the_environment_can_switch_it_off(self):
         edits("s1", capture.THRESHOLD)
-        os.environ["ATHOS_CAPTURE"] = "off"
-        try:
+        with mock.patch.dict(os.environ, {"ATHOS_CAPTURE": "off"}):
             self.assertFalse(capture.enabled())
             self.assertIsNone(ask("s1"))
-        finally:
-            os.environ.pop("ATHOS_CAPTURE")
 
     def test_it_points_at_the_pieces_already_loaded(self):
         session.update("s1", loaded=["fix-flaky-test"], tools_since_capture=capture.THRESHOLD, work_since_capture=1,
@@ -93,22 +95,24 @@ class StopHookTest(TempHome):
 
 class TallyTest(TempHome):
     def test_a_subagents_calls_are_not_the_persons_work(self):
-        # Found live: a background research agent's tool calls kept asking for captures on turns with no work.
+        # Seen in real use: a research agent running in the background made the Stop hook ask on turns with no work.
+        subagent_call = {"session_id": "s1", "agent_id": "a1", "tool_name": "WebFetch"}
         for _ in range(10):
-            capture.count_tool({"session_id": "s1", "agent_id": "a1", "tool_name": "WebFetch"})
+            capture.count_tool(dict(subagent_call))
         self.assertIsNone(ask("s1"))
+        self.assertEqual(tally("s1"), 0)
 
     def test_athos_commands_are_not_counted(self):
         for command in ("/x/bin/athos save <<'EOF'", "athos mark g", "python3 /p/bin/athos report"):
             shell("s1", command)
-        self.assertEqual(session.load("s1").get("tools_since_capture", 0), 0)
+        self.assertEqual(tally("s1"), 0)
         shell("s1", "git status")
-        self.assertEqual(session.load("s1")["tools_since_capture"], 1)
+        self.assertEqual(tally("s1"), 1)
 
     def test_each_request_has_its_own_tally(self):
         from athos import eval as ev
         edits("s1", capture.THRESHOLD - 1)
-        ev.task_start({"session_id": "s1", "prompt": "next request"})
+        ev.task_start({"session_id": "s1", "prompt": "now something else"})
         edits("s1", 1)
         self.assertIsNone(ask("s1"))
 
