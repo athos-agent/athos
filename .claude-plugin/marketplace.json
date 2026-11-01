@@ -5,7 +5,7 @@
   "plugins": [
     {
       "name": "athos", "source": "./", "category": "productivity",
-      "version": "0.1.91",
+      "version": "0.1.92",
       "description": "Keeps how you work with AI as markdown files you own, improves them as you go, and loads only what each task needs."
     }
   ]
