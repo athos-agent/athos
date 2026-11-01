@@ -199,6 +199,15 @@ class ChecklistTest(TempHome):
         self.assertIn("checklist", out["reason"])
         self.assertIsNone(capture.stop_decision({"session_id": "s1"}))           # once
 
+    def test_teaching_your_own_way_in_the_request_asks(self):
+        # The welcome's own example: the person dictates their steps in prose, and the task changes one file.
+        capture.note_request({"session_id": "t1", "prompt": "Hacé el resumen semanal como lo hago yo: primero sumá "
+                                                            "por persona, después marcá a quien pasa de 10 horas."})
+        capture.count_tool({"session_id": "t1", "tool_name": "Read", "tool_input": {"file_path": "/h.csv"}})
+        self.assertIsNotNone(capture.stop_decision({"session_id": "t1"}))
+        self.assertTrue(capture.teaches("Write the summary the way I do it"))
+        self.assertFalse(capture.teaches("I'm on my way, write the summary"))
+
     def test_a_pasted_list_or_an_opened_checklist_file_counts(self):
         self.assertTrue(capture.mentions_checklist("Check:\n- deposit\n- notice period\n- jurisdiction"))
         self.assertTrue(capture.mentions_checklist("seguí el protocolo de la clínica"))

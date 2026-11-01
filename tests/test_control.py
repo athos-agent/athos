@@ -72,6 +72,10 @@ class ControlTest(TempHome):
         self.assertEqual(load.on_session_start({"session_id": "quiet"}), "")
         self.assertEqual(self.loaded(), [])
 
+    def test_the_auto_mode_is_described_in_spanish(self):
+        self.assertIn("las de este proyecto", control.describe({"mode": "auto"}, lang="es"))
+        self.assertIn("this project's pieces", control.describe({"mode": "auto"}))
+
     def test_the_choice_is_saved_and_described(self):
         saved = self.choose("project", "site")
         self.assertEqual(saved, control.get())

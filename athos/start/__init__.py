@@ -32,7 +32,8 @@ TEXT = {
         "next": "Next:",
         "desktop": "1. Without a terminal: open Claude Desktop, go to the Code tab, choose a folder with your documents, "
                    "and install Athos there with:  /plugin install athos --marketplace athos-agent/athos",
-        "terminal": "2. From a terminal: run `claude`, `codex` or `muse` inside that folder; Athos works the same.",
+        "terminal": "2. From a terminal: run `claude`, `codex`, `muse` or `opencode` inside that folder; Athos works the "
+                    "same (once, in Codex: `athos codex install`; in OpenCode: `athos opencode install`).",
         "try": "Try asking, in your own words:",
         "privacy": "Your ways of working never leave this machine. The AI model you use (Claude, Codex, Meta's Muse) "
                    "does see the documents you show it: anonymise client or personal data, or use a local model "
@@ -54,7 +55,9 @@ TEXT = {
         "next": "Cómo seguir:",
         "desktop": "1. Sin terminal: abrí Claude Desktop, andá a la pestaña Code, elegí una carpeta con tus documentos "
                    "e instalá Athos ahí con:  /plugin install athos --marketplace athos-agent/athos",
-        "terminal": "2. Desde una terminal: corré `claude`, `codex` o `muse` dentro de esa carpeta; Athos funciona igual.",
+        "terminal": "2. Desde una terminal: corré `claude`, `codex`, `muse` u `opencode` dentro de esa carpeta; Athos "
+                    "funciona igual (una sola vez, en Codex: `athos codex install`; en OpenCode: "
+                    "`athos opencode install`).",
         "try": "Probá pedir, con tus palabras:",
         "privacy": "Tus formas de trabajar nunca salen de esta máquina. El modelo de IA que uses (Claude, Codex, Muse "
                    "de Meta) sí ve los documentos que le muestres: anonimizá los datos de clientes o datos personales, o "

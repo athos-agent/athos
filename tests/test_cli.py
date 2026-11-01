@@ -41,8 +41,11 @@ class ThroughTheLauncher(TempHome):
 class CliTest(ThroughTheLauncher):
     def test_a_session_saves_know_how_and_the_next_one_gets_it(self):
         first = {"session_id": "s1", "cwd": self.home, "transcript_path": None}
-        # Nothing stored yet, so the session opens without any context.
-        self.assertIsNone(self.send("session-start", dict(first, model="claude-opus-5-5")))
+        # Nothing stored yet: the session opens with the saving guide only, so the first task can draft its steps.
+        opening = self.context(self.send("session-start", dict(first, model="claude-opus-5-5")))
+        self.assertIn("step --new", opening)
+        self.assertNotIn("know-how are available", opening)
+        self.assertIn("Saving know-how", opening)
         for tool in ["Edit"] * 5:                                   # enough work for the stop hook to ask for a save
             self.send("tool", dict(first, tool_name=tool))
         # Claude Code shows the request to save as feedback for the model, not as a "hook error".
