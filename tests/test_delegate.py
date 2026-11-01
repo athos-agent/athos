@@ -60,8 +60,8 @@ class DelegateTest(TempHome):
         self.assertIn("exit code 0\n0.2.0", last_tool_result)
         self.assertEqual((result["summary"], result["steps"], result["tokens"]["total"]), ("Released 0.2.0.", 3, 330))
         logged = ev.tasks()[0]
-        self.assertEqual((logged["platform"], logged["model"], logged["pieces"], logged["result"]),
-                         ("local", "tiny:1b", [self.piece.id], "unevaluated"))
+        expected = {"platform": "local", "model": "tiny:1b", "pieces": [self.piece.id], "result": "unevaluated"}
+        self.assertEqual({key: logged[key] for key in expected}, expected)   # marked later with `athos mark`
         by_model = ev.report()["models"]
         self.assertEqual([m["platform"] for m in by_model], ["local"])
 
