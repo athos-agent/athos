@@ -268,10 +268,13 @@ def parse_spec(spec: str) -> tuple[str, str] | None:
     if spec == "baseten":
         from athos.adapters import baseten
         return "baseten", baseten.DEFAULT_MODEL
+    if spec == "openrouter":
+        from athos.adapters import openrouter
+        return "openrouter", openrouter.DEFAULT_MODEL
     backend, _, model = spec.partition(":")
     if model and backend in ("ollama", "local"):
         return "local", model
-    if model and backend in ("meta", "baseten"):
+    if model and backend in ("meta", "baseten", "openrouter"):
         return backend, model
     return None
 
@@ -284,6 +287,9 @@ def spec_of(platform: str, model: str) -> str:
     if platform == "baseten":
         from athos.adapters import baseten
         return "baseten" if model == baseten.DEFAULT_MODEL else f"baseten:{model}"
+    if platform == "openrouter":
+        from athos.adapters import openrouter
+        return "openrouter" if model == openrouter.DEFAULT_MODEL else f"openrouter:{model}"
     return "local" if model == DEFAULT_MODEL else f"ollama:{model}"
 
 
@@ -293,8 +299,8 @@ def plan(piece: store.Piece, default: tuple[str, str]) -> list[tuple[object, str
     out = []
     for s in wiki.statements(piece):
         if s.model and parse_spec(s.model) is None:
-            raise ValueError(f"#{s.id}: unknown model {s.model!r} (use local, meta, baseten, ollama:<model>, "
-                             f"meta:<model> or baseten:<model>)")
+            raise ValueError(f"#{s.id}: unknown model {s.model!r} (use local, meta, baseten, openrouter, "
+                             f"ollama:<model>, meta:<model>, baseten:<model> or openrouter:<model>)")
         out.append((s, *(parse_spec(s.model) if s.model else default)))
     return out
 
@@ -312,11 +318,12 @@ def by_step(piece_id: str, request: str, default: tuple[str, str] = ("local", DE
     steps = plan(piece, default)
     hosted = [f"#{s.id}" for s, platform, _ in steps if platform != "local"]
     if hosted and not allow_hosted:
-        raise PermissionError(f"{', '.join(hosted)} would run on a hosted model (Meta Model API / Baseten), which "
+        raise PermissionError(f"{', '.join(hosted)} would run on a hosted model (Meta Model API / Baseten / OpenRouter), which "
                               f"sends the request and the files it reads off this machine. Add --allow-meta to allow "
                               f"that.")
-    from athos.adapters import baseten
-    chat_fns = {"local": chat, "meta": meta.chat, "baseten": baseten.chat, **(chat_fns or {})}
+    from athos.adapters import baseten, openrouter
+    chat_fns = {"local": chat, "meta": meta.chat, "baseten": baseten.chat, "openrouter": openrouter.chat,
+                **(chat_fns or {})}
     cwd = (cwd or Path.cwd()).resolve()
     confirm = _confirmer(yes)
     # The task's own session, pointed at by this folder, so the trail panels (`athos watch`) follow it step by step.

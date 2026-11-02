@@ -92,6 +92,25 @@ whose `**Model:**` is `baseten` or `baseten:<model>` runs there, with `--allow-m
 meta`, it sends the request and the files the model reads to a hosted service; nothing goes there unless you choose it.
 In `athos bench`, a Baseten run's cost shows as unknown.
 
+The same open-weights model also runs through [OpenRouter](https://openrouter.ai) (`--backend openrouter`), which
+serves `meta/muse-spark-open` from several inference providers (BaseTen, Fireworks, Together, Nebius, Modal…) at
+US$1.25 / 4.25 per million tokens in and out. Create a key at [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys),
+add credits, and put it on a line of `~/.athos/.env` (or export it as `OPENROUTER_API_KEY`):
+
+```
+OPENROUTER_API_KEY=<your key>
+```
+
+```
+athos delegate <piece> "<request>" --backend openrouter     meta/muse-spark-open, recorded as `openrouter`
+athos test <piece> --backend openrouter                     your corrections as tests, through OpenRouter
+athos bench <case> --agents openrouter,meta --runs 5 --without
+```
+
+Athos asks for `reasoning: {effort: low}`. With `--by-step`, a statement whose `**Model:**` is `openrouter` or
+`openrouter:<model>` runs there, with `--allow-meta`. It sends the request and the files the model reads to OpenRouter
+and the provider it picks; nothing goes there unless you choose it. A bench run is priced at the list price above.
+
 To see what the know-how is worth before trusting a cheaper model with it, `athos bench` runs the same task several
 times on each agent and model, with and without the know-how, and checks what each run left behind (git, the tests,
 the files) instead of taking the agent's word:

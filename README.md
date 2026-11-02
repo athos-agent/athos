@@ -23,7 +23,7 @@ new code:
 
 - **Meta's models and agents:** Athos in Meta's Muse Code (the same plugin) and in OpenCode on Muse Spark,
   `athos delegate --backend meta` on Muse Spark, and `athos bench`, where Muse Spark with your know-how did 25 of 25
-  runs right and 2 of 25 without it, including a ten-stage expense review with a currency branch. Meta's open-weights Muse Spark Open on Baseten (`--backend baseten`), a way of
+  runs right and 2 of 25 without it, including a ten-stage expense review with a currency branch. Meta's open-weights Muse Spark Open through OpenRouter (`--backend openrouter`; 35 of 35 runs right with your know-how, 0 of 35 without) or Baseten (`--backend baseten`), a way of
   working dictated aloud and transcribed by Muse Voice Transcribe (`athos save --from-audio`), and your know-how as a
   fine-tuning dataset for Fireworks (`athos export --dataset --format fireworks`).
 - **Your way of working, visible:** pages of steps with branches that open only when the case needs them, followed
@@ -42,7 +42,7 @@ Every change is a pull request listed in [HACKATHON.md](HACKATHON.md).
 | **Muse Code** (Meta's coding agent) | Runs the same Athos plugin as Claude Code: your know-how loads for a matching request, each step is reported on the trail, new work offers a save | `.claude-plugin/`, `hooks/`, `athos/adapters/muse/` |
 | **OpenCode on Muse Spark** | An Athos plugin with its own sidebar: the trail, *change this step*, *save as a way of working* | `opencode/` |
 | **Muse Voice Transcribe** | `athos save --from-audio`: dictate how you do a task; Muse Spark turns the transcript into a way of working you confirm | `athos/adapters/meta/` |
-| **Muse Spark Open** (open weights, `meta-models/muse-spark-open-1026` on Baseten) | `--backend baseten` for delegate and merge: the same know-how on Meta's open-weights model | `athos/adapters/baseten/` |
+| **Muse Spark Open** (open weights, `meta/muse-spark-open` through OpenRouter, served by providers such as BaseTen and Fireworks; also `--backend baseten`) | Runs the person's way of working in Athos's own loop, reading the files and following each step with tools (`athos delegate`, `athos test`, `athos merge`, `athos bench --agents openrouter`): 35 of 35 bench runs right with the know-how, 0 of 35 without, on seven tasks ([runs](docs/bench/README.md)) | `athos/adapters/openrouter/`, `athos/adapters/baseten/` |
 | **Fine-tuning on Muse open models** (Fireworks) | `athos export --dataset --format fireworks`: your statements and marked tasks as chat JSONL for supervised fine-tuning | `athos/cli.py`, `athos/eval/` |
 
 What it adds on top: the know-how as plain markdown pages with branches, a router that picks the right page for a
