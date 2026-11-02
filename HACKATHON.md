@@ -122,6 +122,7 @@ from what was built during the event.
 - [#105](https://github.com/athos-agent/athos/pull/105) The gallery marks a step a branch of the same page leads to with its condition, instead of repeating the rest of the page under the branch; the measured examples' wording no longer cuts their step titles short (0.1.99)
 - [#106](https://github.com/athos-agent/athos/pull/106) The Meta video v3 (https://youtu.be/z-h-IQQo1AQ) in the README: 25/25 against 2/25 on Muse Spark, 10/10 stages for Muse Code and OpenCode, the gallery's measured examples and sharing yours; the script follows it (0.1.100)
 - [#107](https://github.com/athos-agent/athos/pull/107) Meta's open-weights Muse Spark Open through OpenRouter (`--backend openrouter`, `--agents openrouter`), served by inference providers such as BaseTen and Fireworks: 35 of 35 bench runs right with the know-how and 0 of 35 without, on seven tasks; runs in `docs/bench/` (0.1.101)
+- [#108](https://github.com/athos-agent/athos/pull/108) The README says what personal intelligence means here: your know-how in files you own, run by an open model you choose (Muse Spark Open, 35/35 with the know-how); personalising the weights is named as the next step, not as done. The video v3.1 (https://youtu.be/sh7zT3lG5A8) adds the open-weights result and closes with the same line (0.1.102)
 
 ## Meta models used
 

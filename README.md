@@ -7,6 +7,11 @@ Your AI know-how. Free to move, fast to run.
 **Athos turns how you work (your criteria, your steps, your checklists) into a living, local and portable memory, so
 any AI agent works by your rules without you explaining them twice.**
 
+**Personal intelligence: your know-how, in files you own, run by an open model you choose.** Meta's open-weights Muse
+Spark Open, through OpenRouter, followed the person's know-how in 35 of 35 bench runs and 0 of 35 without it; you pick
+the service that runs it, or host it yourself. Athos personalises the model with your way of working, not its weights:
+that know-how already exports as a fine-tuning dataset (`athos export --dataset`); training a model on it is next.
+
 An accountant reviews expense claims every month with rules nobody wrote down: the card fee on foreign receipts, the
 meal cap, which exceptions she accepts. Each new chat forgets them, so she explains them again, or fixes the answer by
 hand. With Athos she teaches them once; from then on **Meta's Muse Spark follows them: 25 of 25 runs right on five
@@ -154,7 +159,7 @@ expensive model to a cheap or local one, and check it keeps up.
 Athos is a musketeer: free, and on its own two feet. Three minutes on why, and Athos at work in Claude Desktop,
 OpenCode on Meta's Muse Spark, and its memory (no sound; fictional data):
 
-[![Athos: your AI know-how, free to move, fast to run (YouTube, 3 min)](https://img.youtube.com/vi/z-h-IQQo1AQ/maxresdefault.jpg)](https://youtu.be/z-h-IQQo1AQ)
+[![Athos: your AI know-how, free to move, fast to run (YouTube, 3 min)](https://img.youtube.com/vi/sh7zT3lG5A8/maxresdefault.jpg)](https://youtu.be/sh7zT3lG5A8)
 
 **Guides:** [Claude Desktop](docs/guides/claude-desktop-en.md) ([en español](docs/guides/claude-desktop.md)) · [for lawyers](docs/guides/lawyer.md) ([en español](docs/guides/abogado.md)) ·
 [your checklist is know-how](docs/guides/checklist-en.md) ([en español](docs/guides/checklist.md)) · why this should

@@ -1,4 +1,4 @@
-# Athos — the Meta video (3:00), v3: https://youtu.be/z-h-IQQo1AQ (v2: https://youtu.be/4JabA-KajK0)
+# Athos — the Meta video (3:00), v3.1: https://youtu.be/sh7zT3lG5A8 (v3: https://youtu.be/z-h-IQQo1AQ, v2: https://youtu.be/4JabA-KajK0)
 
 Tone: cinematic, direct, a manifesto that turns into a fast product demo. Voice ~150 words/min (≈430 words).
 Everything shown is real and recorded (fictional data); numbers are the public ones in the README.
