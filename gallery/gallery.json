@@ -124,6 +124,85 @@
    "entry": true
   },
   {
+   "id": "answer-support-tickets-by-your-policy",
+   "title": "Answer support tickets by your team's policy",
+   "when": "answering the day's customer support tickets (refunds, cancellations, late orders, double charges, chargeback threats) before the replies go out",
+   "profession": "ops",
+   "lang": "en",
+   "path": "en/answer-support-tickets-by-your-policy.md",
+   "steps": [
+    {
+     "id": "refund_window",
+     "label": "Count the return window (example",
+     "when": "a customer asks to return a product.",
+     "do": "count the return window (example: 30 days) from the delivery date, never from the order date. Inside it, refund the item price; shipping only when the item arrived damaged or broken.",
+     "because": "a customer who ordered more than a month ago may still be inside the window; shipping is refunded only when the fault is ours.",
+     "branches": [
+      {
+       "page": "answer-support-tickets-by-your-policy",
+       "statement": "escalate",
+       "if": "the ticket threatens a chargeback, a consumer agency or a lawyer"
+      }
+     ]
+    },
+    {
+     "id": "plans",
+     "label": "An annual plan refunds the unused whole months, counting the current month as used",
+     "when": "a customer cancels a subscription.",
+     "do": "an annual plan refunds the unused whole months, counting the current month as used. A monthly plan is never refunded: it stays active until the end of the paid month; say until when.",
+     "because": "the team's policy; refunding a monthly plan is a decision support doesn't take.",
+     "branches": []
+    },
+    {
+     "id": "escalate",
+     "label": "Don't decide it",
+     "when": "a ticket threatens a chargeback, a complaint to a consumer agency or a lawyer.",
+     "do": "don't decide it: send it to the support lead, refund nothing, and tell the customer the lead will answer within one business day, without promising a refund.",
+     "because": "those tickets carry a risk the lead owns.",
+     "branches": []
+    },
+    {
+     "id": "late_orders",
+     "label": "Never promise a date or a day (\"tomorrow\", \"by Friday\")",
+     "when": "an order is late or still in transit.",
+     "do": "never promise a date or a day (\"tomorrow\", \"by Friday\"); say we will write again within 24 business hours with the carrier's update. When it is the customer's second late delivery in 90 days, give a store credit (example: 10% of the item price).",
+     "because": "a promised date the carrier misses is a second complaint.",
+     "branches": []
+    },
+    {
+     "id": "card_data",
+     "label": "Never repeat the number, not even in the internal summary",
+     "when": "a customer sends a card number or asks about a charge.",
+     "do": "never repeat the number, not even in the internal summary. Ask them never to send card numbers, and ask only for the last four digits and the date of the charge.",
+     "because": "card numbers must not be stored in tickets or summaries.",
+     "branches": [
+      {
+       "page": "tell-customers-about-a-payments-incident",
+       "statement": null,
+       "if": "many customers report the same wrong charge"
+      }
+     ]
+    },
+    {
+     "id": "sign",
+     "label": "Reply in the customer's language and end with the team's signature on its own line…",
+     "when": "every reply is written.",
+     "do": "reply in the customer's language and end with the team's signature on its own line (example: `— Support team`). Write a short summary for the support lead with the escalations.",
+     "because": "the lead reads the summary; the customer reads one voice.",
+     "branches": []
+    }
+   ],
+   "calls": [
+    "tell-customers-about-a-payments-incident"
+   ],
+   "links": [
+    "tell-customers-about-a-payments-incident"
+   ],
+   "bench": "support-tickets",
+   "measured": "5/5 with this page, 0/5 without",
+   "entry": true
+  },
+  {
    "id": "check-a-companys-legal-standing",
    "title": "Check a company's legal standing",
    "when": "before buying, lending to or partnering with a company, checking its incorporation, who may sign for it, and its lawsuits, debts and key contracts",
@@ -462,6 +541,63 @@
    "entry": false
   },
   {
+   "id": "review-a-contract-for-your-side",
+   "title": "Review a contract for your side, with your checklist",
+   "when": "reviewing, comparing or commenting a contract (services, lease, sale, NDA) for the side you act for, before signing it or sending it back with comments",
+   "profession": "law",
+   "lang": "en",
+   "path": "en/review-a-contract-for-your-side.md",
+   "steps": [
+    {
+     "id": "read_side",
+     "label": "Note the side and review every clause from it",
+     "when": "a contract arrives with the side the person acts for.",
+     "do": "note the side and review every clause from it. Ask whether the contract holds client data that should not leave the computer; if it does, anonymise names and amounts first or use a local model.",
+     "because": "the same clause is good for one side and bad for the other; professional secrecy is the person's.",
+     "branches": []
+    },
+    {
+     "id": "checklist",
+     "label": "Check, quoting the clause number",
+     "when": "reading the contract.",
+     "do": "check, quoting the clause number: parties, scope, term, price and payment; governing law and jurisdiction (say which is missing); deposit or security and its return; early termination and notice for both sides (flag it when one-sided); days to pay and late interest; liability capped, never unlimited; automatic renewal and assignment. Replace this list with your own checklist.",
+     "because": "without a clause number a comment cannot be discussed.",
+     "branches": [
+      {
+       "page": "add-a-data-protection-clause",
+       "statement": null,
+       "if": "one side will process personal data of the other's customers or staff"
+      }
+     ]
+    },
+    {
+     "id": "table",
+     "label": "Write a table",
+     "when": "every point is checked.",
+     "do": "write a table: clause, issue, proposed wording, priority (must / should / minor). A missing governing-law clause is a row of its own, priority must.",
+     "because": "the table is what the client reads; a contract silent on governing law is a risk in itself.",
+     "branches": []
+    },
+    {
+     "id": "push_first",
+     "label": "End with a line `Push first:` naming the three clauses to negotiate first, and say the…",
+     "when": "the table is done.",
+     "do": "end with a line `Push first:` naming the three clauses to negotiate first, and say the decision stays with the client. Never present the proposal as final.",
+     "because": "the professional judgement, and the responsibility, belong to whoever signs the review.",
+     "branches": []
+    }
+   ],
+   "calls": [
+    "add-a-data-protection-clause"
+   ],
+   "links": [
+    "add-a-data-protection-clause"
+   ],
+   "bench": "contract-transfer",
+   "measured": "5/5 with this page, 0/5 without",
+   "entry": true
+  },
+  {
    "id": "review-a-services-contract",
    "title": "Review a services contract",
    "when": "a client sends a services agreement (consulting, software, outsourcing) to review before signing; marking the clauses to change and why",
@@ -514,6 +650,67 @@
    "links": [
     "add-a-data-protection-clause"
    ],
+   "entry": true
+  },
+  {
+   "id": "review-expense-claims-the-finance-way",
+   "title": "Review expense claims the finance team's way",
+   "when": "reviewing the month's employee expense claims (several currencies, receipts, meal limits) before they are paid, and leaving the exceptions to the finance lead",
+   "profession": "finance",
+   "lang": "en",
+   "path": "en/review-expense-claims-the-finance-way.md",
+   "steps": [
+    {
+     "id": "read_claims",
+     "label": "Take every row as one claim and keep the file's order",
+     "when": "the month's claims file and the exchange rates are at hand.",
+     "do": "take every row as one claim and keep the file's order. Two claims with the same employee, date, amount and currency are a duplicate: keep the first one and reject the later ones with \"duplicate of <first id>\".",
+     "because": "the same receipt sent twice is the most common error in a month's claims.",
+     "branches": [
+      {
+       "page": "review-expense-claims-the-finance-way",
+       "statement": "foreign_currency",
+       "if": "a claim is in another currency"
+      }
+     ]
+    },
+    {
+     "id": "not_reimbursable",
+     "label": "Reject the categories the policy never pays (examples to replace with yours",
+     "when": "the duplicates are out.",
+     "do": "reject the categories the policy never pays (examples to replace with yours: alcohol, personal expenses).",
+     "because": "the policy decides it, not the amount.",
+     "branches": []
+    },
+    {
+     "id": "foreign_currency",
+     "label": "Use the rate of the month of the claim's date (a September claim uses September's rate…",
+     "when": "a claim is not in the company's currency. Skip this step for claims that are.",
+     "do": "use the rate of the month of the claim's date (a September claim uses September's rate, even when reviewed in October), add the card's foreign-exchange fee (example: 1.5%) and round to cents. From here on compare every limit in the company's currency, never in the claim's.",
+     "because": "a taxi under the receipt limit in euros can be over it in dollars; the fee is what the employee really paid.",
+     "branches": []
+    },
+    {
+     "id": "receipts_and_caps",
+     "label": "A claim over the receipt limit (example",
+     "when": "every amount is in the company's currency.",
+     "do": "a claim over the receipt limit (example: 75.00) without a receipt is not rejected: ask the employee for it and pay 0 until it arrives. Meals are paid up to the cap (example: 60.00 per claim); over it, pay the cap and say \"capped at 60\". Approve the rest for its amount.",
+     "because": "a missing receipt is a question for the employee, not a rejection.",
+     "branches": []
+    },
+    {
+     "id": "open_decisions",
+     "label": "Total what is paid per employee",
+     "when": "every claim has a decision.",
+     "do": "total what is paid per employee. List for the finance lead every claim whose note asks for an exception and every claim waiting on a receipt, by id. Apply the rule anyway (a meal stays capped): exceptions are the finance lead's decision, never the reviewer's.",
+     "because": "the reviewer applies the policy; the person who owns it decides the exceptions.",
+     "branches": []
+    }
+   ],
+   "calls": [],
+   "links": [],
+   "bench": "expense-review",
+   "measured": "5/5 with this page, 0/5 without",
    "entry": true
   },
   {
@@ -1370,6 +1567,85 @@
    "entry": false
   },
   {
+   "id": "responder-tickets-de-soporte-con-tu-politica",
+   "title": "Responder tickets de soporte con la política de tu equipo",
+   "when": "responder los tickets de soporte del día (devoluciones, cancelaciones, pedidos demorados, cobros dobles, amenazas de contracargo) antes de que salgan las respuestas",
+   "profession": "ops",
+   "lang": "es",
+   "path": "es/responder-tickets-de-soporte-con-tu-politica.md",
+   "steps": [
+    {
+     "id": "plazo_de_devolucion",
+     "label": "Contar el plazo de devolución (ejemplo",
+     "when": "un cliente pide devolver un producto.",
+     "do": "contar el plazo de devolución (ejemplo: 30 días) desde la fecha de entrega, nunca desde la de compra. Dentro del plazo, devolver el precio del producto; el envío, solo si llegó dañado o roto.",
+     "because": "alguien que compró hace más de un mes puede seguir dentro del plazo; el envío se devuelve solo cuando la falla es nuestra.",
+     "branches": [
+      {
+       "page": "responder-tickets-de-soporte-con-tu-politica",
+       "statement": "escalar",
+       "if": "el ticket amenaza con un contracargo, defensa del consumidor o un abogado"
+      }
+     ]
+    },
+    {
+     "id": "planes",
+     "label": "Un plan anual devuelve los meses enteros que no usó, contando el mes en curso como usado",
+     "when": "un cliente cancela una suscripción.",
+     "do": "un plan anual devuelve los meses enteros que no usó, contando el mes en curso como usado. Un plan mensual nunca se devuelve: sigue activo hasta el fin del mes pagado; decir hasta cuándo.",
+     "because": "es la política del equipo; devolver un plan mensual es una decisión que soporte no toma.",
+     "branches": []
+    },
+    {
+     "id": "escalar",
+     "label": "No decidirlo",
+     "when": "un ticket amenaza con un contracargo, una denuncia en defensa del consumidor o un abogado.",
+     "do": "no decidirlo: pasarlo a quien lidera soporte, no devolver nada y avisarle al cliente que le van a responder en un día hábil, sin prometer la devolución.",
+     "because": "esos tickets tienen un riesgo que es de quien lidera.",
+     "branches": []
+    },
+    {
+     "id": "demoras",
+     "label": "Nunca prometer una fecha ni un día («mañana», «el viernes»)",
+     "when": "un pedido está demorado o sigue en camino.",
+     "do": "nunca prometer una fecha ni un día («mañana», «el viernes»); decir que volvemos a escribir dentro de las 24 horas hábiles con la novedad del correo. Si es la segunda demora del cliente en 90 días, darle un crédito en la tienda (ejemplo: 10 % del precio del producto).",
+     "because": "una fecha prometida que el correo no cumple es un segundo reclamo.",
+     "branches": []
+    },
+    {
+     "id": "datos_de_tarjeta",
+     "label": "Nunca repetir el número, ni siquiera en el resumen interno",
+     "when": "un cliente manda un número de tarjeta o pregunta por un cobro.",
+     "do": "nunca repetir el número, ni siquiera en el resumen interno. Pedirle que nunca mande números de tarjeta y pedir solo los últimos cuatro dígitos y la fecha del cobro.",
+     "because": "los números de tarjeta no se guardan en tickets ni en resúmenes.",
+     "branches": [
+      {
+       "page": "avisar-a-clientes-de-un-incidente-de-pagos",
+       "statement": null,
+       "if": "muchos clientes reportan el mismo cobro erróneo"
+      }
+     ]
+    },
+    {
+     "id": "firma",
+     "label": "Responder en el idioma del cliente y cerrar con la firma del equipo en una línea aparte…",
+     "when": "cada respuesta está escrita.",
+     "do": "responder en el idioma del cliente y cerrar con la firma del equipo en una línea aparte (ejemplo: `— Equipo de soporte`). Escribir un resumen corto para quien lidera soporte con los escalados.",
+     "because": "quien lidera lee el resumen; el cliente lee una sola voz.",
+     "branches": []
+    }
+   ],
+   "calls": [
+    "avisar-a-clientes-de-un-incidente-de-pagos"
+   ],
+   "links": [
+    "avisar-a-clientes-de-un-incidente-de-pagos"
+   ],
+   "bench": "support-tickets",
+   "measured": "5/5 con esta página, 0/5 sin ella",
+   "entry": true
+  },
+  {
    "id": "revisar-el-tratamiento-fiscal-entre-paises",
    "title": "Revisar el tratamiento fiscal de una inversión entre países",
    "when": "una inversión, una renta o un vehículo involucra más de un país (inversor, activo o sociedad en el exterior) y hay que revisar sus impuestos, retenciones y el convenio para evitar la doble imposición",
@@ -1444,6 +1720,67 @@
    "entry": false
   },
   {
+   "id": "revisar-rendiciones-de-gastos",
+   "title": "Revisar rendiciones de gastos como el equipo de finanzas",
+   "when": "revisar las rendiciones de gastos del mes de los empleados (varias monedas, comprobantes, topes de comidas) antes de pagarlas, dejando las excepciones a quien lidera finanzas",
+   "profession": "finance",
+   "lang": "es",
+   "path": "es/revisar-rendiciones-de-gastos.md",
+   "steps": [
+    {
+     "id": "leer_rendiciones",
+     "label": "Tomar cada fila como una rendición y respetar el orden del archivo",
+     "when": "con el archivo de rendiciones del mes y los tipos de cambio a mano.",
+     "do": "tomar cada fila como una rendición y respetar el orden del archivo. Dos rendiciones con el mismo empleado, fecha, monto y moneda son un duplicado: quedarse con la primera y rechazar las siguientes con «duplicado de <primer id>».",
+     "because": "el mismo comprobante enviado dos veces es el error más común del mes.",
+     "branches": [
+      {
+       "page": "revisar-rendiciones-de-gastos",
+       "statement": "moneda_extranjera",
+       "if": "una rendición está en otra moneda"
+      }
+     ]
+    },
+    {
+     "id": "no_reintegrables",
+     "label": "Rechazar las categorías que la política nunca paga (ejemplos para cambiar por los tuyos",
+     "when": "sin duplicados.",
+     "do": "rechazar las categorías que la política nunca paga (ejemplos para cambiar por los tuyos: alcohol, gastos personales).",
+     "because": "lo decide la política, no el monto.",
+     "branches": []
+    },
+    {
+     "id": "moneda_extranjera",
+     "label": "Usar el tipo de cambio del mes de la fecha del gasto (un gasto de septiembre usa el de…",
+     "when": "una rendición no está en la moneda de la empresa. Este paso no aplica a las que sí lo están.",
+     "do": "usar el tipo de cambio del mes de la fecha del gasto (un gasto de septiembre usa el de septiembre, aunque se revise en octubre), sumar la comisión de la tarjeta por moneda extranjera (ejemplo: 1,5 %) y redondear a centavos. Desde acá, comparar todos los topes en la moneda de la empresa, nunca en la del gasto.",
+     "because": "un taxi por debajo del tope en euros puede pasarlo en dólares; la comisión es lo que de verdad pagó el empleado.",
+     "branches": []
+    },
+    {
+     "id": "comprobantes_y_topes",
+     "label": "Una rendición por encima del tope sin comprobante (ejemplo",
+     "when": "todos los montos están en la moneda de la empresa.",
+     "do": "una rendición por encima del tope sin comprobante (ejemplo: 75,00) no se rechaza: se le pide el comprobante al empleado y se paga 0 hasta que llegue. Las comidas se pagan hasta el tope (ejemplo: 60,00 por rendición); si lo pasan, se paga el tope y se dice «tope de 60». El resto se aprueba por su monto.",
+     "because": "un comprobante que falta es una pregunta para el empleado, no un rechazo.",
+     "branches": []
+    },
+    {
+     "id": "decisiones_abiertas",
+     "label": "Sumar lo que se paga a cada empleado",
+     "when": "todas las rendiciones tienen una decisión.",
+     "do": "sumar lo que se paga a cada empleado. Listar para quien lidera finanzas cada rendición cuya nota pide una excepción y cada una que espera comprobante, por id. La regla se aplica igual (la comida queda con tope): las excepciones las decide quien lidera finanzas, nunca quien revisa.",
+     "because": "quien revisa aplica la política; quien es dueño de la política decide las excepciones.",
+     "branches": []
+    }
+   ],
+   "calls": [],
+   "links": [],
+   "bench": "expense-review",
+   "measured": "5/5 con esta página, 0/5 sin ella",
+   "entry": true
+  },
+  {
    "id": "revisar-un-contrato-de-servicios",
    "title": "Revisar un contrato de servicios",
    "when": "un cliente manda un contrato de servicios (consultoría, software, tercerización) para revisar antes de firmar; marcar las cláusulas a cambiar y por qué",
@@ -1496,6 +1833,63 @@
    "links": [
     "agregar-una-clausula-de-proteccion-de-datos"
    ],
+   "entry": true
+  },
+  {
+   "id": "revisar-un-contrato-para-tu-parte",
+   "title": "Revisar un contrato para tu parte, con tu checklist",
+   "when": "revisar, comparar o comentar un contrato (servicios, locación, compraventa, confidencialidad) para la parte que representás, antes de firmarlo o de devolverlo con observaciones",
+   "profession": "law",
+   "lang": "es",
+   "path": "es/revisar-un-contrato-para-tu-parte.md",
+   "steps": [
+    {
+     "id": "leer_la_parte",
+     "label": "Anotar la parte y revisar cada cláusula desde ese lado",
+     "when": "llega un contrato junto con la parte que representa la persona.",
+     "do": "anotar la parte y revisar cada cláusula desde ese lado. Preguntar si el contrato tiene datos de clientes que no deben salir de la computadora; si los tiene, anonimizar nombres y montos antes, o usar un modelo local.",
+     "because": "la misma cláusula es buena para una parte y mala para la otra; el secreto profesional es de la persona.",
+     "branches": []
+    },
+    {
+     "id": "checklist",
+     "label": "Revisar, citando el número de cláusula",
+     "when": "leyendo el contrato.",
+     "do": "revisar, citando el número de cláusula: partes, objeto, plazo, precio y forma de pago; ley aplicable y jurisdicción (decir cuál falta); depósito o garantía y su devolución; rescisión anticipada y preaviso para ambas partes (marcarla si es unilateral); días de pago e intereses por mora; responsabilidad con tope, nunca ilimitada; renovación automática y cesión. Reemplazá esta lista por tu propio checklist.",
+     "because": "sin número de cláusula, una observación no se puede discutir.",
+     "branches": [
+      {
+       "page": "agregar-una-clausula-de-proteccion-de-datos",
+       "statement": null,
+       "if": "una parte va a tratar datos personales de clientes o empleados de la otra"
+      }
+     ]
+    },
+    {
+     "id": "tabla",
+     "label": "Escribir una tabla",
+     "when": "todos los puntos están revisados.",
+     "do": "escribir una tabla: cláusula, problema, propuesta de redacción, prioridad (imprescindible / conveniente / menor). Si falta la cláusula de ley aplicable, va en una fila propia con prioridad imprescindible.",
+     "because": "la tabla es lo que lee el cliente; un contrato que no dice qué ley lo rige es un riesgo en sí mismo.",
+     "branches": []
+    },
+    {
+     "id": "negociar_primero",
+     "label": "Cerrar con una línea `Negociar primero:` que nombre las tres cláusulas a negociar…",
+     "when": "la tabla está hecha.",
+     "do": "cerrar con una línea `Negociar primero:` que nombre las tres cláusulas a negociar primero, y decir que la decisión es del cliente. Nunca presentar la propuesta como definitiva.",
+     "because": "el criterio profesional, y la responsabilidad, son de quien firma la revisión.",
+     "branches": []
+    }
+   ],
+   "calls": [
+    "agregar-una-clausula-de-proteccion-de-datos"
+   ],
+   "links": [
+    "agregar-una-clausula-de-proteccion-de-datos"
+   ],
+   "bench": "contract-transfer",
+   "measured": "5/5 con esta página, 0/5 sin ella",
    "entry": true
   },
   {

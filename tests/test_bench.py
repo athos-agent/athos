@@ -35,7 +35,7 @@ class Checks(Workspace):
 
     def test_every_case_is_complete(self):
         self.assertEqual(set(CASES), {"release", "monthly-report", "device-setup", "tile-plan",
-                                          "expense-review", "contract-transfer", "chapter-transfer"})
+                                          "expense-review", "contract-transfer", "chapter-transfer", "support-tickets"})
         for name, c in CASES.items():
             for f in ("case.json", "piece.md", "setup.py", "check.py", "solve.py"):
                 self.assertTrue((c["dir"] / f).exists(), f"{name}/{f}")

@@ -1,0 +1,6 @@
+{
+  "title": "Answer support tickets the support lead's way",
+  "domain": "customer support",
+  "when": "answering the day's customer support tickets in tickets.csv (refunds, cancellations, late orders, complaints), with the orders in orders.csv, before the replies go out",
+  "request": "Today is 2026-10-31. Answer the support tickets in tickets.csv (orders in orders.csv; the data is fictitious). Write replies.json with: tickets (one per ticket: {\"ticket_id\", \"decision\": \"refund\" | \"no_refund\" | \"credit\" | \"escalate\" | \"inform\", \"refund_amount\" (number, 0 when none), \"tag\", \"reply\" (the text sent to the customer)}) and escalations (list of ticket_ids for the support lead), and REPLIES.md, a short summary for the support lead."
+}

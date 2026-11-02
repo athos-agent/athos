@@ -76,6 +76,18 @@ class GalleryEntriesTest(TempHome):
         profs = {next(x for x in cat["entries"] if x["id"] == c)["profession"] for c in dd["calls"]}
         self.assertEqual(profs, {"finance", "law"})             # several specialists' pages
 
+    def test_measured_examples_name_a_shipped_bench_case_in_both_languages(self):
+        from athos import bench
+        shipped = {k for k, v in bench.cases().items() if v["dir"].parent == bench.CASES}
+        measured = [e for e in gallery.catalog()["entries"] if e.get("measured")]
+        for e in measured:
+            self.assertIn(e["bench"], shipped, e["id"])
+            self.assertRegex(e["measured"], r"^\d+/\d+ .+, \d+/\d+ ", e["id"])
+        per = {lang: sorted((e["bench"], e["profession"]) for e in measured if e["lang"] == lang) for lang in gallery.LANGS}
+        self.assertEqual(per["en"], per["es"])
+        self.assertEqual({p for _, p in per["en"]}, {"law", "finance", "ops"})     # a lawyer, an accountant, support
+        self.assertIn("sort((a, b) => !!b.measured - !!a.measured)", gallery.TEMPLATE.read_text())   # shown first
+
     def test_the_finance_starter_is_in_the_gallery_as_it_is(self):
         for lang in gallery.LANGS:
             for f in start.starters(lang, "finance"):
