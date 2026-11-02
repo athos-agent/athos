@@ -154,7 +154,7 @@ expensive model to a cheap or local one, and check it keeps up.
 Athos is a musketeer: free, and on its own two feet. Three minutes on why, and Athos at work in Claude Desktop,
 OpenCode on Meta's Muse Spark, and its memory (no sound; fictional data):
 
-[![Athos: your AI know-how, free to move, fast to run (YouTube, 3 min)](https://img.youtube.com/vi/4JabA-KajK0/maxresdefault.jpg)](https://youtu.be/4JabA-KajK0)
+[![Athos: your AI know-how, free to move, fast to run (YouTube, 3 min)](https://img.youtube.com/vi/z-h-IQQo1AQ/maxresdefault.jpg)](https://youtu.be/z-h-IQQo1AQ)
 
 **Guides:** [Claude Desktop](docs/guides/claude-desktop-en.md) ([en español](docs/guides/claude-desktop.md)) · [for lawyers](docs/guides/lawyer.md) ([en español](docs/guides/abogado.md)) ·
 [your checklist is know-how](docs/guides/checklist-en.md) ([en español](docs/guides/checklist.md)) · why this should
@@ -186,8 +186,8 @@ planning method, finance operations), Meta's Muse Spark did 25 of 25 runs right 
 it, at 8 to 24 times less per run than Claude Code where we compared. Without it, Muse got what anyone would work out
 (the sales totals, the floor area, the duplicate claims) and missed the rules only the person knows: the report's
 house format, the vent that is tiled over and the 10% for breakage, the card fee on foreign expenses and the meal cap.
-Every request names the files to write, so only the method differs; the first count (19 of 20 and 2 of 20, the one in
-the video) left two requests vague and is replaced by this one, measured on November 1. Small cases written for the
+Every request names the files to write, so only the method differs; the first count (19 of 20 and 2 of 20, in the
+first videos) left two requests vague and is replaced by this one, measured on November 1. Small cases written for the
 bench, 5 runs each arm; [how to reproduce](docs/REFERENCE.md#use). The know-how carries into Meta's agents too: on
 the expense review, Muse Code and OpenCode on Muse Spark followed all ten stages in every run with it (2 of 2 each)
 and missed the same four without it (0 of 2), at about 6 to 13 times the cost of a direct call, as an agent reads

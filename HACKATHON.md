@@ -120,6 +120,7 @@ from what was built during the event.
 - [#103](https://github.com/athos-agent/athos/pull/103) The README for the judges: the problem in one person's words with the measured result up front; a table of the Meta models and agents used and what Athos builds on each; a three-minute try (install, example ways of working, one bench run on Muse Spark for about $0.07); every bench run behind the numbers kept in `docs/bench/` (58 runs, November 1) so they can be checked without a key (0.1.97)
 - [#104](https://github.com/athos-agent/athos/pull/104) Three measured examples in the gallery, in English and Spanish: an accountant's expense review, a lawyer's contract review for their side and a support team's ticket policy, each a bench case run on Muse Spark with and without the page, with the result on the page and measured examples shown first; a new `support-tickets` case; `.env.example` for judges bringing their own key (0.1.98)
 - [#105](https://github.com/athos-agent/athos/pull/105) The gallery marks a step a branch of the same page leads to with its condition, instead of repeating the rest of the page under the branch; the measured examples' wording no longer cuts their step titles short (0.1.99)
+- [#106](https://github.com/athos-agent/athos/pull/106) The Meta video v3 (https://youtu.be/z-h-IQQo1AQ) in the README: 25/25 against 2/25 on Muse Spark, 10/10 stages for Muse Code and OpenCode, the gallery's measured examples and sharing yours; the script follows it (0.1.100)
 
 ## Meta models used
 

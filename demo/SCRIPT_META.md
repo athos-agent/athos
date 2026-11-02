@@ -1,4 +1,4 @@
-# Athos — the Meta video (3:00), v2: https://youtu.be/4JabA-KajK0
+# Athos — the Meta video (3:00), v3: https://youtu.be/z-h-IQQo1AQ (v2: https://youtu.be/4JabA-KajK0)
 
 Tone: cinematic, direct, a manifesto that turns into a fast product demo. Voice ~150 words/min (≈430 words).
 Everything shown is real and recorded (fictional data); numbers are the public ones in the README.
@@ -64,13 +64,15 @@ proposes how to tidy it, turning your corrections into rules, always waiting for
 
 ## [2:05–2:30] The return: small models, your standard
 
-VISUAL: title card with the two public numbers: «Muse Spark with the know-how: 19 of 20 runs right (2 of 20
-without it)» · «8 to 24× cheaper per run than Claude Code». Then the gallery page and «Use in Athos».
+VISUAL (v3): «2/25 → 25/25», Meta's Muse Spark runs done right on five professional tasks, without and with the
+know-how · «10/10» stages followed by Muse Code and OpenCode with it (6/10 without) · «8–24× less per run than
+Claude Code; every run in docs/bench». Then the gallery's three measured examples (support, a lawyer, an accountant:
+5/5 with the page, 0/5 without) and «Share yours: ask your agent».
 
 VOICE:
 And once a way of working is mastered, it doesn't need the most expensive model. On our bench, Meta's Muse Spark
-went from 2 to 22 right out of 23 with the know-how, at a fraction of the cost.
-Don't want to start from a blank page? Take a proven way of working from the gallery, in one click.
+went from 2 to 25 right out of 25 with the know-how, at a fraction of the cost.
+Don't want to start from a blank page? Take a measured way of working from the gallery, or share yours.
 
 ## [2:30–3:00] The manifesto
 
