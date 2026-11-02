@@ -17,6 +17,27 @@ time, tokens and cost. Nothing in a verdict comes from the agent: each case's `c
 | device-setup | devices | 5/5 | 0/5 | $0.008 |
 | **Total** | | **25/25** | **2/25** | |
 
+## Meta's open weights: Muse Spark Open through OpenRouter, November 2, 5 runs each arm
+
+`meta/muse-spark-open` (816B open-weights mixture of experts) through OpenRouter, which served it from inference
+providers such as BaseTen and Fireworks, in Athos's own loop (`athos bench --agents openrouter`): the model reads the
+case's files, follows the know-how step by step with tools, and writes what the check reads.
+
+| Case | Domain | With the know-how | Without it | Cost a run (with) |
+|---|---|---|---|---|
+| release | code | 5/5 | 0/5 | $0.020 |
+| monthly-report | data | 5/5 | 0/5 | $0.018 |
+| device-setup | devices | 5/5 | 0/5 | $0.010 |
+| tile-plan | a planning method | 5/5 (8/8 stages) | 0/5 (5/8) | $0.018 |
+| expense-review | finance operations | 5/5 (10/10 stages) | 0/5 | $0.028 |
+| contract-transfer | law | 5/5 | 0/5 | $0.016 |
+| support-tickets | customer support | 5/5 (10/10 stages) | 0/5 (4/10) | $0.024 |
+| **Total** | | **35/35** | **0/35** | |
+
+Runs in [results-2026-11-02-openrouter.jsonl](results-2026-11-02-openrouter.jsonl), cost at OpenRouter's list price
+(US$1.25 / 4.25 per million tokens in and out). To run it: an `OPENROUTER_API_KEY` in `~/.athos/.env`, then
+`athos bench expense-review --agents openrouter --runs 1 --without`.
+
 ## The gallery's measured examples, November 2: Muse Spark through the Meta Model API, 5 runs each arm
 
 | Case | Who | With the page | Without it | What the runs without it missed |

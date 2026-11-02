@@ -27,13 +27,14 @@ from pathlib import Path
 from athos import paths
 
 CASES = Path(__file__).parent / "cases"
-AGENTS = ("claude", "codex", "muse", "opencode", "meta", "baseten", "local")
+AGENTS = ("claude", "codex", "muse", "opencode", "meta", "baseten", "openrouter", "local")
 TIMEOUT = 900
 # Meta Model API list price for muse-spark-1.3 (US$ per 1M tokens, input / output), from third-party sources.
 MUSE_SPARK_PRICE = (1.25, 4.25)
 DEFAULT_MODELS = {"meta": "muse-spark-1.3", "muse": "muse-spark-1.3", "opencode": "muse-spark-1.3", "local": "gemma4:12b"}
 # Baseten's list price is not checked here, so a `baseten` run's cost stays unknown (and --max-usd doesn't count it).
 DEFAULT_MODELS["baseten"] = "meta-models/muse-spark-open-1026"
+DEFAULT_MODELS["openrouter"] = "meta/muse-spark-open"     # Meta's open weights, served through OpenRouter
 CLAUDE_TOOLS = "Bash Read Edit Write Glob Grep"
 
 
@@ -96,7 +97,7 @@ def _meta_key() -> str:
 
 def _spark_cost(model: str, tokens: dict) -> float | None:
     return round(tokens["input"] / 1e6 * MUSE_SPARK_PRICE[0] + tokens["output"] / 1e6 * MUSE_SPARK_PRICE[1], 4) \
-        if model.startswith("muse-spark") else None
+        if model.split("/")[-1].startswith("muse-spark") else None     # muse-spark-1.3, meta/muse-spark-open
 
 
 def _skill(case: dict) -> str:
@@ -297,6 +298,9 @@ def _run_delegate(case, ws, home, with_piece, model, platform):
         elif platform == "baseten":
             from athos.adapters import baseten
             chat_fn, model = baseten.chat, model or baseten.DEFAULT_MODEL
+        elif platform == "openrouter":
+            from athos.adapters import openrouter
+            chat_fn, model = openrouter.chat, model or openrouter.DEFAULT_MODEL
         else:
             chat_fn, model = delegate.chat, model or delegate.DEFAULT_MODEL
         r = delegate.delegate(p.id, case["request"], model, cwd=ws, yes=True, out=lambda *_: None,
@@ -308,7 +312,7 @@ def _run_delegate(case, ws, home, with_piece, model, platform):
         else:
             os.environ["ATHOS_HOME"] = old
     t = r["tokens"]
-    cost = _spark_cost(model, t) if platform == "meta" else (0.0 if platform == "local" else None)
+    cost = _spark_cost(model, t) if platform in ("meta", "openrouter") else (0.0 if platform == "local" else None)
     return {"tokens": {"input": t["input"], "output": t["output"]}, "cost_usd": cost, "model": model,
             "note": r["summary"][:200] if r["summary"].startswith("(stopped") else ""}
 
@@ -321,12 +325,16 @@ def run_baseten(case, ws, home, with_piece, model=None):
     return _run_delegate(case, ws, home, with_piece, model, "baseten")
 
 
+def run_openrouter(case, ws, home, with_piece, model=None):
+    return _run_delegate(case, ws, home, with_piece, model, "openrouter")
+
+
 def run_local(case, ws, home, with_piece, model=None):
     return _run_delegate(case, ws, home, with_piece, model, "local")
 
 
 RUNNERS = {"claude": run_claude, "codex": run_codex, "muse": run_muse, "opencode": run_opencode, "meta": run_meta,
-           "baseten": run_baseten, "local": run_local}
+           "baseten": run_baseten, "openrouter": run_openrouter, "local": run_local}
 
 
 def run_once(name: str, case: dict, agent: str, with_piece: bool = True, model: str | None = None,
