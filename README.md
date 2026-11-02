@@ -7,6 +7,11 @@ Your AI know-how. Free to move, fast to run.
 **Athos turns how you work (your criteria, your steps, your checklists) into a living, local and portable memory, so
 any AI agent works by your rules without you explaining them twice.**
 
+**Personal intelligence: your know-how, in files you own, run by an open model you choose.** Meta's open-weights Muse
+Spark Open, through OpenRouter, followed the person's know-how in 35 of 35 bench runs and 0 of 35 without it; you pick
+the service that runs it, or host it yourself. Athos personalises the model with your way of working, not its weights:
+that know-how already exports as a fine-tuning dataset (`athos export --dataset`); training a model on it is next.
+
 An accountant reviews expense claims every month with rules nobody wrote down: the card fee on foreign receipts, the
 meal cap, which exceptions she accepts. Each new chat forgets them, so she explains them again, or fixes the answer by
 hand. With Athos she teaches them once; from then on **Meta's Muse Spark follows them: 25 of 25 runs right on five
