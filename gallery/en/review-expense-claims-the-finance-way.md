@@ -17,19 +17,19 @@ measured: "5/5 with this page, 0/5 without"
 
 ## #not_reimbursable
 **When:** the duplicates are out.
-**Do:** reject the categories the policy never pays (examples to replace with yours: alcohol, personal expenses).
+**Do:** reject the categories the policy never pays (for example alcohol or personal expenses, to replace with yours).
 **Because:** the policy decides it, not the amount.
 **Links:** [[review-expense-claims-the-finance-way#foreign_currency]]
 
 ## #foreign_currency
 **When:** a claim is not in the company's currency. Skip this step for claims that are.
-**Do:** use the rate of the month of the claim's date (a September claim uses September's rate, even when reviewed in October), add the card's foreign-exchange fee (example: 1.5%) and round to cents. From here on compare every limit in the company's currency, never in the claim's.
+**Do:** use the rate of the month of the claim's date (a September claim uses September's rate, even when reviewed in October), add the card's foreign-exchange fee (for example 1.5%) and round to cents. From here on compare every limit in the company's currency, never in the claim's.
 **Because:** a taxi under the receipt limit in euros can be over it in dollars; the fee is what the employee really paid.
 **Links:** [[review-expense-claims-the-finance-way#receipts_and_caps]]
 
 ## #receipts_and_caps
 **When:** every amount is in the company's currency.
-**Do:** a claim over the receipt limit (example: 75.00) without a receipt is not rejected: ask the employee for it and pay 0 until it arrives. Meals are paid up to the cap (example: 60.00 per claim); over it, pay the cap and say "capped at 60". Approve the rest for its amount.
+**Do:** a claim over the receipt limit (for example 75.00) without a receipt is not rejected: ask the employee for it and pay 0 until it arrives. Meals are paid up to the cap (for example 60.00 per claim); over it, pay the cap and say "capped at 60". Approve the rest for its amount.
 **Because:** a missing receipt is a question for the employee, not a rejection.
 **Links:** [[review-expense-claims-the-finance-way#open_decisions]]
 

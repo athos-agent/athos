@@ -10,7 +10,7 @@ measured: "5/5 with this page, 0/5 without"
 
 ## #refund_window
 **When:** a customer asks to return a product.
-**Do:** count the return window (example: 30 days) from the delivery date, never from the order date. Inside it, refund the item price; shipping only when the item arrived damaged or broken.
+**Do:** count the return window (for example 30 days) from the delivery date, never from the order date. Inside it, refund the item price; shipping only when the item arrived damaged or broken.
 **If:** the ticket threatens a chargeback, a consumer agency or a lawyer → [[answer-support-tickets-by-your-policy#escalate]]
 **Because:** a customer who ordered more than a month ago may still be inside the window; shipping is refunded only when the fault is ours.
 **Links:** [[answer-support-tickets-by-your-policy#plans]]
@@ -29,7 +29,7 @@ measured: "5/5 with this page, 0/5 without"
 
 ## #late_orders
 **When:** an order is late or still in transit.
-**Do:** never promise a date or a day ("tomorrow", "by Friday"); say we will write again within 24 business hours with the carrier's update. When it is the customer's second late delivery in 90 days, give a store credit (example: 10% of the item price).
+**Do:** never promise a date or a day ("tomorrow", "by Friday"); say we will write again within 24 business hours with the carrier's update. When it is the customer's second late delivery in 90 days, give a store credit (for example 10% of the item price).
 **Because:** a promised date the carrier misses is a second complaint.
 **Links:** [[answer-support-tickets-by-your-policy#card_data]]
 
@@ -42,5 +42,5 @@ measured: "5/5 with this page, 0/5 without"
 
 ## #sign
 **When:** every reply is written.
-**Do:** reply in the customer's language and end with the team's signature on its own line (example: `— Support team`). Write a short summary for the support lead with the escalations.
+**Do:** reply in the customer's language and end with the team's signature on its own line (for example `— Support team`). Write a short summary for the support lead with the escalations.
 **Because:** the lead reads the summary; the customer reads one voice.
