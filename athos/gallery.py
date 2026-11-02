@@ -66,8 +66,9 @@ def entry(meta: dict, p: store.Piece) -> dict:
     out = {"id": p.id, "title": p.title, "when": p.when, "profession": meta.get("profession", "other"),
            "lang": meta.get("lang", "en"), "path": f"{meta.get('lang', 'en')}/{p.id}.md", "steps": steps,
            "calls": calls, "links": wiki.links_of(p)}
-    if meta.get("author"):
-        out["author"] = meta["author"]
+    for k in ("author", "bench", "measured"):       # measured: what athos bench found with Muse Spark, with and without
+        if meta.get(k):
+            out[k] = meta[k]
     return out
 
 

@@ -17,6 +17,17 @@ time, tokens and cost. Nothing in a verdict comes from the agent: each case's `c
 | device-setup | devices | 5/5 | 0/5 | $0.008 |
 | **Total** | | **25/25** | **2/25** | |
 
+## The gallery's measured examples, November 2: Muse Spark through the Meta Model API, 5 runs each arm
+
+| Case | Who | With the page | Without it | What the runs without it missed |
+|---|---|---|---|---|
+| expense-review | an accountant | 5/5 (10/10 stages) | 0/5 (6/10) | the card fee on foreign claims, the meal cap |
+| contract-transfer | a lawyer | 5/5 | 0/5 | the table's columns and priorities, the governing-law row, `Push first:`, leaving the decision to the client |
+| support-tickets | a support team | 5/5 | 0/5 (4/10 stages) | the window counted from delivery, shipping only for damage, the second-late credit, no promised dates, card numbers, the signature |
+
+These are the three examples shown first in the [gallery](../../gallery/), each with its result on the page. Runs in
+[results-2026-11-02.jsonl](results-2026-11-02.jsonl).
+
 ## Meta's agents on the expense review, 2 runs each arm
 
 | Muse Spark via | With the know-how | Without it | Median time | Cost a run |

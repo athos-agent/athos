@@ -58,8 +58,8 @@ athos start --lang en --profile finance     # example ways of working, as files 
 athos show analyse-an-investment-with-my-committee-rules
 ```
 
-With a Meta Model API key (`export MODEL_API_KEY=...`), Muse Spark runs one bench case with and without the know-how,
-about $0.07:
+With your own Meta Model API key (`export MODEL_API_KEY=...`, or a line in `~/.athos/.env` as in
+[.env.example](.env.example)), Muse Spark runs one bench case with and without the know-how, about $0.07:
 
 ```sh
 athos bench expense-review --agents meta --runs 1 --without
@@ -102,7 +102,9 @@ change this step** and **Athos: save as a way of working** are in its command pa
 
 **A gallery of ways of working.** [Browse examples](https://athos-agent.github.io/athos/) from law, finance,
 journalism, science and operations, each with the branches it takes when the case needs them, and take one
-into your own Athos with **Use in Athos**. Have a checklist you are proud of? Tell your agent *"share my lease
+into your own Athos with **Use in Athos**. The first three are measured: an accountant's expense review, a lawyer's
+contract review and a support team's ticket policy each went 5/5 on Muse Spark with the page and 0/5 without it
+([runs](docs/bench/README.md)). Have a checklist you are proud of? Tell your agent *"share my lease
 review with the gallery"*: Athos drafts it, the agent swaps any client data for fictional data and shows you what
 will be published, and the gallery's form opens in your browser, filled in; you press Submit. No account needed
 ([more](gallery/CONTRIBUTING.md), [en español](gallery/CONTRIBUIR.md)).

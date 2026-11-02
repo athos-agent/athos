@@ -10,6 +10,7 @@ METRICS.md
 
 # Anything that may hold a secret: every dotenv file, whatever its suffix.
 .env*
+!.env.example
 
 # Python leftovers: bytecode, virtual environments, and the caches and coverage data tools write beside the code.
 # The repo has no packaging step, so there is no build output to ignore.
