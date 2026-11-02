@@ -133,9 +133,9 @@
    "steps": [
     {
      "id": "refund_window",
-     "label": "Count the return window (example",
+     "label": "Count the return window (for example 30 days) from the delivery date, never from the…",
      "when": "a customer asks to return a product.",
-     "do": "count the return window (example: 30 days) from the delivery date, never from the order date. Inside it, refund the item price; shipping only when the item arrived damaged or broken.",
+     "do": "count the return window (for example 30 days) from the delivery date, never from the order date. Inside it, refund the item price; shipping only when the item arrived damaged or broken.",
      "because": "a customer who ordered more than a month ago may still be inside the window; shipping is refunded only when the fault is ours.",
      "branches": [
       {
@@ -165,7 +165,7 @@
      "id": "late_orders",
      "label": "Never promise a date or a day (\"tomorrow\", \"by Friday\")",
      "when": "an order is late or still in transit.",
-     "do": "never promise a date or a day (\"tomorrow\", \"by Friday\"); say we will write again within 24 business hours with the carrier's update. When it is the customer's second late delivery in 90 days, give a store credit (example: 10% of the item price).",
+     "do": "never promise a date or a day (\"tomorrow\", \"by Friday\"); say we will write again within 24 business hours with the carrier's update. When it is the customer's second late delivery in 90 days, give a store credit (for example 10% of the item price).",
      "because": "a promised date the carrier misses is a second complaint.",
      "branches": []
     },
@@ -185,9 +185,9 @@
     },
     {
      "id": "sign",
-     "label": "Reply in the customer's language and end with the team's signature on its own line…",
+     "label": "Reply in the customer's language and end with the team's signature on its own line (for…",
      "when": "every reply is written.",
-     "do": "reply in the customer's language and end with the team's signature on its own line (example: `— Support team`). Write a short summary for the support lead with the escalations.",
+     "do": "reply in the customer's language and end with the team's signature on its own line (for example `— Support team`). Write a short summary for the support lead with the escalations.",
      "because": "the lead reads the summary; the customer reads one voice.",
      "branches": []
     }
@@ -676,9 +676,9 @@
     },
     {
      "id": "not_reimbursable",
-     "label": "Reject the categories the policy never pays (examples to replace with yours",
+     "label": "Reject the categories the policy never pays (for example alcohol or personal expenses…",
      "when": "the duplicates are out.",
-     "do": "reject the categories the policy never pays (examples to replace with yours: alcohol, personal expenses).",
+     "do": "reject the categories the policy never pays (for example alcohol or personal expenses, to replace with yours).",
      "because": "the policy decides it, not the amount.",
      "branches": []
     },
@@ -686,15 +686,15 @@
      "id": "foreign_currency",
      "label": "Use the rate of the month of the claim's date (a September claim uses September's rate…",
      "when": "a claim is not in the company's currency. Skip this step for claims that are.",
-     "do": "use the rate of the month of the claim's date (a September claim uses September's rate, even when reviewed in October), add the card's foreign-exchange fee (example: 1.5%) and round to cents. From here on compare every limit in the company's currency, never in the claim's.",
+     "do": "use the rate of the month of the claim's date (a September claim uses September's rate, even when reviewed in October), add the card's foreign-exchange fee (for example 1.5%) and round to cents. From here on compare every limit in the company's currency, never in the claim's.",
      "because": "a taxi under the receipt limit in euros can be over it in dollars; the fee is what the employee really paid.",
      "branches": []
     },
     {
      "id": "receipts_and_caps",
-     "label": "A claim over the receipt limit (example",
+     "label": "A claim over the receipt limit (for example 75.00) without a receipt is not rejected",
      "when": "every amount is in the company's currency.",
-     "do": "a claim over the receipt limit (example: 75.00) without a receipt is not rejected: ask the employee for it and pay 0 until it arrives. Meals are paid up to the cap (example: 60.00 per claim); over it, pay the cap and say \"capped at 60\". Approve the rest for its amount.",
+     "do": "a claim over the receipt limit (for example 75.00) without a receipt is not rejected: ask the employee for it and pay 0 until it arrives. Meals are paid up to the cap (for example 60.00 per claim); over it, pay the cap and say \"capped at 60\". Approve the rest for its amount.",
      "because": "a missing receipt is a question for the employee, not a rejection.",
      "branches": []
     },
@@ -1576,9 +1576,9 @@
    "steps": [
     {
      "id": "plazo_de_devolucion",
-     "label": "Contar el plazo de devolución (ejemplo",
+     "label": "Contar el plazo de devolución (por ejemplo 30 días) desde la fecha de entrega, nunca…",
      "when": "un cliente pide devolver un producto.",
-     "do": "contar el plazo de devolución (ejemplo: 30 días) desde la fecha de entrega, nunca desde la de compra. Dentro del plazo, devolver el precio del producto; el envío, solo si llegó dañado o roto.",
+     "do": "contar el plazo de devolución (por ejemplo 30 días) desde la fecha de entrega, nunca desde la de compra. Dentro del plazo, devolver el precio del producto; el envío, solo si llegó dañado o roto.",
      "because": "alguien que compró hace más de un mes puede seguir dentro del plazo; el envío se devuelve solo cuando la falla es nuestra.",
      "branches": [
       {
@@ -1608,7 +1608,7 @@
      "id": "demoras",
      "label": "Nunca prometer una fecha ni un día («mañana», «el viernes»)",
      "when": "un pedido está demorado o sigue en camino.",
-     "do": "nunca prometer una fecha ni un día («mañana», «el viernes»); decir que volvemos a escribir dentro de las 24 horas hábiles con la novedad del correo. Si es la segunda demora del cliente en 90 días, darle un crédito en la tienda (ejemplo: 10 % del precio del producto).",
+     "do": "nunca prometer una fecha ni un día («mañana», «el viernes»); decir que volvemos a escribir dentro de las 24 horas hábiles con la novedad del correo. Si es la segunda demora del cliente en 90 días, darle un crédito en la tienda (por ejemplo 10 % del precio del producto).",
      "because": "una fecha prometida que el correo no cumple es un segundo reclamo.",
      "branches": []
     },
@@ -1630,7 +1630,7 @@
      "id": "firma",
      "label": "Responder en el idioma del cliente y cerrar con la firma del equipo en una línea aparte…",
      "when": "cada respuesta está escrita.",
-     "do": "responder en el idioma del cliente y cerrar con la firma del equipo en una línea aparte (ejemplo: `— Equipo de soporte`). Escribir un resumen corto para quien lidera soporte con los escalados.",
+     "do": "responder en el idioma del cliente y cerrar con la firma del equipo en una línea aparte (por ejemplo `— Equipo de soporte`). Escribir un resumen corto para quien lidera soporte con los escalados.",
      "because": "quien lidera lee el resumen; el cliente lee una sola voz.",
      "branches": []
     }
@@ -1743,9 +1743,9 @@
     },
     {
      "id": "no_reintegrables",
-     "label": "Rechazar las categorías que la política nunca paga (ejemplos para cambiar por los tuyos",
+     "label": "Rechazar las categorías que la política nunca paga (por ejemplo alcohol o gastos…",
      "when": "sin duplicados.",
-     "do": "rechazar las categorías que la política nunca paga (ejemplos para cambiar por los tuyos: alcohol, gastos personales).",
+     "do": "rechazar las categorías que la política nunca paga (por ejemplo alcohol o gastos personales, para cambiar por los tuyos).",
      "because": "lo decide la política, no el monto.",
      "branches": []
     },
@@ -1753,15 +1753,15 @@
      "id": "moneda_extranjera",
      "label": "Usar el tipo de cambio del mes de la fecha del gasto (un gasto de septiembre usa el de…",
      "when": "una rendición no está en la moneda de la empresa. Este paso no aplica a las que sí lo están.",
-     "do": "usar el tipo de cambio del mes de la fecha del gasto (un gasto de septiembre usa el de septiembre, aunque se revise en octubre), sumar la comisión de la tarjeta por moneda extranjera (ejemplo: 1,5 %) y redondear a centavos. Desde acá, comparar todos los topes en la moneda de la empresa, nunca en la del gasto.",
+     "do": "usar el tipo de cambio del mes de la fecha del gasto (un gasto de septiembre usa el de septiembre, aunque se revise en octubre), sumar la comisión de la tarjeta por moneda extranjera (por ejemplo 1,5 %) y redondear a centavos. Desde acá, comparar todos los topes en la moneda de la empresa, nunca en la del gasto.",
      "because": "un taxi por debajo del tope en euros puede pasarlo en dólares; la comisión es lo que de verdad pagó el empleado.",
      "branches": []
     },
     {
      "id": "comprobantes_y_topes",
-     "label": "Una rendición por encima del tope sin comprobante (ejemplo",
+     "label": "Una rendición por encima del tope sin comprobante (por ejemplo 75,00) no se rechaza",
      "when": "todos los montos están en la moneda de la empresa.",
-     "do": "una rendición por encima del tope sin comprobante (ejemplo: 75,00) no se rechaza: se le pide el comprobante al empleado y se paga 0 hasta que llegue. Las comidas se pagan hasta el tope (ejemplo: 60,00 por rendición); si lo pasan, se paga el tope y se dice «tope de 60». El resto se aprueba por su monto.",
+     "do": "una rendición por encima del tope sin comprobante (por ejemplo 75,00) no se rechaza: se le pide el comprobante al empleado y se paga 0 hasta que llegue. Las comidas se pagan hasta el tope (por ejemplo 60,00 por rendición); si lo pasan, se paga el tope y se dice «tope de 60». El resto se aprueba por su monto.",
      "because": "un comprobante que falta es una pregunta para el empleado, no un rechazo.",
      "branches": []
     },

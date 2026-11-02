@@ -114,11 +114,15 @@ const lower = t => t ? t[0].toLowerCase() + t.slice(1) : t;
 // with ↳ and the condition that sends the task there.
 function steps(e, W) {
   let out = '';
+  // A branch to a step of the same page marks that step with its condition instead of repeating the page under it.
+  const own = {};
+  for (const s of e.steps) for (const b of s.branches) if (b.page === e.id && b.statement) own[b.statement] = b.if;
   for (const s of e.steps) {
-    out += `<li><span class="box"></span><span>${md(s.label)}</span></li>`;
+    const cond = own[s.id] ? `<span class="if">${esc(W.ifw + ' ' + lower(own[s.id]))}</span>` : '';
+    out += `<li><span class="box"></span><span>${cond}${md(s.label)}</span></li>`;
     for (const b of s.branches) {
       const q = byId[b.page];
-      if (!q) continue;
+      if (!q || b.page === e.id) continue;
       const subs = b.statement ? q.steps.slice(Math.max(0, q.steps.findIndex(x => x.id === b.statement))) : q.steps;
       subs.forEach((x, i) => {
         const cond = i === 0 ? `<span class="if">${esc(b.if ? W.ifw + ' ' + lower(b.if) : W.calls + ' «' + q.title + '»')}</span>` : '';

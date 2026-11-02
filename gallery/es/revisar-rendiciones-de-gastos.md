@@ -17,19 +17,19 @@ measured: "5/5 con esta página, 0/5 sin ella"
 
 ## #no_reintegrables
 **When:** sin duplicados.
-**Do:** rechazar las categorías que la política nunca paga (ejemplos para cambiar por los tuyos: alcohol, gastos personales).
+**Do:** rechazar las categorías que la política nunca paga (por ejemplo alcohol o gastos personales, para cambiar por los tuyos).
 **Because:** lo decide la política, no el monto.
 **Links:** [[revisar-rendiciones-de-gastos#moneda_extranjera]]
 
 ## #moneda_extranjera
 **When:** una rendición no está en la moneda de la empresa. Este paso no aplica a las que sí lo están.
-**Do:** usar el tipo de cambio del mes de la fecha del gasto (un gasto de septiembre usa el de septiembre, aunque se revise en octubre), sumar la comisión de la tarjeta por moneda extranjera (ejemplo: 1,5 %) y redondear a centavos. Desde acá, comparar todos los topes en la moneda de la empresa, nunca en la del gasto.
+**Do:** usar el tipo de cambio del mes de la fecha del gasto (un gasto de septiembre usa el de septiembre, aunque se revise en octubre), sumar la comisión de la tarjeta por moneda extranjera (por ejemplo 1,5 %) y redondear a centavos. Desde acá, comparar todos los topes en la moneda de la empresa, nunca en la del gasto.
 **Because:** un taxi por debajo del tope en euros puede pasarlo en dólares; la comisión es lo que de verdad pagó el empleado.
 **Links:** [[revisar-rendiciones-de-gastos#comprobantes_y_topes]]
 
 ## #comprobantes_y_topes
 **When:** todos los montos están en la moneda de la empresa.
-**Do:** una rendición por encima del tope sin comprobante (ejemplo: 75,00) no se rechaza: se le pide el comprobante al empleado y se paga 0 hasta que llegue. Las comidas se pagan hasta el tope (ejemplo: 60,00 por rendición); si lo pasan, se paga el tope y se dice «tope de 60». El resto se aprueba por su monto.
+**Do:** una rendición por encima del tope sin comprobante (por ejemplo 75,00) no se rechaza: se le pide el comprobante al empleado y se paga 0 hasta que llegue. Las comidas se pagan hasta el tope (por ejemplo 60,00 por rendición); si lo pasan, se paga el tope y se dice «tope de 60». El resto se aprueba por su monto.
 **Because:** un comprobante que falta es una pregunta para el empleado, no un rechazo.
 **Links:** [[revisar-rendiciones-de-gastos#decisiones_abiertas]]
 
