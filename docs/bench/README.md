@@ -49,6 +49,16 @@ Runs in [results-2026-11-02-openrouter.jsonl](results-2026-11-02-openrouter.json
 These are the three examples shown first in the [gallery](../../gallery/), each with its result on the page. Runs in
 [results-2026-11-02.jsonl](results-2026-11-02.jsonl).
 
+## The gallery's journalism and science examples, November 3: Muse Spark Open through OpenRouter, 5 runs each arm
+
+| Case | Who | With the page | Without it | What the runs without it missed |
+|---|---|---|---|---|
+| source-check | a newsroom | 5/5 (8/8 stages) | 0/5 (5/8) | the right of reply with its deadline (every run), cutting a claim whose second source heard it from the first or whose only source is a competitor, the anonymous source's description |
+| small-sample | a lab | 5/5 (8/8 stages) | 0/5 (7/8) | why a non-parametric test (n under 30) and the seed in the write-up; one run reported means instead of medians. Without the page the model already picked Mann-Whitney: the gap here is small |
+
+With these, every profession in the gallery shows a measured result. $0.021 and $0.033 a run with the page. Runs in
+[results-2026-11-03-openrouter.jsonl](results-2026-11-03-openrouter.jsonl).
+
 ## Meta's agents on the expense review, 2 runs each arm
 
 | Muse Spark via | With the know-how | Without it | Median time | Cost a run |

@@ -1,0 +1,6 @@
+{
+  "title": "Check a story's sources the newsroom's way",
+  "domain": "journalism",
+  "when": "checking the claims and sources of a story draft (claims.csv, sources.csv, records.csv) before it is published",
+  "request": "A story about Harbor Logistics is planned for publication on 2026-11-06 at 09:00. Check it before it goes out: the claims are in claims.csv, the sources in sources.csv and the documents we hold in records.csv (everything is fictitious). Write factcheck.json with: claims (one per claim: {\"claim_id\", \"status\": \"confirmed\" | \"partial\" | \"unconfirmed\", \"action\": \"keep\" | \"attribute\" | \"cut\"}), anonymous (one per anonymous source the story relies on: {\"source_id\", \"description\", \"why_anonymous\"}) and right_of_reply (one per person or company the story makes a claim about: {\"who\", \"questions\" (list), \"deadline\"}), and STORY.md, the story as it would be published."
+}

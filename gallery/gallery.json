@@ -296,7 +296,7 @@
      "id": "effect",
      "label": "Report the matching effect size (rank-biserial correlation, or epsilon squared) and the…",
      "when": "the test has run.",
-     "do": "report the matching effect size (rank-biserial correlation, or epsilon squared) and the medians with their interquartile ranges.",
+     "do": "report the matching effect size (rank-biserial correlation, or epsilon squared) and the medians with their quartiles, not means.",
      "because": "",
      "branches": []
     },
@@ -731,9 +731,9 @@
     },
     {
      "id": "cleaning",
-     "label": "Write each cleaning rule as code (exclusions, outliers, missing values), each with its…",
+     "label": "Write each cleaning rule as code (exclusions, missing values), each with its reason…",
      "when": "before looking at any result.",
-     "do": "write each cleaning rule as code (exclusions, outliers, missing values), each with its reason.",
+     "do": "write each cleaning rule as code (exclusions, missing values), each with its reason, and exclude only what the registered protocol says: never drop a value for being extreme.",
      "because": "rules decided after seeing the results bend them.",
      "branches": []
     },
@@ -766,6 +766,8 @@
    "links": [
     "choose-a-non-parametric-test"
    ],
+   "bench": "small-sample",
+   "measured": "5/5 with this page, 0/5 without (Muse Spark Open)",
    "entry": true
   },
   {
@@ -910,15 +912,15 @@
      "id": "records",
      "label": "Check every fact against a document or a record (company registry, court file, official…",
      "when": "before writing.",
-     "do": "check every fact against a document or a record (company registry, court file, official data) and mark each one confirmed, partial or unconfirmed.",
+     "do": "check every fact against a document or a record (company registry, court file, official data) and mark each one confirmed (keep it), partial (attribute it: say who claims it) or unconfirmed (cut it). Two sources who heard it from the same place are one source. A fact whose only source gains from publishing it (a competitor, a rival) needs a record, or it is cut.",
      "because": "what isn't confirmed is attributed or left out.",
      "branches": []
     },
     {
      "id": "right_of_reply",
-     "label": "List everyone the story mentions and draft the questions for each one, with a deadline…",
+     "label": "List every person and company the story makes a claim about and draft the questions for…",
      "when": "before publishing.",
-     "do": "list everyone the story mentions and draft the questions for each one, with a deadline to answer.",
+     "do": "list every person and company the story makes a claim about and draft the questions for each one, with a deadline to answer (for example 48 hours before publication, as a date and time).",
      "because": "",
      "branches": []
     },
@@ -945,6 +947,8 @@
     "double-confirm-an-anonymous-source",
     "publish-a-correction-note"
    ],
+   "bench": "source-check",
+   "measured": "5/5 with this page, 0/5 without (Muse Spark Open)",
    "entry": true
   },
   {
@@ -1346,7 +1350,7 @@
      "id": "efecto",
      "label": "Informá el tamaño de efecto que corresponde (correlación biserial de rangos, o épsilon…",
      "when": "con la prueba corrida.",
-     "do": "informá el tamaño de efecto que corresponde (correlación biserial de rangos, o épsilon cuadrado) y las medianas con sus rangos intercuartiles.",
+     "do": "informá el tamaño de efecto que corresponde (correlación biserial de rangos, o épsilon cuadrado) y las medianas con sus cuartiles, no medias.",
      "because": "",
      "branches": []
     },
@@ -1418,9 +1422,9 @@
     },
     {
      "id": "limpieza",
-     "label": "Escribí cada regla de limpieza como código (exclusiones, valores atípicos, faltantes)…",
+     "label": "Escribí cada regla de limpieza como código (exclusiones, faltantes), cada una con su…",
      "when": "antes de mirar cualquier resultado.",
-     "do": "escribí cada regla de limpieza como código (exclusiones, valores atípicos, faltantes), cada una con su motivo.",
+     "do": "escribí cada regla de limpieza como código (exclusiones, faltantes), cada una con su motivo, y excluí solo lo que dice el protocolo registrado: nunca saques un valor por ser extremo.",
      "because": "las reglas que se deciden después de ver los resultados los tuercen.",
      "branches": []
     },
@@ -1453,6 +1457,8 @@
    "links": [
     "elegir-una-prueba-no-parametrica"
    ],
+   "bench": "small-sample",
+   "measured": "5/5 con esta página, 0/5 sin ella (Muse Spark Open)",
    "entry": true
   },
   {
@@ -1926,15 +1932,15 @@
      "id": "registros",
      "label": "Chequeá cada dato contra un documento o un registro (registro de sociedades, expediente…",
      "when": "antes de escribir.",
-     "do": "chequeá cada dato contra un documento o un registro (registro de sociedades, expediente judicial, datos oficiales) y marcá cada uno como confirmado, parcial o sin confirmar.",
+     "do": "chequeá cada dato contra un documento o un registro (registro de sociedades, expediente judicial, datos oficiales) y marcá cada uno como confirmado (va), parcial (se atribuye: se dice quién lo afirma) o sin confirmar (se corta). Dos fuentes que lo escucharon del mismo lugar son una sola. Un dato cuya única fuente gana si se publica (un competidor, un rival) necesita un registro, o se corta.",
      "because": "lo que no está confirmado se atribuye o se deja afuera.",
      "branches": []
     },
     {
      "id": "derecho_a_replica",
-     "label": "Listá a todas las personas que menciona la nota y redactá las preguntas para cada una…",
+     "label": "Listá a cada persona y empresa sobre la que la nota afirma algo y redactá las preguntas…",
      "when": "antes de publicar.",
-     "do": "listá a todas las personas que menciona la nota y redactá las preguntas para cada una, con un plazo para responder.",
+     "do": "listá a cada persona y empresa sobre la que la nota afirma algo y redactá las preguntas para cada una, con un plazo para responder (por ejemplo 48 horas antes de publicar, con fecha y hora).",
      "because": "",
      "branches": []
     },
@@ -1961,6 +1967,8 @@
     "confirmar-dos-veces-una-fuente-anonima",
     "publicar-una-nota-de-correccion"
    ],
+   "bench": "source-check",
+   "measured": "5/5 con esta página, 0/5 sin ella (Muse Spark Open)",
    "entry": true
   }
  ]

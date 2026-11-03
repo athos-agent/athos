@@ -4,6 +4,8 @@ title: Hacer un análisis reproducible
 when: analizar datos de un experimento o una encuesta de forma que otra persona obtenga el mismo resultado con los mismos archivos
 profession: science
 lang: es
+bench: small-sample
+measured: "5/5 con esta página, 0/5 sin ella (Muse Spark Open)"
 ---
 
 ## #crudos
@@ -13,7 +15,7 @@ lang: es
 
 ## #limpieza
 **When:** antes de mirar cualquier resultado.
-**Do:** escribí cada regla de limpieza como código (exclusiones, valores atípicos, faltantes), cada una con su motivo.
+**Do:** escribí cada regla de limpieza como código (exclusiones, faltantes), cada una con su motivo, y excluí solo lo que dice el protocolo registrado: nunca saques un valor por ser extremo.
 **Because:** las reglas que se deciden después de ver los resultados los tuercen.
 **Links:** [[hacer-un-analisis-reproducible#muestra]]
 

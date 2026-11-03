@@ -35,7 +35,8 @@ class Checks(Workspace):
 
     def test_every_case_is_complete(self):
         self.assertEqual(set(CASES), {"release", "monthly-report", "device-setup", "tile-plan",
-                                          "expense-review", "contract-transfer", "chapter-transfer", "support-tickets"})
+                                          "expense-review", "contract-transfer", "chapter-transfer", "support-tickets",
+                                          "source-check", "small-sample"})
         for name, c in CASES.items():
             for f in ("case.json", "piece.md", "setup.py", "check.py", "solve.py"):
                 self.assertTrue((c["dir"] / f).exists(), f"{name}/{f}")
@@ -129,6 +130,46 @@ class Checks(Workspace):
         r = with_claim("C04", reimburse_usd=95.0)                        # the reviewer granted the exception
         self.assertEqual(r["invented"], 1)
         self.assertIn("meal_cap", r["missed"])
+
+    def test_source_check_traps(self):
+        ws = self.ws("source-check")
+        p, story = ws / "factcheck.json", ws / "STORY.md"
+        good, text = json.loads(p.read_text()), story.read_text()
+
+        def with_claim(cid, **kw):
+            d = json.loads(json.dumps(good))
+            next(c for c in d["claims"] if c["claim_id"] == cid).update(kw)
+            p.write_text(json.dumps(d))
+            return self.verdict("source-check", ws)
+
+        r = with_claim("C1", status="confirmed", action="keep")          # the union rep heard it from the supervisor
+        self.assertEqual((r["invented"], r["missed"]), (1, ["one_origin"]))
+        r = with_claim("C4", status="partial", action="attribute")       # a competitor's word, no record
+        self.assertEqual((r["verdict"], r["invented"]), ("c", 1))
+        p.write_text(json.dumps(good))
+        story.write_text(text + "\nThe source, Priya Nair, works at the bank.\n")   # the anonymous source named
+        self.assertIn("anonymity", self.verdict("source-check", ws)["missed"])
+        story.write_text(text + "\nThe company was fined in 2024.\n")
+        self.assertEqual(self.verdict("source-check", ws)["invented"], 1)
+
+    def test_small_sample_traps(self):
+        ws = self.ws("small-sample")
+        p = ws / "analysis.json"
+        good = json.loads(p.read_text())
+
+        def with_(**kw):
+            d = dict(good, **kw)
+            p.write_text(json.dumps(d))
+            return self.verdict("small-sample", ws)
+
+        r = with_(test="Welch's t-test", statistic=4.1)                   # the instinct with two groups
+        self.assertIn("test", r["missed"])
+        r = with_(exclusions={"rule": "attention check, and scores over 2 SD", "excluded": ["P07", "P22", "P12"]})
+        self.assertEqual((r["verdict"], r["invented"]), ("c", 1))         # the high score passes the check: it stays
+        r = with_(medians={"A": 59.38, "B": 46.82})                        # means, not medians
+        self.assertIn("medians", r["missed"])
+        r = with_(effect_size={"name": "rank-biserial", "value": -good["effect_size"]["value"]})
+        self.assertNotIn("effect", r["missed"])                           # the sign depends on the group order
 
 
 class Runner(TempHome):
