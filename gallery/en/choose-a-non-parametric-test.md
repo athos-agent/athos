@@ -13,7 +13,7 @@ lang: en
 
 ## #effect
 **When:** the test has run.
-**Do:** report the matching effect size (rank-biserial correlation, or epsilon squared) and the medians with their interquartile ranges.
+**Do:** report the matching effect size (rank-biserial correlation, or epsilon squared) and the medians with their quartiles, not means.
 **Links:** [[choose-a-non-parametric-test#methods]]
 
 ## #methods

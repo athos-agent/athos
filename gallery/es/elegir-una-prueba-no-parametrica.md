@@ -13,7 +13,7 @@ lang: es
 
 ## #efecto
 **When:** con la prueba corrida.
-**Do:** informá el tamaño de efecto que corresponde (correlación biserial de rangos, o épsilon cuadrado) y las medianas con sus rangos intercuartiles.
+**Do:** informá el tamaño de efecto que corresponde (correlación biserial de rangos, o épsilon cuadrado) y las medianas con sus cuartiles, no medias.
 **Links:** [[elegir-una-prueba-no-parametrica#metodos]]
 
 ## #metodos

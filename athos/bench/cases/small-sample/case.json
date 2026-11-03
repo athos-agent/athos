@@ -1,0 +1,6 @@
+{
+  "title": "Compare two small groups the lab's way",
+  "domain": "science",
+  "when": "comparing a score between two groups of a small study in data.csv before writing up the result",
+  "request": "Compare the scores of groups A and B in data.csv (a small fictitious study; the protocol is in PROTOCOL.md). Write analysis.json with: raw ({\"file\", \"sha256\"}), exclusions ({\"rule\", \"excluded\" (list of participant ids)}), n ({\"A\", \"B\"}), test (the test's name), statistic, effect_size ({\"name\", \"value\"}), medians ({\"A\", \"B\"}), iqr ({\"A\": [q1, q3], \"B\": [q1, q3]}) and seed, and RESULTS.md, a short write-up of the result for the lab."
+}

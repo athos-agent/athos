@@ -85,7 +85,7 @@ class GalleryEntriesTest(TempHome):
             self.assertRegex(e["measured"], r"^\d+/\d+ .+, \d+/\d+ ", e["id"])
         per = {lang: sorted((e["bench"], e["profession"]) for e in measured if e["lang"] == lang) for lang in gallery.LANGS}
         self.assertEqual(per["en"], per["es"])
-        self.assertEqual({p for _, p in per["en"]}, {"law", "finance", "ops"})     # a lawyer, an accountant, support
+        self.assertEqual({p for _, p in per["en"]}, {"law", "finance", "ops", "journalism", "science"})   # every profession
         self.assertIn("sort((a, b) => !!b.measured - !!a.measured)", gallery.TEMPLATE.read_text())   # shown first
 
     def test_the_finance_starter_is_in_the_gallery_as_it_is(self):
