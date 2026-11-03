@@ -126,9 +126,23 @@ def trail_frame(cwd: str | None = None, color: bool = True, width: int = 72) -> 
         out += [c("2", "    " + w) for w in textwrap.wrap(line, width - 4)]
     out += ["", c("1", "  " + piece["title"]), c("2", "  " + ("PASOS" if es else "STEPS"))]
     for s in steps:
-        mark, tone = {"done": ("✓", "38;5;71"), "now": ("▶", "38;5;173;1"), "ahead": ("○", "2")}[s["state"]]
-        label = textwrap.shorten(s["label"], width - 8, placeholder="…")
-        out.append("  " + c(tone, f"{mark} {label}"))
+        pad = "  " * (s.get("depth") or 0)
+        if s.get("via"):          # where the task branches, and whether the case took that branch
+            head = (("si " if es else "if ") + s["if"]) if s.get("if") else ("pasa a" if es else "hands over to")
+            tag = {"skipped": " · no hizo falta" if es else " · not needed", "ahead": ""}.get(
+                s["state"], " · tomada" if es else " · taken")
+            out.append("  " + pad + c("38;5;173" if s["state"] in ("done", "now") else "2",
+                                      textwrap.shorten(f"╭ {head} → «{s['via']}»{tag}", width - 6 - len(pad), placeholder="…")))
+        mark, tone = {"done": ("✓", "38;5;71"), "now": ("▶", "38;5;173;1"), "ahead": ("○", "2"),
+                      "skipped": ("↷", "2")}[s["state"]]
+        label = textwrap.shorten(s["label"], width - 8 - len(pad), placeholder="…")
+        out.append("  " + pad + c(tone, f"{mark} {label}"))
+        if s["state"] == "now":   # the step being applied, with what it says: when, what to do, why
+            for k, name in (("when", "Cuándo" if es else "When"), ("do", "Hacer" if es else "Do"),
+                            ("because", "Por qué" if es else "Why")):
+                if s.get(k) and not (k == "do" and s[k] == s["label"]):
+                    for j, l in enumerate(textwrap.wrap(f"{name}: {s[k]}", width - 10 - len(pad))):
+                        out.append("  " + pad + c("2", ("  │ " if j == 0 else "  │   ") + l))
     for n in t["new"]:
         out.append("  " + c("38;5;179", "+ " + textwrap.shorten(n, width - 8, placeholder="…")))
     # No buttons here (Codex, Muse Code): the agent asked in its answer, and a plain "yes" keeps the rule.

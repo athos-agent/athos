@@ -34,6 +34,7 @@ const WORDS = {
     firstTime: 'first time',
     ready_: (n: number) => `${n} way${n === 1 ? '' : 's'} of working ready`, trail: 'Trail', show: 'Show trail',
     progress: (d: number, n: number) => `${d}/${n} steps`, loadedBy: 'matched', opened: 'opened by the agent',
+    ifHead: (c: string) => `if ${c}`, callHead: 'hands over to', taken: 'taken', notNeeded: 'not needed', when: 'when', why: 'why',
     newStep: 'new', agents: 'Subagents', skills: 'Skills', adjust: 'Change this step', saveNew: 'Save as a way of working', keepRule: (n: string) => `Keep the rule from ${n}`,
     edited: (n: string) => `You edited ${n} after the agent wrote it: a rule to keep?`,
     adjustPrefix: 'Athos · adjust', drafting: 'No know-how for this task yet: its steps draft a new one.',
@@ -56,6 +57,7 @@ const WORDS = {
     ready_: (n: number) => `${n} forma${n === 1 ? '' : 's'} de trabajar lista${n === 1 ? '' : 's'}`,
     trail: 'Trayectoria', show: 'Ver trayectoria', progress: (d: number, n: number) => `${d}/${n} pasos`,
     loadedBy: 'coincidió', opened: 'abierta por el agente', newStep: 'nuevo', agents: 'Subagentes',
+    ifHead: (c: string) => `si ${c}`, callHead: 'pasa a', taken: 'tomada', notNeeded: 'no hizo falta', when: 'cuándo', why: 'por qué',
     skills: 'Skills', adjust: 'Cambiar este paso', saveNew: 'Guardar como forma de trabajar', keepRule: (n: string) => `Guardar la regla de ${n}`,
     edited: (n: string) => `Editaste ${n} después del agente: ¿guardo la regla?`, adjustPrefix: 'Athos · ajustar',
     drafting: 'Todavía no hay know-how para esta tarea: sus pasos arman uno nuevo.',
@@ -102,6 +104,14 @@ export function followingText(s: Status | null): string | undefined {
 
 /** The steps of the piece being followed, in order: what the person taught, as a reminder while the task runs. */
 export function stepsText(s: Status | null): string | undefined {
+  // Live when a trail is running: each step of the page with where the agent is, and the branch it is inside.
+  const live = s?.trail?.pieces?.[0]?.steps
+  if (live?.some(x => x.state !== 'ahead')) {
+    const mark = (x: { state: string }) => (x.state === 'done' ? '✓' : x.state === 'now' ? '▶' : x.state === 'skipped' ? '↷' : '○')
+    const top = live.filter(x => !x.depth)
+    const inside = live.find(x => x.depth && x.state === 'now')
+    return top.map(x => `${mark(x)} #${x.id}`).join(' → ') + (inside ? `  [↳ ▶ ${inside.piece}#${inside.id}]` : '')
+  }
   const names = s?.following?.[0]?.step_names
   if (!names?.length) return undefined
   const more = (s!.following[0].steps ?? names.length) > names.length ? ' → …' : ''
@@ -125,7 +135,7 @@ export function savedText(s: Status | null): string {
   return [...said('saved', task?.saved), ...said('improved', task?.improved)].join(' · ')
 }
 
-export type TrailRow = { mark: string; text: string; tone: 'title' | 'done' | 'now' | 'ahead' | 'new' | 'note' }
+export type TrailRow = { mark: string; text: string; tone: 'title' | 'done' | 'now' | 'ahead' | 'skipped' | 'new' | 'note' }
 
 /** The trail as rows, the way a model's thinking reads: each piece with its steps (✓ done, ▶ now, ○ ahead), the
  * steps the know-how lacks (+), then the subagents and skills used beside them, each with why. */
@@ -137,10 +147,22 @@ export function trailRows(t: Trail | undefined, w: ReturnType<typeof words>): Tr
     rows.push({ mark: '', text: `«${p.title}» v${p.version} · ${w.progress(done, p.steps.length)}${how ? ` · ${how}` : ''}`,
                 tone: 'title' })
     // Steps as sentences, the way the person wrote them, not as their ids; the current one says what it does.
-    for (const x of p.steps)
-      rows.push({ mark: x.state === 'done' ? '✓' : x.state === 'now' ? '▶' : '○',
-                  text: x.state === 'now' && x.do && x.do !== x.label ? `${x.label ?? x.id} — ${x.do}` : x.label ?? x.id,
+    for (const x of p.steps) {
+      const pad = '  '.repeat(x.depth ?? 0)
+      // Where the task branches, and whether the case took that branch: the strategy, not only the progress.
+      if (x.via)
+        rows.push({ mark: '', text: `${pad}╭ ${x.if ? w.ifHead(x.if) : w.callHead} → «${x.via}»` +
+                    (x.state === 'skipped' ? ` · ${w.notNeeded}` : x.state === 'ahead' ? '' : ` · ${w.taken}`),
+                    tone: x.state === 'skipped' || x.state === 'ahead' ? 'note' : 'title' })
+      rows.push({ mark: x.state === 'done' ? '✓' : x.state === 'now' ? '▶' : x.state === 'skipped' ? '↷' : '○',
+                  text: pad + (x.state === 'now' && x.do && x.do !== x.label ? `${x.label ?? x.id} — ${x.do}` : x.label ?? x.id),
                   tone: x.state })
+      // The step being applied shows its content: the moment it is for and why, as the person wrote them.
+      if (x.state === 'now') {
+        if (x.when) rows.push({ mark: '', text: `${pad}  ${w.when}: ${x.when}`, tone: 'note' })
+        if (x.because) rows.push({ mark: '', text: `${pad}  ${w.why}: ${x.because}`, tone: 'note' })
+      }
+    }
   }
   for (const c of t?.connectors ?? [])
     rows.push({ mark: c.active ? '🔒' : '⚠', text: c.active ? w.guarded(c.name) : w.unguarded(c.name), tone: c.active ? 'note' : 'new' })
@@ -280,7 +302,7 @@ export const register: Register = on => {
         {!rows.length ? <Text dimColor>{w.waiting}</Text> : null}
         {rows.map((r, i) => (
           <Text key={String(i)} color={r.tone === 'now' ? 'cyan' : r.tone === 'new' ? 'yellow' : r.tone === 'done' ? 'green' : undefined}
-                dimColor={r.tone === 'ahead' || r.tone === 'note'} bold={r.tone === 'title'}>
+                dimColor={r.tone === 'ahead' || r.tone === 'note' || r.tone === 'skipped'} bold={r.tone === 'title'}>
             {r.mark ? `  ${r.mark} ${r.text}` : r.text}
           </Text>
         ))}

@@ -254,3 +254,18 @@ test('a step reads as its sentence, not its id', () => {
     { id: 'key', label: 'Deciding where to keep the key', do: 'keep it in ~/.athos/.env', state: 'now' }] }] }
   expect(trailRows(t as never, words(null))[1].text).toBe('Deciding where to keep the key — keep it in ~/.athos/.env')
 })
+
+test('the trail shows the strategy: the branch, whether the case took it, and the current step with when and why', () => {
+  const t = { ...TRAIL, pieces: [{ ...TRAIL.pieces[0], steps: [
+    { id: 'data', label: 'Note personal data', do: 'note it', state: 'done' },
+    { id: 'roles', label: 'Name the roles', do: 'name them', state: 'skipped', depth: 1, piece: 'dpa',
+      via: 'Add a data protection clause', if: 'the provider processes personal data', branch: 'if' },
+    { id: 'comments', label: 'Write the table', do: 'a table per clause', when: 'every clause is checked',
+      because: 'the client reads the table', state: 'now' }] }] }
+  const rows = trailRows(t as never, words({ lang: 'es' } as never)).map(r => `${r.mark}|${r.text}`)
+  expect(rows).toContain('|  ╭ si the provider processes personal data → «Add a data protection clause» · no hizo falta')
+  expect(rows).toContain('↷|  Name the roles')
+  expect(rows).toContain('|  cuándo: every clause is checked')
+  expect(rows).toContain('|  por qué: the client reads the table')
+  expect(stepsText({ ...STATUS, trail: t } as never)).toBe('✓ #data → ▶ #comments')
+})
