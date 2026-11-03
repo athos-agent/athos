@@ -125,6 +125,7 @@ from what was built during the event.
 - [#108](https://github.com/athos-agent/athos/pull/108) The README says what personal intelligence means here: your know-how in files you own, run by an open model you choose (Muse Spark Open, 35/35 with the know-how); personalising the weights is named as the next step, not as done. The video v3.1 (https://youtu.be/sh7zT3lG5A8) adds the open-weights result and closes with the same line (0.1.102)
 - [#109](https://github.com/athos-agent/athos/pull/109) Every profession in the gallery measured: two new bench cases, `source-check` (journalism) and `small-sample` (science), 5/5 with the page and 0/5 without on Muse Spark Open through OpenRouter (0.1.103)
 - [#110](https://github.com/athos-agent/athos/pull/110) The trail shows its strategy and its content: each branch with its condition and the page it goes to, taken or not needed (skipped steps no longer wait forever), pages called two levels deep, and the current step's when and why in the panel (Claude Desktop, Muse Code and Codex via `athos watch --web`), in Claude Code and in the terminal; the gallery's steps open to what they say (0.1.104)
+- [#111](https://github.com/athos-agent/athos/pull/111) The README for the final submission: the panel's strategy and content with a screenshot of a contract review taking the data branch (checked in Claude Desktop and Muse Code), and every profession in the gallery measured (0.1.105)
 
 ## Meta models used
 
