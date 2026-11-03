@@ -32,8 +32,10 @@ new code:
   working dictated aloud and transcribed by Muse Voice Transcribe (`athos save --from-audio`), and your know-how as a
   fine-tuning dataset for Fireworks (`athos export --dataset --format fireworks`).
 - **Your way of working, visible:** pages of steps with branches that open only when the case needs them, followed
-  and ticked step by step in Claude Desktop's chat (an MCP app), Claude Code, Codex, Muse Code and OpenCode; *change
-  this step* and *save as a way of working* from the panel; a hand edit becomes a proposed rule.
+  and ticked step by step in Claude Desktop's chat (an MCP app), Claude Code, Codex, Muse Code and OpenCode. The panel
+  shows the strategy (each branch with its condition and the page it goes to, *taken* or *not needed*) and the
+  content (the step being applied, with when it applies and why); *change this step* and *save as a way of working*
+  from the panel; a hand edit becomes a proposed rule.
 - **For professionals:** a first use that asks your profession, a public [gallery](https://athos-agent.github.io/athos/)
   of ways of working, one memory per project, a journal of what happened lately and curating for your yes.
 
@@ -94,6 +96,18 @@ numbers. The recommendation is left to the advisor. Waits are hidden, not sped u
 - **It stays yours.** Plain markdown files in `~/.athos`, on your computer, that you can read and edit. The same know-how
   runs in Claude Code, Codex, Meta's Muse Code and OpenCode.
 
+**The strategy and the content, while it runs.** A way of working is a path through your pages, and the panel shows
+both halves of it. The strategy: where the path branches, the condition behind each branch, the page it goes to, and
+whether the case took it or didn't need it. The content: the step being applied opens to what you wrote, when it
+applies, what to do and why. Here a lawyer's contract review reaches "does the provider process personal data?",
+the contract says it stores customers' emails and call recordings, so the walk goes into the data protection clause:
+
+![Athos's panel in a fictional contract review. "How I am going about it" says it follows «Review a services contract», is at step 5 of 10, and that the case met the condition (the provider processes personal data), so it went into «Add a data protection clause to a services contract». Below, the page's steps: three ticked, then the branch line "If the provider processes personal data → «Add a data protection clause…» · taken", with its first sub-step ticked and the current one, "List the provider's duties", open to its When, what to do and Why.](demo/trail-strategy-en.png)
+
+*The same panel in Claude Desktop's chat and beside Muse Code (`athos watch --web`), checked with both on this
+contract (fictional). When the contract involves no personal data, the same branch reads* not needed *and its steps
+are struck through, instead of waiting as if forgotten.*
+
 **In Codex, Muse Code and OpenCode too** (in OpenCode, in its own sidebar). The same advisor's way of working, with its
 branch, followed in Meta's Muse Code on Muse Spark from a one-line request, with Athos's trail beside it ticking the
 nine steps as Muse reports them:
@@ -106,10 +120,11 @@ nine steps as Muse reports them:
 change this step** and **Athos: save as a way of working** are in its command palette (ctrl+p).*
 
 **A gallery of ways of working.** [Browse examples](https://athos-agent.github.io/athos/) from law, finance,
-journalism, science and operations, each with the branches it takes when the case needs them, and take one
-into your own Athos with **Use in Athos**. The first three are measured: an accountant's expense review, a lawyer's
-contract review and a support team's ticket policy each went 5/5 on Muse Spark with the page and 0/5 without it
-([runs](docs/bench/README.md)). Have a checklist you are proud of? Tell your agent *"share my lease
+journalism, science and operations, each with the branches it takes when the case needs them, each step opening to
+when it applies, what to do and why, and take one into your own Athos with **Use in Athos**. Every profession in it
+is measured: an accountant's expense review, a lawyer's contract review and a support team's ticket policy on Muse
+Spark, a newsroom's source check and a lab's small-sample analysis on Muse Spark Open; each went 5/5 with the page
+and 0/5 without it ([runs](docs/bench/README.md)). Have a checklist you are proud of? Tell your agent *"share my lease
 review with the gallery"*: Athos drafts it, the agent swaps any client data for fictional data and shows you what
 will be published, and the gallery's form opens in your browser, filled in; you press Submit. No account needed
 ([more](gallery/CONTRIBUTING.md), [en español](gallery/CONTRIBUIR.md)).
