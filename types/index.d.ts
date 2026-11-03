@@ -57,7 +57,7 @@ export type Trail = {
     record?: { uses: number; ok: number; marked: number; agents: string[] }
     see?: { id: string; title: string }[]
     /** Each step as a person reads it: `label` (its moment, or the first sentence of what to do), `do`, `because`. */
-    steps: { id: string; label?: string; do: string; because?: string; state: 'done' | 'now' | 'ahead'; piece?: string; depth?: number; if?: string }[]
+    steps: { id: string; label?: string; when?: string; do: string; because?: string; state: 'done' | 'now' | 'ahead' | 'skipped'; piece?: string; depth?: number; if?: string; via?: string; via_id?: string; branch?: 'if' | 'call' }[]
   }[]
   /** Subagents and skills the task used, in order. */
   beside: ({ kind: 'agent'; name: string; why: string } | { kind: 'skill'; name: string })[]

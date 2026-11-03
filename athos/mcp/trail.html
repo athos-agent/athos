@@ -54,6 +54,12 @@
   li.now .label { font-weight: 600; }
   li.now .label::after { content: attr(data-now); margin-left: 8px; font-size: 11px; font-weight: 500;
     color: var(--accent); }
+  li.skipped .box { border-style: dashed; color: var(--dim); }
+  li.skipped .label { color: var(--dim); text-decoration: line-through; text-decoration-color: var(--line); }
+  li.branch { border-top: none !important; padding: 6px 2px 2px; font-size: 12.5px; color: var(--dim); }
+  li.branch .cond { color: var(--accent); font-weight: 600; }
+  li.branch.skipped .cond { color: var(--dim); font-weight: 500; }
+  li.branch .page { font-family: var(--serif); font-style: italic; }
   li.new .box { border-style: dashed; border-color: var(--new); color: var(--new); }
   .body { padding: 0 2px 10px 28px; }
   .body p { margin: 0 0 6px; }
@@ -115,6 +121,9 @@ const WORDS = {
     newOne: n => `I took a step your know-how doesn't have yet: ${n}.`,
     guarded: (n, w) => `🔒 Personal data goes through ${n}: ${w}.`, unguarded: n => `⚠ ${n} is not running: don't paste client data until it is.`,
     nothing: "I found no way of working for this yet. If the task takes several steps, I'll note them so you can keep it.",
+    took: (c, t) => `The case met the condition (${c}), so I went into «${t}».`,
+    skipped: (c, t) => `I skipped «${t}»: the case didn't meet the condition (${c}).`,
+    ifHead: c => `If ${c}`, callHead: 'Hands over to', taken: 'taken', notNeeded: 'not needed', pending: 'if the case needs it',
     steps: 'Steps', now: 'now', why: 'Why', when: 'When', adjust: 'Change this step', send: 'Send',
     how: 'How should this step change?', newSteps: 'New steps', saveNew: 'Save as a way of working',
     edited: n => `You edited ${n} after the agent wrote it: a rule to keep?`, keepRule: 'Keep this rule',
@@ -139,6 +148,9 @@ const WORDS = {
     newOne: n => `Di un paso que tu know-how todavía no tiene: ${n}.`,
     guarded: (n, w) => `🔒 Los datos personales pasan por ${n}: ${w}.`, unguarded: n => `⚠ ${n} no está activo: no pegues datos de clientes hasta que lo esté.`,
     nothing: 'No encontré una forma de trabajar para esto. Si la tarea tiene varios pasos, los anoto para que la puedas guardar.',
+    took: (c, t) => `El caso cumplía la condición (${c}), así que entré en «${t}».`,
+    skipped: (c, t) => `Salteé «${t}»: el caso no cumplía la condición (${c}).`,
+    ifHead: c => `Si ${c}`, callHead: 'Pasa a', taken: 'tomada', notNeeded: 'no hizo falta', pending: 'si el caso lo pide',
     steps: 'Pasos', now: 'ahora', why: 'Por qué', when: 'Cuándo', adjust: 'Cambiar este paso', send: 'Enviar',
     how: '¿Cómo tiene que cambiar este paso?', newSteps: 'Pasos nuevos', saveNew: 'Guardar como forma de trabajar',
     edited: n => `Editaste ${n} después del agente: ¿guardo la regla?`, keepRule: 'Guardar esta regla',
@@ -215,10 +227,15 @@ function thinking(t, W) {
     out.push(r.uses > 1 ? W.used(r.uses, r.ok, r.marked, r.agents || []) : W.first);
     const i = p.steps.findIndex(x => x.state === 'now');
     const done = p.steps.filter(x => x.state === 'done').length;
-    out.push(i >= 0 ? W.at(i + 1, p.steps.length, lower(p.steps[i].label))
+    out.push(i >= 0 ? W.at(i + 1, p.steps.length, lower(p.steps[i].label.replace(/^↳ /, '')))
       : done && done === p.steps.length ? W.allDone(done) : W.notYet);
     // Only pieces the agent opened on purpose; another one the request's words merely matched is not news to the
     // person (and named a private piece in a demo, 2026-10-30).
+    // The strategy in words: which branch the case took and which it didn't need, and why.
+    for (const h of p.steps.filter(x => x.via && x.if)) {
+      if (h.state === 'skipped') out.push(W.skipped(lower(h.if), h.via));
+      else if (h.state !== 'ahead') out.push(W.took(lower(h.if), h.via));
+    }
     for (const q of t.pieces.slice(1).filter(q => q.how === 'read')) out.push(W.opened(q.title));
   } else if (!t.new.length) out.push(W.nothing);
   for (const c of t.connectors || []) out.push(c.active ? W.guarded(c.name, c.what) : W.unguarded(c.name));
@@ -227,11 +244,20 @@ function thinking(t, W) {
   return out;
 }
 
+const tag = (x, W) => {
+  const t = x.state === 'skipped' ? W.notNeeded : x.state === 'ahead' ? (x.if ? W.pending : '') : W.taken;
+  return t ? ' · ' + esc(t) : '';
+};
+
 function step(p, x, W) {
   const key = (x.piece || p.id) + '#' + x.id;   // a sub-step belongs to the page it came from
   const isOpen = open.has(key) || x.state === 'now';
-  const mark = x.state === 'done' ? '✓' : x.state === 'now' ? '▸' : '';
-  return `<li class="${x.state}"><details data-key="${esc(key)}"${isOpen ? ' open' : ''}>
+  const mark = x.state === 'done' ? '✓' : x.state === 'now' ? '▸' : x.state === 'skipped' ? '–' : '';
+  const pad = x.depth ? ` style="margin-left:${x.depth * 18}px"` : '';
+  // Where the task branches: the condition and the page it goes to, and whether the case took it.
+  const head = !x.via ? '' : `<li class="branch ${x.state}"${pad}><span class="cond">${esc(x.if ? W.ifHead(lower(x.if)) : W.callHead)}</span>` +
+    ` → <span class="page">«${esc(x.via)}»</span>${tag(x, W)}</li>`;
+  return head + `<li class="${x.state}"${pad}><details data-key="${esc(key)}"${isOpen ? ' open' : ''}>
     <summary><span class="box">${mark}</span><span class="label" data-now="${esc(W.now)}">${md(x.label)}</span></summary>
     <div class="body">${x.when ? `<p class="because"><b>${esc(W.when)}:</b> ${md(lower(x.when))}</p>` : ''}${x.do && x.do !== x.label ? `<p>${md(x.do)}</p>` : ''}${x.because ? `<p class="because"><b>${esc(W.why)}:</b> ${md(x.because)}</p>` : ''}
     ${editing === key

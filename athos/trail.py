@@ -173,21 +173,36 @@ def view(state: dict) -> dict:
         p = store.get(pid)
         if not p:
             continue
-        steps = []
-        for s in wiki.statements(p):
-            steps.append(as_step(s))
+        steps: list[dict] = []
+
+        def expand(s, depth: int, seen: frozenset) -> None:
+            # A step that hands over to another page shows that page's steps under it, down to three pages deep
+            # (a contract review → its data clause → the firm's clause format), never a page already on the path.
             for c in s.calls:
                 q = store.get(c["page"])
-                if not q or q.id == p.id:
+                if not q or q.id in seen or depth >= 3:
                     continue
                 subs = wiki.statements(q)
                 if c["statement"]:
                     subs = subs[next((i for i, x in enumerate(subs) if x.id == c["statement"]), 0):]
                 for i, sub in enumerate(subs):
-                    row = as_step(sub, 1)
-                    if i == 0 and c["if"]:
-                        row["if"] = c["if"]
+                    row = as_step(sub, depth + 1)
+                    if i == 0:     # the branch's head: where the task goes, and the condition that sends it there
+                        row.update({"via": q.title, "via_id": q.id, "branch": "if" if c["if"] else "call"})
+                        if c["if"]:
+                            row["if"] = c["if"]
                     steps.append(row)
+                    expand(sub, depth + 1, seen | {q.id})
+
+        for s in wiki.statements(p):
+            steps.append(as_step(s))
+            expand(s, 0, frozenset({p.id}))
+        # The strategy, not only the progress: a step the agent went past without reporting it was skipped (a branch
+        # whose condition didn't hold, or a step the case didn't need), so it doesn't stay "ahead" forever.
+        last = max((i for i, x in enumerate(steps) if x["state"] != "ahead"), default=-1)
+        for x in steps[:max(last, 0)]:
+            if x["state"] == "ahead":
+                x["state"] = "skipped"
         how = "loaded" if pid in (state.get("task_loaded") or []) else "read"
         see = [{"id": q, "title": store.get(q).title} for q in wiki.links_of(p)[:3] if store.get(q)]
         pieces.append({"id": pid, "title": p.title, "version": p.version, "when": p.when[:600], "how": how,

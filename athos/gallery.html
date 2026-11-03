@@ -46,6 +46,18 @@
   ol.tasks li.sub { padding-left: 26px; color: var(--dim); }
   .box { flex: none; width: 15px; height: 15px; margin-top: 3px; border: 1.5px solid var(--dim); border-radius: 4px; }
   .if { display: block; font-size: 12px; color: var(--branch); }
+  ol.tasks details { flex: 1; }
+  ol.tasks summary { cursor: pointer; list-style: none; }
+  ol.tasks summary::-webkit-details-marker { display: none; }
+  ol.tasks summary::after { content: ' ▸'; color: var(--dim); font-size: 11px; }
+  ol.tasks details[open] summary::after { content: ' ▾'; }
+  .body { font-size: 13.5px; margin: 6px 0 2px; }
+  .body p { margin: 0 0 4px; }
+  .body b { color: var(--dim); font-weight: 600; }
+  li.head { font-size: 12.5px; color: var(--branch); padding-left: 26px; }
+  li.head .page { font-family: var(--serif); font-style: italic; }
+  .expand { font: inherit; font-size: 12px; background: none; border: none; color: var(--accent); cursor: pointer;
+    padding: 0; text-decoration: underline; text-underline-offset: 2px; }
   .calls { margin: 10px 0 0; font-size: 13px; color: var(--dim); }
   .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
   .use { font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--accent);
@@ -82,7 +94,8 @@ const WORDS = {
       '~/.athos on your computer; nothing is sent anywhere.',
     get: 'Get Athos', contribute: 'Share yours: ask your agent to "share it with the gallery"',
     contributeUrl: 'https://github.com/athos-agent/athos/blob/main/gallery/CONTRIBUTING.md',
-    measured: 'Measured with Meta\'s Muse Spark', how: 'how',
+    measured: 'Measured with Meta\'s Muse Spark', how: 'how', when: 'When', do: 'Do', why: 'Why',
+    callsHead: 'Hands over to', expand: 'Open every step', collapse: 'Close the steps',
     prof: { law: 'Law', finance: 'Finance', journalism: 'Journalism', science: 'Science', ops: 'Operations',
             other: 'Other' },
   },
@@ -97,7 +110,8 @@ const WORDS = {
       'agregues quedan en ~/.athos en tu computadora; no se envía nada a ningún lado.',
     get: 'Instalar Athos', contribute: 'Compartí la tuya: pedile a tu agente «compartila en la galería»',
     contributeUrl: 'https://github.com/athos-agent/athos/blob/main/gallery/CONTRIBUIR.md',
-    measured: 'Medido con Muse Spark de Meta', how: 'cómo',
+    measured: 'Medido con Muse Spark de Meta', how: 'cómo', when: 'Cuándo', do: 'Hacer', why: 'Por qué',
+    callsHead: 'Pasa a', expand: 'Abrir todos los pasos', collapse: 'Cerrar los pasos',
     prof: { law: 'Derecho', finance: 'Finanzas', journalism: 'Periodismo', science: 'Ciencia', ops: 'Operaciones',
             other: 'Otras' },
   },
@@ -112,6 +126,16 @@ const lower = t => t ? t[0].toLowerCase() + t.slice(1) : t;
 
 // The steps as Athos's panel draws them: a checklist, and under a step that branches, the called page's steps
 // with ↳ and the condition that sends the task there.
+// One step as a line that opens to what it says: when it applies, what to do and why, as the person wrote it.
+function item(x, W, cls, cond) {
+  const body = [[W.when, x.when], [W.do, x.do], [W.why, x.because]].filter(([, t]) => t)
+    .map(([k, t]) => `<p><b>${esc(k)}:</b> ${md(t)}</p>`).join('');
+  return `<li${cls ? ` class="${cls}"` : ''}><span class="box"></span><details><summary>${cond}${md(x.label)}</summary>` +
+    `<div class="body">${body}</div></details></li>`;
+}
+
+// The steps as Athos's panel draws them: a checklist, and under a step that branches, where it goes (the condition
+// and the page) and that page's steps, each of which opens to its content.
 function steps(e, W) {
   let out = '';
   // A branch to a step of the same page marks that step with its condition instead of repeating the page under it.
@@ -119,15 +143,13 @@ function steps(e, W) {
   for (const s of e.steps) for (const b of s.branches) if (b.page === e.id && b.statement) own[b.statement] = b.if;
   for (const s of e.steps) {
     const cond = own[s.id] ? `<span class="if">${esc(W.ifw + ' ' + lower(own[s.id]))}</span>` : '';
-    out += `<li><span class="box"></span><span>${cond}${md(s.label)}</span></li>`;
+    out += item(s, W, '', cond);
     for (const b of s.branches) {
       const q = byId[b.page];
       if (!q || b.page === e.id) continue;
+      out += `<li class="head">${esc(b.if ? W.ifw + ' ' + lower(b.if) : W.callsHead)} → <span class="page">«${esc(q.title)}»</span></li>`;
       const subs = b.statement ? q.steps.slice(Math.max(0, q.steps.findIndex(x => x.id === b.statement))) : q.steps;
-      subs.forEach((x, i) => {
-        const cond = i === 0 ? `<span class="if">${esc(b.if ? W.ifw + ' ' + lower(b.if) : W.calls + ' «' + q.title + '»')}</span>` : '';
-        out += `<li class="sub"><span class="box"></span><span>${cond}↳ ${md(x.label)}</span></li>`;
-      });
+      subs.forEach(x => { out += item({ ...x, label: '↳ ' + x.label }, W, 'sub', ''); });
     }
   }
   return out;
@@ -153,6 +175,7 @@ function draw() {
       <h2>${esc(e.title)}</h2>
       <p class="when">${md(e.when[0].toUpperCase() + e.when.slice(1))}.</p>
       ${e.measured ? `<p class="measured">${esc(W.measured)}: ${esc(e.measured)} · <a href="${BENCH}">${esc(W.how)}</a></p>` : ''}
+      <button class="expand" data-expand="${esc(e.id)}">${esc(W.expand)}</button>
       <ol class="tasks">${steps(e, W)}</ol>
       ${e.calls.length ? `<p class="calls">${esc(W.calls)}: ${e.calls.map(c => '«' + esc(byId[c] ? byId[c].title : c) + '»').join(' · ')}</p>` : ''}
       <div class="row"><button class="use" data-use="${esc(e.id)}">${esc(W.use)}</button><span class="hint" data-hint="${esc(e.id)}"></span></div>
@@ -162,7 +185,13 @@ function draw() {
 document.addEventListener('click', async ev => {
   const b = ev.target.closest('button');
   if (!b) return;
-  if (b.dataset.lang) { lang = b.dataset.lang; prof = null; draw(); }
+  if (b.dataset.expand) {
+    const ds = [...document.getElementById(b.dataset.expand).querySelectorAll('ol.tasks details')];
+    const open = !ds.every(d => d.open);
+    ds.forEach(d => { d.open = open; });
+    b.textContent = open ? WORDS[lang].collapse : WORDS[lang].expand;
+  }
+  else if (b.dataset.lang) { lang = b.dataset.lang; prof = null; draw(); }
   else if (b.dataset.prof !== undefined) { prof = b.dataset.prof || null; draw(); }
   else if (b.dataset.use) {
     const e = byId[b.dataset.use], W = WORDS[lang];

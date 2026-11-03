@@ -124,6 +124,7 @@ from what was built during the event.
 - [#107](https://github.com/athos-agent/athos/pull/107) Meta's open-weights Muse Spark Open through OpenRouter (`--backend openrouter`, `--agents openrouter`), served by inference providers such as BaseTen and Fireworks: 35 of 35 bench runs right with the know-how and 0 of 35 without, on seven tasks; runs in `docs/bench/` (0.1.101)
 - [#108](https://github.com/athos-agent/athos/pull/108) The README says what personal intelligence means here: your know-how in files you own, run by an open model you choose (Muse Spark Open, 35/35 with the know-how); personalising the weights is named as the next step, not as done. The video v3.1 (https://youtu.be/sh7zT3lG5A8) adds the open-weights result and closes with the same line (0.1.102)
 - [#109](https://github.com/athos-agent/athos/pull/109) Every profession in the gallery measured: two new bench cases, `source-check` (journalism) and `small-sample` (science), 5/5 with the page and 0/5 without on Muse Spark Open through OpenRouter (0.1.103)
+- [#110](https://github.com/athos-agent/athos/pull/110) The trail shows its strategy and its content: each branch with its condition and the page it goes to, taken or not needed (skipped steps no longer wait forever), pages called two levels deep, and the current step's when and why in the panel (Claude Desktop, Muse Code and Codex via `athos watch --web`), in Claude Code and in the terminal; the gallery's steps open to what they say (0.1.104)
 
 ## Meta models used
 

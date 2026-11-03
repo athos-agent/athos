@@ -66,7 +66,7 @@ class ComposeTest(TempHome):
         v = trail.view(session.load("s"))
         self.assertEqual([p["id"] for p in v["pieces"]], ["deal"])       # the called page is not listed again
         rows = [(x.get("piece", "deal"), x["id"], x["state"]) for x in v["pieces"][0]["steps"]]
-        self.assertEqual(rows, [("deal", "facts", "ahead"), ("deal", "borders", "done"),
+        self.assertEqual(rows, [("deal", "facts", "skipped"), ("deal", "borders", "done"),   # gone past: skipped
                                 ("cross-border-tax", "residence", "now"), ("cross-border-tax", "treaty", "ahead"),
                                 ("deal", "table", "ahead"), ("house-format", "columns", "ahead")])
         sub = v["pieces"][0]["steps"][2]

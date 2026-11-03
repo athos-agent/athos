@@ -151,3 +151,29 @@ class SandboxedStepTest(TempHome):
                 mock.patch.object(cli.trail, "step", side_effect=PermissionError("sandbox")), redirect_stdout(out):
             rc = cli.cmd_step(argparse.Namespace(ref="deal#facts", new=None))
         self.assertEqual((rc, out.getvalue().strip()), (0, "ok"))
+
+
+class TrailStrategyTest(TempHome):
+    """The strategy is visible: where a branch goes and why, a branch the case didn't need marked as skipped, and the
+    pages a branch calls in turn."""
+
+    def test_branches_show_their_condition_their_page_and_whether_they_were_taken(self):
+        from athos import gallery, store, trail
+        for pid in ("review-a-services-contract", "add-a-data-protection-clause", "draft-a-clause-in-the-firm-format"):
+            _, p = gallery.parse((gallery.DIR / "en" / f"{pid}.md").read_text())
+            store.create(p.title, p.when, p.body, piece_id=p.id)
+        state = {"task_loaded": ["review-a-services-contract"],
+                 "trail": [{"kind": "step", "piece": "review-a-services-contract", "step": s, "done": True}
+                           for s in ("parties_and_scope", "liability", "personal_data")]}
+        steps = trail.view(state)["pieces"][0]["steps"]
+        head = next(x for x in steps if x.get("via"))
+        self.assertEqual((head["via"], head["branch"], head["if"]),
+                         ("Add a data protection clause to a services contract", "if", "the provider processes personal data"))
+        self.assertIn("draft-a-clause-in-the-firm-format", {x.get("piece") for x in steps})   # two pages deep
+        self.assertEqual({x["depth"] for x in steps if x.get("depth")}, {1, 2})
+        self.assertEqual(steps[-1]["state"], "ahead")                                         # #comments, not yet
+        # The agent goes on to the comments without the data clause: the branch was not needed, so it is skipped.
+        state["trail"].append({"kind": "step", "piece": "review-a-services-contract", "step": "comments"})
+        steps = trail.view(state)["pieces"][0]["steps"]
+        self.assertEqual({x["state"] for x in steps if x.get("depth")}, {"skipped"})
+        self.assertEqual(steps[-1]["state"], "now")
