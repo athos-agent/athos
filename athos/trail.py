@@ -25,6 +25,7 @@ SHOW = re.compile(r"(?:^|[\s/;&|])athos\s+show\s+([A-Za-z0-9_-]+)")
 # not reach ~/.athos, but the hook runs outside it.
 STEP = re.compile(r"(?:^|[\s/;&|'\"])athos['\"]?\s+step\s+(?:--new\s+(?:\"([^\"]*)\"|'([^']*)'|(\S+))|([^\s;&|'\"]+))")
 STEP_TOOLS_AGENT = {"Task", "Agent"}
+DID = re.compile(r"--did\s+(?:\"([^\"]*)\"|'([^']*)')")
 
 
 def items(session_id: str) -> list[dict]:
@@ -89,8 +90,9 @@ def on_tool(event: dict) -> None:
     elif STEP.search(str(tin.get("command", ""))):
         for m in STEP.finditer(str(tin.get("command", ""))):
             new = m.group(1) or m.group(2) or m.group(3)
+            did = DID.search(str(tin.get("command", ""))[m.end():].split("\n", 1)[0])
             try:
-                step(sid, None if new else m.group(4), new)
+                step(sid, None if new else m.group(4), new, (did.group(1) or did.group(2)) if did else None)
             except SystemExit:
                 pass
     else:

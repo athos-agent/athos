@@ -175,8 +175,17 @@ def _add_context(hook_event: str, text: str) -> None:
 
 
 def _on_session_start(event: dict, platform: str) -> None:
-    """A session opens: the know-how that may load for it goes in as context (nothing at all on an empty store)."""
+    """A session opens: the know-how that may load for it goes in as context (nothing at all on an empty store), and
+    the overnight review runs if it is due; its proposals are offered once, never applied without the person's yes."""
     intro = load.on_session_start(event, _cmd())
+    from athos import consolidate, start
+    dream = _quietly(consolidate.run) if consolidate.due() else None
+    if dream and dream.get("proposals"):
+        offer = (f"Athos's review of the last tasks proposes {len(dream['proposals'])} change(s) to the person's ways "
+                 f"of working, from the stars they gave. In your first reply, offer them in one line, in their "
+                 f"language; if they say yes, run `{_cmd()} dream` to list them and `{_cmd()} dream --apply N` for "
+                 f"each one they choose, then do what it prints.")
+        intro = (intro + "\n\n" + offer) if intro else offer
     if intro:
         _add_context("SessionStart", intro)
 
@@ -225,6 +234,11 @@ def _on_prompt(event: dict, platform: str) -> None:
         # sent through the gallery's form, filled in, on their yes.
         sharing = share.SHARE_CONTEXT.format(cmd=_cmd(since=share.SINCE))
         context = (sharing + "\n\n" + context) if context else sharing
+    # A rating the person gave in the panel since the last request: a plain fact, with what it means said openly.
+    from athos import rating
+    if sid and (fact := rating.take_pending(sid)):
+        told = fact + "\n\n" + rating.POLICY
+        context = (context + "\n\n" + told) if context else told
     if context:
         _add_context("UserPromptSubmit", context)
 
@@ -250,6 +264,8 @@ def _on_stop(event: dict, platform: str) -> None:
         sid = _folder_session_id(event, sid)
     if sid:
         trail.finish(sid)
+        st = session.load(sid)                     # the panel shows the receipt: steps, branches, what was learned
+        session.update(sid, task_end={"task_id": st.get("task_id"), "outcome": ""})
     # A person at an interactive Claude Code session gets a [Save] button above the prompt instead of a
     # line asking the model; a `claude -p` run (CLAUDE_CODE_ENTRYPOINT=sdk-…) has no band, so it is asked.
     interactive = platform == "claude-code" and not os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith("sdk")
@@ -372,6 +388,8 @@ def _save(text: str) -> int | None:
         piece, diff = capture.save_text(text, sid, folder, noted.get("transcript_path"))
     except (PermissionError, ValueError) as refused:          # a sandboxed store, or a page that doesn't parse
         return _fail(_unwritable_store_hint() if isinstance(refused, PermissionError) else f"not saved: {refused}")
+    from athos import rating
+    _quietly(rating.note_learned, sid, piece, bool(diff), text)
     if not diff:
         print(f"saved {piece.id} ({piece.path})")
     else:
@@ -1144,7 +1162,7 @@ def cmd_step(args) -> int:
         print("athos step: no session in this folder", file=sys.stderr)
         return 0
     try:
-        print(trail.step(sid, args.ref, args.new))
+        print(trail.step(sid, args.ref, args.new, getattr(args, "did", None)))
     except OSError:
         # A sandbox (Muse Code, Codex) may not let the command write to ~/.athos. The tool hook, which runs outside
         # it, already noted the step from the command line; a failure here made Muse Code ask the person to approve
@@ -1158,6 +1176,29 @@ def cmd_journal(args) -> int:
     from athos import journal
     project = args.project or paths.project_of(os.getcwd())
     print(journal.text(project) or f"Nothing yet in {project}.")
+    return 0
+
+
+def cmd_dream(args) -> int:
+    """The overnight review, by hand: what the stars and corrections propose for permanent memory. `--apply N` turns
+    an approved proposal into the adjust request the agent carries out; `--from FILE --dry-run` replays a log."""
+    from athos import consolidate, start
+    lang = start.lang()
+    if args.apply:
+        try:
+            print(consolidate.apply(args.apply, lang))
+        except IndexError as e:
+            return _fail(str(e))
+        return 0
+    events = None
+    if args.from_file:
+        events = [json.loads(line) for line in Path(args.from_file).read_text().splitlines() if line.strip()]
+    st = consolidate.run(events, write=not args.dry_run) if (args.now or args.dry_run or events is not None
+                                                             or consolidate.due()) else consolidate.last()
+    if args.json:
+        print(json.dumps(st, ensure_ascii=False, indent=2))
+    else:
+        print(consolidate.summary(st, lang))
     return 0
 
 
@@ -1317,6 +1358,13 @@ def _parser() -> argparse.ArgumentParser:
                        "archive unused ones, spot near-duplicates, broken links and work with no page yet")
     s.add_argument("action", nargs="?", choices=["list", "apply", "dismiss", "ignore", "restore"], default="list")
     s.add_argument("which", nargs="*", help="apply/dismiss: proposal numbers; ignore: a project; restore: a page id")
+    s = sub.add_parser("dream", help="the overnight review: what the stars you gave propose to keep in permanent "
+                       "memory (proposals only; nothing changes without your yes)")
+    s.add_argument("--apply", type=int, metavar="N", help="turn proposal N into the request your agent carries out")
+    s.add_argument("--now", action="store_true", help="review now, even if it ran in the last 20 hours")
+    s.add_argument("--from", dest="from_file", metavar="EVENTS", help="replay another log (a JSONL of events)")
+    s.add_argument("--dry-run", action="store_true", help="review without keeping the result")
+    s.add_argument("--json", action="store_true")
     s = sub.add_parser("journal", help="what happened lately in this project: its last tasks, what they followed "
                        "or saved, how they went, and what is open")
     s.add_argument("--project", help="another project, by its folder name")
@@ -1446,6 +1494,7 @@ def _parser() -> argparse.ArgumentParser:
     s = sub.add_parser("step", help="(for the agent) the step of your know-how it is on, shown in Athos's pane")
     s.add_argument("ref", nargs="?", help="<piece>#<statement>")
     s.add_argument("--new", help="a step the task needed that your know-how doesn't have yet")
+    s.add_argument("--did", help="one short line of what you did in the step you are leaving")
     s = sub.add_parser("test", help="re-check a piece against the corrections you made on it before")
     s.add_argument("id", help="the piece")
     s.add_argument("--backend", choices=["ollama", "meta", "baseten", "openrouter"], default="ollama",
@@ -1484,7 +1533,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 _HANDLERS = {
-    "start": cmd_start, "list": cmd_list, "show": cmd_show, "save": cmd_save, "curate": cmd_curate,
+    "start": cmd_start, "list": cmd_list, "show": cmd_show, "save": cmd_save, "curate": cmd_curate, "dream": cmd_dream,
     "journal": cmd_journal, "load": cmd_load, "export": cmd_export, "merge": cmd_merge, "codex": cmd_codex,
     "opencode": cmd_opencode, "project": cmd_project, "dismiss": cmd_dismiss, "revert": cmd_revert,
     "library": cmd_library, "delegate": cmd_delegate, "route": cmd_route, "mark": cmd_mark, "import": cmd_import,
