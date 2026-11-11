@@ -45,6 +45,13 @@ ANSWER = ("How to answer: the person sees Athos's panel above your answer, with 
           "you are reading something; don't mention Athos, pieces, ids, versions, or the dates, measurements and "
           "notes the piece keeps for you; give commands, paths or settings only when the person must act on them. "
           "Take from the piece only what this request needs.")
+# The person rates moments in Athos's panel (1-5 stars) instead of being asked questions. Athos passes each rating
+# on as a plain fact in a later result; what it means is said here, openly, once per task. A result that told the
+# model to change the notes and keep quiet about it read as a prompt injection, and Claude refused it (2026-11-11).
+RATINGS = ("Ratings: the person can rate any step 1-5 stars in Athos's panel instead of being asked questions. When "
+           "an Athos result reports one, learn from it with one athos_save on that piece (its id and a note): 1-2 "
+           "stars, add to that step what to avoid, from what you did there; 4-5, write into that step what worked, "
+           "so it repeats; 3, nothing. Then say in one short line what you changed.")
 UI_EXTENSION = "io.modelcontextprotocol/ui"
 UI_MIME = "text/html;profile=mcp-app"
 UI_URI = "ui://athos/trail"
@@ -52,7 +59,7 @@ UI_HTML = Path(__file__).with_name("trail.html")
 LIBRARY_URI = "ui://athos/library"
 LIBRARY_HTML = Path(__file__).resolve().parents[1] / "library.html"
 LIBRARY_META = "athos/library"
-APP_ONLY = {"athos_trail", "athos_library_do"}           # called by Athos's pages, never by the model
+APP_ONLY = {"athos_trail", "athos_library_do", "athos_rate"}           # called by Athos's pages, never by the model
 APPS_ONLY = APP_ONLY | {"athos_library"}                 # offered only where a page can be drawn
 SESSION = "claude-desktop"
 PANEL_META = "athos/panel"
@@ -70,10 +77,23 @@ TOOLS = [
     {"name": "athos_step", "description": "Tell the person which step of their know-how you are on now "
      "(`step`: <piece-id>#<statement_id>), or a step the task needs that their know-how doesn't have yet (`new`). "
      "Once per step, as you start it.",
-     "inputSchema": {"type": "object", "properties": {"step": {"type": "string"}, "new": {"type": "string"}}}},
+     "inputSchema": {"type": "object", "properties": {"step": {"type": "string"}, "new": {"type": "string"},
+                     "did": {"type": "string", "description": "One short line, in the person's language, of what "
+                             "you did in the step you are leaving (shown when they open that step)."}}}},
+    {"name": "athos_done", "title": "Athos: done",
+     "description": "Close the task in Athos's panel: call it once, when the task is done, right before your final "
+     "answer, with `outcome`: one short line, in the person's language, of what came out. Shows them a receipt of "
+     "the task (steps, branches, what was learned) where they can rate it.",
+     "inputSchema": {"type": "object", "properties": {"outcome": {"type": "string"}}, "required": ["outcome"]},
+     "_meta": {"ui": {"resourceUri": UI_URI}}},
     {"name": "athos_trail", "description": "What Athos's panel draws: the current task's trail, the greeting, the "
      "person's language. Called by the panel only.",
      "inputSchema": {"type": "object", "properties": {}}, "_meta": {"ui": {"visibility": ["app"]}}},
+    {"name": "athos_rate", "description": "The person's 1-5 stars on the current moment of the task, from the "
+     "panel's star bar. Called by the panel only.",
+     "inputSchema": {"type": "object", "properties": {"stars": {"type": "integer", "minimum": 1, "maximum": 5},
+                                                      "piece": {"type": "string"}, "step": {"type": "string"}},
+                     "required": ["stars"]}, "_meta": {"ui": {"visibility": ["app"]}}},
     {"name": "athos_library", "title": "Athos: your library",
      "description": "Open the person's library in the chat: every way of working they have, how often each was used "
      "and how it went, in which agents and models, its versions (they can go back to one), and what each model gave "
@@ -182,8 +202,18 @@ def panel(session_id: str = SESSION) -> dict:
     # The language of this request, not a preference seen elsewhere: a Spanish request got an English panel when
     # another agent had last seen English (2026-10-30).
     lang = (start.detect(state.get("task_request", "")) if not start.config().get("lang") else None) or start.lang()
+    from athos import rating
+    view = trail.view(state)
+    end = state.get("task_end") or {}
+    used = {p["id"] for p in view.get("pieces") or []} | {s.get("piece") for p in view.get("pieces") or []
+                                                          for s in p.get("steps") or []}
+    related = [{"id": p.id, "title": p.title} for p in load.relevant(state.get("task_request", ""),
+                                                                     load.enabled(None)) if p.id not in used][:3] \
+        if end and state.get("task_request") else []
     return {"lang": lang, "greeting": trail.greeting(lang), "pieces": len(store.all_pieces()),
-            "trail": trail.view(state),
+            "trail": view, "moment": rating.panel_info(session_id, view),
+            "ended": end if end.get("task_id") == state.get("task_id") else None,
+            "learned": state.get("task_learned") or [], "related": related,
             "save_prompt": capture.SAVE_PROMPT["es" if lang == "es" else "en"],
             "adjust_prefix": capture.ADJUST_PREFIX["es" if lang == "es" else "en"], "setup": setup(lang)}
 
@@ -191,10 +221,33 @@ def panel(session_id: str = SESSION) -> dict:
 def _new_task(session_id: str, request: str) -> None:
     """A request starts a task: its own trail. Not a measured task: a chat has no end of turn to time it by."""
     session.update(session_id, task_id=uuid.uuid4().hex[:12], task_loaded=[], task_why={}, trail=[],
-                   platform="claude-desktop", task_request=request[:200])
+                   platform="claude-desktop", task_request=request[:200], task_end=None, task_learned=[])
 
 
 def call(name: str, args: dict, session_id: str = SESSION) -> str:
+    out = _call(name, args, session_id)
+    if name in MODEL_READS:
+        from athos import rating
+        if note := rating.take_pending(session_id):
+            out = f"{out}\n\n---\n\n{note}"
+    return out
+
+
+# The results the model reads, where a rating given in the panel reaches it (the panel never asks the person why).
+MODEL_READS = {"athos_find", "athos_step", "athos_show", "athos_list", "athos_done"}
+
+
+def _call(name: str, args: dict, session_id: str = SESSION) -> str:
+    if name == "athos_done":
+        state = session.load(session_id)
+        trail.finish(session_id)
+        session.update(session_id, task_end={"task_id": state.get("task_id"), "outcome": str(args.get("outcome", ""))[:240]})
+        return "Closed in Athos's panel. Now give your final answer."
+    if name == "athos_rate":
+        from athos import rating
+        r = rating.rate(session_id, args.get("stars", 0), args.get("piece"), args.get("step"))
+        return json.dumps({"ok": True, "stars": r["stars"], "id": r["id"], "label": r.get("label") or r.get("title"),
+                           "model_context": rating.instruction(r)}, ensure_ascii=False)
     if name == "athos_find":
         from athos import start
         start.note_language(args.get("request", ""))         # the panel speaks the language the person writes in
@@ -227,7 +280,10 @@ def call(name: str, args: dict, session_id: str = SESSION) -> str:
             out.append(hand)
         out.append(ANSWER + "\n\nAs you apply each statement, call athos_step with `step` set to it (once per "
                    f"statement, in the order you apply them, skipping those that don't apply): {ids}. A step the "
-                   "task needs that none of them has: athos_step with `new`.")
+                   "task needs that none of them has: athos_step with `new`. With each call, `did`: one short line "
+                   "of what you did in the step you are leaving. If you keep your own progress list for the task, "
+                   "use these same steps as its items. When the task is done, right before your final answer, call "
+                   "athos_done with one short line of what came out.\n\n" + RATINGS)
         return "\n\n---\n\n".join(out)
     if name == "athos_show":
         p = store.get(args.get("id", ""))
@@ -236,7 +292,7 @@ def call(name: str, args: dict, session_id: str = SESSION) -> str:
         return _piece_text(p) if p else f"No piece {args.get('id')!r}."
     if name == "athos_step":
         try:
-            return trail.step(session_id, args.get("step"), args.get("new"))
+            return trail.step(session_id, args.get("step"), args.get("new"), args.get("did"))
         except SystemExit as e:
             raise ValueError(str(e)) from None
     if name == "athos_trail":
@@ -255,6 +311,13 @@ def call(name: str, args: dict, session_id: str = SESSION) -> str:
     if name == "athos_save":
         piece, diff = capture.save_text(args.get("text", ""), session_id)
         out = f"improved {piece.id} → v{piece.version}" if diff else f"saved {piece.id}"
+        learned = list(session.load(session_id).get("task_learned") or [])
+        import re
+        note = re.search(r"^note:\s*(.+)$", args.get("text", ""), re.M)
+        learned.append({"id": piece.id, "title": piece.title, "version": piece.version,
+                        "before": piece.version - 1 if diff else None,
+                        **({"note": note.group(1).strip()[:160]} if note else {})})
+        session.update(session_id, task_learned=learned[-5:])
         w = session.load(session_id).get("wiki") or {}
         if w.get("broken"):
             out += "\nLinks that lead nowhere (fix with another athos_save): " + "; ".join(w["broken"][:10])

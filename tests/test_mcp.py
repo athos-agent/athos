@@ -24,7 +24,7 @@ class McpTest(TempHome):
         self.assertEqual(r[0]["result"]["serverInfo"]["name"], "athos")
         self.assertEqual({t["name"] for t in r[1]["result"]["tools"]},
                          {"athos_find", "athos_step", "athos_show", "athos_list", "athos_save", "athos_merge",
-                          "athos_add", "athos_share"})
+                          "athos_add", "athos_share", "athos_done"})
         self.assertIn("git tag -a v0.3.0", r[2]["result"]["content"][0]["text"])
 
     def test_save_and_errors(self):
@@ -87,6 +87,87 @@ class McpAppTest(TempHome):
         self.assertNotIn("_meta", r[5]["result"])
         again = self.rpc(self.call(1, "athos_find", request="something unrelated"))[0]["result"]
         self.assertEqual(again["_meta"]["athos/panel"]["trail"]["pieces"], [])            # a new request, a new trail
+
+
+    def test_stars_keep_the_moment_and_reach_the_model_once_without_asking(self):
+        from athos import eval as ev
+        store.create("Release the greet package", "releasing greet with a new option",
+                     BODY + "\n## #push-tag\n**Do:** push.\n", piece_id="release")
+        tools = self.rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]["result"]["tools"]
+        self.assertEqual(next(t for t in tools if t["name"] == "athos_rate")["_meta"]["ui"]["visibility"], ["app"])
+        r = self.rpc(self.call(1, "athos_find", request="release greet 0.3.0"),
+                     self.call(2, "athos_step", step="release#tag"),
+                     self.call(3, "athos_rate", stars=2),
+                     self.call(4, "athos_trail"),
+                     self.call(5, "athos_step", step="release#push-tag"),
+                     self.call(6, "athos_step", step="release#tag"),
+                     self.call(7, "athos_rate", stars=9))
+        rated = json.loads(r[2]["result"]["content"][0]["text"])
+        self.assertEqual(rated["stars"], 2)
+        self.assertTrue(rated["label"] and "Rating from the person" in rated["model_context"])
+        e = [x for x in ev.events() if x.get("type") == "rating"][-1]
+        self.assertEqual((e["stars"], e["piece"], e["step"], e["request"]), (2, "release", "tag", "release greet 0.3.0"))
+        moment = r[3]["result"]["structuredContent"]["moment"]
+        self.assertEqual((moment["now"]["step"], moment["earlier"][0]["stars"], moment["last_rating"]["stars"]),
+                         ("tag", 2, 2))
+        told = r[4]["result"]["content"][0]["text"]                  # the next result the model reads
+        self.assertIn("Rating from the person, in Athos's panel: 2/5", told)
+        self.assertNotIn("Don't", told)                                 # a fact, nothing hidden
+        self.assertIn("Ratings: the person can rate any step", r[0]["result"]["content"][0]["text"])
+        self.assertNotIn("Rating from the person", r[5]["result"]["content"][0]["text"])  # only once
+        self.assertTrue(r[6]["result"]["isError"])                                   # 1 to 5 only
+
+    def test_an_earlier_step_can_be_opened_and_rated_and_old_ratings_stay_in_their_task(self):
+        import time
+        from athos import rating, session
+        store.create("Release the greet package", "releasing greet with a new option",
+                     BODY + "\n## #push-tag\n**Do:** push.\n", piece_id="release")
+        r = self.rpc(self.call(1, "athos_find", request="release greet 0.3.0"),
+                     self.call(2, "athos_step", step="release#tag"),
+                     self.call(3, "athos_step", step="release#push-tag", did="tagged v0.3.0 on main"),
+                     self.call(4, "athos_rate", stars=1, piece="release", step="tag"),
+                     self.call(5, "athos_trail"))
+        steps = r[4]["result"]["structuredContent"]["trail"]["pieces"][0]["steps"]
+        self.assertEqual(steps[0]["did"], "tagged v0.3.0 on main")             # what was done, per step
+        told = r[3]["result"]["content"][0]["text"]
+        self.assertIn('(release#tag)', json.loads(told)["model_context"])                 # the earlier step, not the current
+        self.assertIn("There you had done: tagged v0.3.0 on main", json.loads(told)["model_context"])
+        # A rating left pending from another task long ago is dropped, not passed to an unrelated one.
+        st = session.load("claude-desktop")
+        session.update("claude-desktop", pending_rating={**st["pending_rating"], "task_id": "old", "t": time.time() - 7200})
+        self.assertEqual(rating.take_pending("claude-desktop"), "")
+
+    def test_the_task_closes_with_a_receipt_of_what_was_learned_and_what_else_fits(self):
+        store.create("Release the greet package", "releasing greet with a new option",
+                     BODY + "\n## #push-tag\n**Do:** push.\n", piece_id="release")
+        store.create("Write the release notes", "writing the release notes of greet for a new version",
+                     "## #notes\n**When:** a release is tagged.\n**Do:** list the changes.\n", piece_id="notes")
+        tools = self.rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]["result"]["tools"]
+        self.assertEqual(next(t for t in tools if t["name"] == "athos_done")["_meta"]["ui"]["resourceUri"],
+                         "ui://athos/trail")                                     # the receipt is drawn at the end
+        text = "---\ntitle: Release the greet package\nwhen: releasing greet with a new option\nid: release\n" \
+               "note: rated 2/5\n---\n" + BODY + "\n## #push-tag\n**Do:** push, never force.\n"
+        r = self.rpc(self.call(1, "athos_find", request="release greet 0.3.0"),
+                     self.call(2, "athos_step", step="release#tag"),
+                     self.call(3, "athos_save", text=text),
+                     self.call(4, "athos_done", outcome="greet 0.3.0 tagged and pushed"),
+                     self.call(5, "athos_trail"))
+        self.assertIn("athos_done", r[0]["result"]["content"][0]["text"])
+        s = r[4]["result"]["structuredContent"]
+        self.assertEqual(s["ended"]["outcome"], "greet 0.3.0 tagged and pushed")
+        self.assertEqual(s["learned"], [{"id": "release", "title": "Release the greet package", "version": 2,
+                                         "before": 1, "note": "rated 2/5"}])
+        self.assertTrue(all(x["state"] == "done" for x in s["trail"]["pieces"][0]["steps"] if x["id"] == "tag"))
+        again = self.rpc(self.call(1, "athos_find", request="something else"), self.call(2, "athos_trail"))
+        self.assertIsNone(again[1]["result"]["structuredContent"]["ended"])      # a new task starts open
+
+    def test_a_rating_reads_as_a_fact_about_one_step(self):
+        from athos import rating
+        r = {"id": "x1", "stars": 5, "piece": "release", "step": "tag", "label": "Tag", "request": "ship it",
+             "did": "tagged v0.3.0"}
+        self.assertIn("5/5 on step «Tag» (release#tag)", rating.instruction(r))
+        self.assertIn("There you had done: tagged v0.3.0", rating.instruction(r))
+        self.assertIn("no saved way of working", rating.instruction({"id": "x2", "stars": 1, "request": "x"}))
 
 
 class DesktopTest(TempHome):
