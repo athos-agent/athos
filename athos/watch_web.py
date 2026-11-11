@@ -42,6 +42,8 @@ window.addEventListener('message', async e => {
   if (m.method === 'ui/initialize') reply(m.id, { protocolVersion: '2025-06-18', hostInfo: { name: 'athos-watch' },
     hostCapabilities: { serverTools: {} }, hostContext: { theme: dark ? 'dark' : 'light', displayMode: 'inline',
     availableDisplayModes: ['inline'] } });
+  else if (m.method === 'tools/call' && m.params.name === 'athos_rate')
+    reply(m.id, await (await fetch('/rate?' + new URLSearchParams(m.params.arguments))).json());
   else if (m.method === 'tools/call') reply(m.id, await (await fetch('/trail')).json());
   else if (m.method === 'ui/message') {
     const text = m.params.content.text, es = /^Athos · (ajustar|guardar)/.test(text);
@@ -82,6 +84,16 @@ def handler_for(cwd: str):
                 sid = session_for(cwd)
                 state = mcp.panel(sid) if sid else mcp.panel("__none__")
                 return self._send(json.dumps({"structuredContent": state}, ensure_ascii=False), "application/json")
+            if self.path.startswith("/rate?"):               # the panel's stars, for this folder's session
+                from urllib.parse import parse_qs, urlsplit
+                q = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
+                sid = session_for(cwd) or "__none__"
+                try:
+                    text = mcp.call("athos_rate", {"stars": int(q.get("stars", 0)), "piece": q.get("piece"),
+                                                   "step": q.get("step")}, sid)
+                except (ValueError, TypeError) as e:
+                    text = json.dumps({"ok": False, "error": str(e)})
+                return self._send(json.dumps({"content": [{"type": "text", "text": text}]}), "application/json")
             if self.path in ("/", "/index.html"):
                 return self._send(HOST_PAGE, "text/html; charset=utf-8")
             self.send_error(404)

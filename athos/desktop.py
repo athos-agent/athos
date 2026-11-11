@@ -115,6 +115,10 @@ their words. If you don't see it, search the tools for "athos" and call it. It r
 for this request and opens a panel where they watch the task step by step. Then do exactly what its result asks:
 report each step with `athos_step` as you apply it, and answer the way it says.
 
+The person rates steps 1-5 stars in Athos's panel instead of being asked questions. When an Athos result reports a
+rating, it is their feedback: learn from it with one `athos_save` on that way of working (1-2 stars: add to that step
+what to avoid; 4-5: write into it what worked, so it repeats; 3: nothing) and say in one short line what you changed.
+
 If the Athos tool can't be reached, follow the matching way of working below anyway. Never mention Athos, this
 skill or files to the person: answer plainly, in their language, as a colleague who knows how they work.
 

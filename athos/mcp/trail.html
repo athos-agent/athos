@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Athos · trail</title>
+<title>Athos</title>
 <style>
   /* The host's own colours and fonts when it gives them (MCP Apps style variables), plain ones otherwise. */
   :root {
@@ -12,7 +12,7 @@
     --dim: var(--color-text-secondary, #6b6b6b);
     --line: var(--color-border-primary, #e6e3dc);
     --soft: var(--color-background-secondary, #f7f6f3);
-    --accent: #c15f3c; --done: #3f7d4a; --new: #a46d0f;
+    --accent: #c15f3c; --done: #3f7d4a; --star: #d9a21b;
     --serif: var(--font-serif, "Iowan Old Style", Georgia, serif);
     color-scheme: light dark;
   }
@@ -22,151 +22,161 @@
     --dim: var(--color-text-secondary, #a6a39a);
     --line: var(--color-border-primary, #3d3c38);
     --soft: var(--color-background-secondary, #30302d);
-    --accent: #e08a65; --done: #86c491; --new: #e0b45e;
+    --accent: #e08a65; --done: #86c491; --star: #f0c04a;
   }
   html, body { margin: 0; background: var(--bg); color: var(--fg);
-    font: 14px/1.55 var(--font-sans, -apple-system, system-ui, sans-serif); }
-  main { padding: 14px 16px 12px; }
-  .top { display: flex; align-items: baseline; gap: 8px; }
-  .brand { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
-  .hello { color: var(--dim); font-size: 13px; flex: 1; }
-  .modes button { font-size: 11px; padding: 2px 8px; }
-  details > summary { cursor: pointer; list-style: none; }
-  details > summary::-webkit-details-marker { display: none; }
-  .think { margin: 10px 0 14px; border-left: 2px solid var(--line); padding: 2px 0 2px 12px; }
-  .think > summary { color: var(--dim); font-size: 13px; }
-  .think > summary::before { content: "▸ "; } .think[open] > summary::before { content: "▾ "; }
-  .think p { margin: 6px 0 0; color: var(--dim); font-size: 13px; }
-  article h1 { font: 600 19px/1.3 var(--serif); margin: 0 0 2px; }
-  .meta { color: var(--dim); font-size: 12px; margin-bottom: 4px; }
-  .lede { margin: 0 0 10px; }
-  h2 { font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); margin: 14px 0 4px;
-    font-weight: 600; }
-  ol.tasks { list-style: none; margin: 0; padding: 0; }
-  ol.tasks > li { border-top: 1px solid var(--line); }
-  ol.tasks > li:last-child { border-bottom: 1px solid var(--line); }
-  ol.tasks summary { display: flex; gap: 10px; padding: 7px 2px; align-items: flex-start; }
-  .box { flex: none; width: 16px; height: 16px; margin-top: 2px; border: 1.5px solid var(--dim); border-radius: 4px;
-    display: inline-flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; }
-  li.done .box { background: var(--done); border-color: var(--done); color: var(--bg); }
-  li.done .label { color: var(--dim); }
-  li.now .box { border-color: var(--accent); background: var(--accent); color: var(--bg); }
-  li.now .label { font-weight: 600; }
-  li.now .label::after { content: attr(data-now); margin-left: 8px; font-size: 11px; font-weight: 500;
-    color: var(--accent); }
-  li.skipped .box { border-style: dashed; color: var(--dim); }
-  li.skipped .label { color: var(--dim); text-decoration: line-through; text-decoration-color: var(--line); }
-  li.branch { border-top: none !important; padding: 6px 2px 2px; font-size: 12.5px; color: var(--dim); }
-  li.branch .cond { color: var(--accent); font-weight: 600; }
-  li.branch.skipped .cond { color: var(--dim); font-weight: 500; }
-  li.branch .page { font-family: var(--serif); font-style: italic; }
-  li.new .box { border-style: dashed; border-color: var(--new); color: var(--new); }
-  .body { padding: 0 2px 10px 28px; }
-  .body p { margin: 0 0 6px; }
-  .because { color: var(--dim); font-size: 13px; }
-  .link { background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; font: inherit;
-    font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
-  code { font: 12.5px/1.4 var(--font-mono, ui-monospace, Menlo, monospace); background: var(--soft);
-    padding: 1px 4px; border-radius: 4px; }
-  .see { margin-top: 10px; font-size: 13px; color: var(--dim); }
-  .see .link { font-size: 13px; }
-  .row { display: flex; gap: 8px; margin: 6px 0 2px; }
-  button { font: inherit; font-size: 13px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line);
-    background: transparent; color: var(--fg); cursor: pointer; }
-  button:hover { border-color: var(--accent); }
-  input { font: inherit; font-size: 13px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line);
-    background: var(--bg); color: var(--fg); flex: 1; min-width: 140px; }
-  .foot { margin-top: 12px; color: var(--dim); font-size: 11px; }
-  .empty { color: var(--dim); }
-  .hidden, [hidden] { display: none !important; }
-  .welcome { margin: 10px 0 4px; }
-  .welcome p { margin: 0 0 8px; }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .others { margin-top: 12px; font-size: 13px; }
-  .others > summary { color: var(--dim); }
-  .others > summary::before { content: "▸ "; } .others[open] > summary::before { content: "▾ "; }
-  .agent { display: flex; align-items: center; gap: 8px; margin: 6px 0 0 14px; }
-  .agent .ok { color: var(--done); font-size: 12px; }
-  .notice { margin: 8px 0 0; font-size: 13px; }
-  .behind { margin-top: 8px; font-size: 12px; color: var(--new); }
+    font: 14px/1.5 var(--font-sans, -apple-system, system-ui, sans-serif); }
+  main { padding: 12px 16px 10px; }
+
+  /* The mark: Athos is here. Idle it breathes; while the task moves it pulses; when it learns, it glows. */
+  .top { display: flex; align-items: center; gap: 12px; }
+  .mark { position: relative; width: 34px; height: 34px; flex: none; }
+  .mark .core { position: absolute; inset: 11px; border-radius: 50%; background: var(--accent);
+    animation: breathe 3.2s ease-in-out infinite; }
+  .mark .ring { position: absolute; inset: 3px; border-radius: 50%; border: 1.5px solid var(--accent); opacity: .35; }
+  .mark .orbit { position: absolute; inset: 0; animation: spin 2.4s linear infinite; opacity: 0; transition: opacity .4s; }
+  .mark .orbit::after { content: ""; position: absolute; top: 1px; left: 15px; width: 5px; height: 5px;
+    border-radius: 50%; background: var(--accent); }
+  [data-mode="active"] .mark .orbit { opacity: 1; }
+  [data-mode="active"] .mark .core { animation-duration: 1.6s; }
+  .mark.pulse .ring { animation: ping .9s ease-out; }
+  [data-mode="learning"] .mark .core { background: var(--star); animation: glow 1s ease-in-out infinite; }
+  [data-mode="learning"] .mark .orbit::after { background: var(--star); }
+  [data-mode="learning"] .mark .orbit { opacity: 1; animation-duration: 1s; }
+  [data-mode="done"] .mark .core { background: var(--done); animation: none; }
+  [data-mode="done"] .mark .orbit { opacity: 0; animation: none; }
+  [data-mode="done"] .dot.now { animation: none; transform: none; }
+  .receipt { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--soft); animation: rise .35s ease-out; }
+  .receipt .sum { font-size: 13px; }
+  .receipt h3 { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); margin: 10px 0 4px; font-weight: 600; }
+  .receipt .row { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 2px 0; }
+  .receipt .row .undo { margin-left: auto; }
+  .chip { font: inherit; font-size: 12.5px; border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+    border-radius: 999px; padding: 3px 10px; margin: 2px 4px 2px 0; cursor: pointer; }
+  .chip:hover, .undo:hover { border-color: var(--accent); }
+  .undo { font: inherit; font-size: 12px; border: 1px solid var(--line); background: none; color: var(--dim);
+    border-radius: 6px; padding: 1px 8px; cursor: pointer; }
+  @keyframes breathe { 0%, 100% { transform: scale(.82); opacity: .75; } 50% { transform: scale(1); opacity: 1; } }
+  @keyframes glow { 0%, 100% { box-shadow: 0 0 0 0 var(--star); } 50% { box-shadow: 0 0 10px 3px var(--star); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes ping { 0% { transform: scale(1); opacity: .6; } 100% { transform: scale(1.5); opacity: 0; } }
+  .status { flex: 1; min-width: 0; }
+  .status .what { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .status .sub { color: var(--dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* The trajectory at a glance: one dot per step, the branch steps smaller. */
+  .dots { display: flex; flex-wrap: wrap; gap: 4px; margin: 10px 0 0; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); transition: background .4s, transform .4s; }
+  .dot.sub { width: 6px; height: 6px; margin-top: 1.5px; }
+  .dot.done { background: var(--done); }
+  .dot.now { background: var(--accent); transform: scale(1.35); animation: breathe 1.6s ease-in-out infinite; }
+  .dot.skipped { background: transparent; border: 1px dashed var(--line); box-sizing: border-box; }
+  .dot { cursor: pointer; border: none; padding: 0; }
+  .dot.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .list { margin: 8px 0 0; font-size: 13px; }
+  .list > summary { cursor: pointer; color: var(--dim); font-size: 12px; list-style: none; }
+  .list > summary::before { content: "▸ "; } .list[open] > summary::before { content: "▾ "; }
+  .list ol { list-style: none; margin: 4px 0 0; padding: 0; }
+  .list li { display: flex; gap: 8px; padding: 3px 4px; border-radius: 6px; cursor: pointer; color: var(--dim); }
+  .list li:hover { background: var(--soft); }
+  .list li.now { color: var(--fg); font-weight: 600; }
+  .list li.done { color: var(--fg); }
+  .list li.skipped span.t { text-decoration: line-through; }
+  .list li.sel { background: var(--soft); outline: 1px solid var(--line); }
+  .list li .m { flex: none; width: 14px; text-align: center; }
+  .list li .r { margin-left: auto; color: var(--star); flex: none; }
+  .card .did { margin-top: 6px; font-size: 13px; }
+  .card .back { font: inherit; font-size: 12px; background: none; border: none; padding: 0; color: var(--accent);
+    cursor: pointer; text-decoration: underline; margin-top: 6px; }
+  .pin { margin-left: auto; font: inherit; font-size: 12px; background: none; border: 1px solid var(--line);
+    border-radius: 6px; padding: 2px 8px; color: var(--dim); cursor: pointer; }
+
+  /* The moment: what the step says, when it applies and why, as the person wrote it. */
+  .card { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--soft); animation: rise .35s ease-out; }
+  .card .label { font: 600 15px/1.35 var(--serif); }
+  .card p { margin: 4px 0 0; font-size: 13px; }
+  .card .k { color: var(--dim); }
+  .card .earlier { margin-top: 6px; font-size: 12px; color: var(--dim); }
+  .flash { margin: 8px 0 0; font-size: 12.5px; color: var(--accent); animation: rise .35s ease-out; }
+  .flash.quiet { color: var(--dim); }
+  @keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* The only control: stars, at any moment. */
+  .rate { display: flex; align-items: center; gap: 10px; margin: 12px 0 0; padding-top: 8px; border-top: 1px solid var(--line); }
+  .stars { display: flex; gap: 2px; }
+  .stars button { font: 20px/1 sans-serif; background: none; border: none; padding: 0 2px; cursor: pointer;
+    color: var(--line); transition: color .15s, transform .15s; }
+  .stars button.on { color: var(--star); }
+  .stars button:hover { transform: scale(1.15); }
+  .stars.sent button.on { animation: pop .5s ease-out; }
+  @keyframes pop { 50% { transform: scale(1.4); } }
+  .rate .hint { color: var(--dim); font-size: 12px; }
+  .stars b { font-weight: inherit; }
 </style>
 </head>
 <body>
-<main>
+<main id="app" data-mode="idle">
   <div class="top">
-    <span class="brand">Athos</span>
-    <span class="hello" id="hello"></span>
-    <span class="modes"><button id="pip" class="hidden"></button> <button id="full" class="hidden"></button></span>
+    <div class="mark" id="mark"><div class="ring"></div><div class="orbit"></div><div class="core"></div></div>
+    <div class="status"><div class="what" id="what"></div><div class="sub" id="sub"></div></div>
+    <button class="pin" id="pin" hidden></button>
   </div>
-  <div id="page"></div>
-  <div class="foot" id="foot"></div>
+  <div class="dots" id="dots"></div>
+  <details class="list" id="list"><summary id="listsum"></summary><ol id="steps"></ol></details>
+  <div id="ctx"></div>
+  <div id="flash"></div>
+  <div class="rate">
+    <div class="stars" id="stars"></div>
+    <span class="hint" id="hint"></span>
+  </div>
 </main>
 <script>
-// Athos's trail panel for MCP Apps hosts (Claude Desktop's chat). It reads like a wiki page with a task list and,
-// above it, the agent's reasoning in sentences: which of the person's know-how it found and why, how far it is.
-// JSON-RPC with the host over postMessage; it draws what the athos_* tools return (structuredContent) and asks the
-// app-only athos_trail again while the task runs.
 const WORDS = {
   en: {
-    thinking: 'How I am going about it',
-    searched: n => `I looked through your ${n} way${n === 1 ? '' : 's'} of working for this request.`,
-    found: t => `I'm following «${t}».`,
-    opened: t => `I also opened «${t}».`,
-    used: (u, ok, m, a) => `You've used it ${u} time${u === 1 ? '' : 's'}` + (m ? `; ${ok} of ${m} went well` : '') +
-      (a.length ? ` (in ${a.join(', ')})` : '') + '.',
-    first: 'It is the first time it is used.',
-    at: (i, n, l) => `Step ${i} of ${n}: ${l}.`, allDone: n => `All ${n} steps applied.`,
-    notYet: 'Its steps are below; each one shows what to do and why.',
-    agent: (n, w) => w ? `I asked ${n} to ${w}.` : `I used the ${n} agent.`, skill: n => `I used the ${n} skill.`,
-    newOne: n => `I took a step your know-how doesn't have yet: ${n}.`,
-    guarded: (n, w) => `🔒 Personal data goes through ${n}: ${w}.`, unguarded: n => `⚠ ${n} is not running: don't paste client data until it is.`,
-    nothing: "I found no way of working for this yet. If the task takes several steps, I'll note them so you can keep it.",
-    took: (c, t) => `The case met the condition (${c}), so I went into «${t}».`,
-    skipped: (c, t) => `I skipped «${t}»: the case didn't meet the condition (${c}).`,
-    ifHead: c => `If ${c}`, callHead: 'Hands over to', taken: 'taken', notNeeded: 'not needed', pending: 'if the case needs it',
-    steps: 'Steps', now: 'now', why: 'Why', when: 'When', adjust: 'Change this step', send: 'Send',
-    how: 'How should this step change?', newSteps: 'New steps', saveNew: 'Save as a way of working',
-    edited: n => `You edited ${n} after the agent wrote it: a rule to keep?`, keepRule: 'Keep this rule',
-    see: 'See also', show: t => `Show me the way of working «${t}»`, version: v => `version ${v}`,
-    foot: 'Your know-how, in ~/.athos on this computer.', waiting: 'The next task shows here.',
-    pip: 'Keep beside', full: 'Full screen', for: 'For',
-    pick: 'What is your work? I\'ll add a few example ways of working for it, as plain files you can change.',
-    others: 'Use Athos in your other agents too', connect: 'Connect', connected: 'connected', tryIt: 'Try it:',
-    working: 'One moment…', failed: 'That didn\'t work:',
+    idle: 'Athos is with you', idleSub: 'Rate any moment: it learns what works for you.',
+    following: t => `Following «${t}»`, step: (i, n) => `step ${i} of ${n}`, done: n => `All ${n} steps done`,
+    drafting: 'Noting the steps of this task', draftingSub: 'They will become your way of working.',
+    when: 'When', why: 'Why', took: (c, t) => `↳ Went into «${t}»: ${c}`, called: t => `↳ Went into «${t}»`,
+    skipped: t => `Skipped «${t}»: the case didn't need it`, earlier: s => `Last time here: ${s}`,
+    rateHint: 'How is this going?', thanks: (n, l) => `${n}/5${l ? ` on «${l}»` : ''}: learning from this moment`,
+    learnBad: 'I will avoid this next time.', learnGood: 'I will repeat what worked.', learnOk: 'Noted.',
+    labels: ['Bad', 'Weak', 'OK', 'Good', 'Very good'],
+    did: 'Done here', back: 'Back to the current step', rating: l => `Rating «${l}»`,
+    steps: (d, n) => `Steps · ${d} of ${n} done`, pin: 'Keep beside',
+    finished: t => `Done · «${t}»`, summary: (d, n) => `${d} of ${n} steps applied`, tookList: 'went into',
+    skippedList: 'skipped', learned: 'Learned in this task', undo: 'Undo', undone: 'undone', newPage: 'new',
+    related: 'Other ways of working that fit', use: t => `Use my way of working «${t}» for this.`,
+    rateTask: 'How did the task go?',
   },
   es: {
-    thinking: 'Cómo lo estoy resolviendo',
-    searched: n => `Busqué entre tus ${n} forma${n === 1 ? '' : 's'} de trabajar la que corresponde a este pedido.`,
-    found: t => `Sigo «${t}».`,
-    opened: t => `También abrí «${t}».`,
-    used: (u, ok, m, a) => `La usaste ${u} ${u === 1 ? 'vez' : 'veces'}` + (m ? `; ${ok} de ${m} salieron bien` : '') +
-      (a.length ? ` (en ${a.join(', ')})` : '') + '.',
-    first: 'Es la primera vez que se usa.',
-    at: (i, n, l) => `Paso ${i} de ${n}: ${l}.`, allDone: n => `Apliqué los ${n} pasos.`,
-    notYet: 'Sus pasos están abajo; cada uno dice qué hacer y por qué.',
-    agent: (n, w) => w ? `Le pedí a ${n}: ${w}.` : `Usé el agente ${n}.`, skill: n => `Usé la skill ${n}.`,
-    newOne: n => `Di un paso que tu know-how todavía no tiene: ${n}.`,
-    guarded: (n, w) => `🔒 Los datos personales pasan por ${n}: ${w}.`, unguarded: n => `⚠ ${n} no está activo: no pegues datos de clientes hasta que lo esté.`,
-    nothing: 'No encontré una forma de trabajar para esto. Si la tarea tiene varios pasos, los anoto para que la puedas guardar.',
-    took: (c, t) => `El caso cumplía la condición (${c}), así que entré en «${t}».`,
-    skipped: (c, t) => `Salteé «${t}»: el caso no cumplía la condición (${c}).`,
-    ifHead: c => `Si ${c}`, callHead: 'Pasa a', taken: 'tomada', notNeeded: 'no hizo falta', pending: 'si el caso lo pide',
-    steps: 'Pasos', now: 'ahora', why: 'Por qué', when: 'Cuándo', adjust: 'Cambiar este paso', send: 'Enviar',
-    how: '¿Cómo tiene que cambiar este paso?', newSteps: 'Pasos nuevos', saveNew: 'Guardar como forma de trabajar',
-    edited: n => `Editaste ${n} después del agente: ¿guardo la regla?`, keepRule: 'Guardar esta regla',
-    see: 'Ver también', show: t => `Mostrame la forma de trabajar «${t}»`, version: v => `versión ${v}`,
-    foot: 'Tu know-how, en ~/.athos en esta computadora.', waiting: 'Acá se ve la próxima tarea.',
-    pip: 'Fijar al costado', full: 'Pantalla completa', for: 'Para',
-    pick: '¿A qué te dedicás? Te agrego algunas formas de trabajar de ejemplo, como archivos que podés cambiar.',
-    others: 'Usá Athos también en tus otros agentes', connect: 'Conectar', connected: 'conectado', tryIt: 'Probá:',
-    working: 'Un momento…', failed: 'No funcionó:',
+    idle: 'Athos está con vos', idleSub: 'Calificá cualquier momento: aprende lo que te sirve.',
+    following: t => `Sigo «${t}»`, step: (i, n) => `paso ${i} de ${n}`, done: n => `Listo: ${n} pasos`,
+    drafting: 'Anoto los pasos de esta tarea', draftingSub: 'Van a ser tu forma de trabajar.',
+    when: 'Cuándo', why: 'Por qué', took: (c, t) => `↳ Entré en «${t}»: ${c}`, called: t => `↳ Entré en «${t}»`,
+    skipped: t => `Salteé «${t}»: el caso no lo pedía`, earlier: s => `La última vez acá: ${s}`,
+    rateHint: '¿Cómo va?', thanks: (n, l) => `${n}/5${l ? ` en «${l}»` : ''}: aprendo de este momento`,
+    learnBad: 'La próxima lo evito.', learnGood: 'Voy a repetir lo que funcionó.', learnOk: 'Anotado.',
+    labels: ['Mal', 'Flojo', 'Bien', 'Muy bien', 'Excelente'],
+    did: 'Lo que hice acá', back: 'Volver al paso actual', rating: l => `Calificás «${l}»`,
+    steps: (d, n) => `Pasos · ${d} de ${n} hechos`, pin: 'Fijar al costado',
+    finished: t => `Listo · «${t}»`, summary: (d, n) => `${d} de ${n} pasos aplicados`, tookList: 'entró en',
+    skippedList: 'salteó', learned: 'Lo que aprendí en esta tarea', undo: 'Deshacer', undone: 'deshecho', newPage: 'nueva',
+    related: 'Otras formas de trabajar que encajan', use: t => `Usá mi forma de trabajar «${t}» para esto.`,
+    rateTask: '¿Cómo salió la tarea?',
   },
 };
-let state = null, host = {}, nextId = 1, polls = 0, editing = null, notice = '', tryText = '';
-const open = new Set();
+let state = null, prev = null, host = {}, nextId = 1, polls = 0, learning = 0, flash = null, hover = 0, sel = null;
+const rated = {};                      // stars given in this panel, per step (piece#id), or 'task'
+const undone = new Set();
+const keyOf = (x, p) => (x.piece || p.id) + '#' + x.id;
 const pending = new Map();
 const $ = id => document.getElementById(id);
 const w = () => WORDS[state && state.lang === 'es' ? 'es' : 'en'];
+const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const md = t => esc(t).replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (_, p, l) => l || p.replace(/-/g, ' '))
+  .replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+const lower = t => t ? t[0].toLowerCase() + t.slice(1).replace(/[.\s]+$/, '') : t;
+const plain = t => (t || '').replace(/^↳ /, '');
 
 function send(msg) { window.parent.postMessage({ jsonrpc: '2.0', ...msg }, '*'); }
 function request(method, params) {
@@ -182,206 +192,192 @@ window.addEventListener('message', ev => {
   if (m.id !== undefined && pending.has(m.id) && !m.method) {
     const p = pending.get(m.id); pending.delete(m.id);
     m.error ? p.reject(m.error) : p.resolve(m.result);
-  } else if (m.method === 'ui/notifications/tool-result') {
-    take(m.params);
-  } else if (m.method === 'ui/notifications/host-context-changed') {
-    theme(m.params || {}); draw();
-  }
+  } else if (m.method === 'ui/notifications/tool-result') take(m.params);
+  else if (m.method === 'ui/notifications/host-context-changed') { theme(m.params || {}); draw(); }
 });
 
 function theme(ctx) {
+  if (ctx.availableDisplayModes) host.modes = ctx.availableDisplayModes;
+  if (ctx.displayMode) host.mode = ctx.displayMode;
   if (ctx.theme) document.documentElement.dataset.theme = ctx.theme;
   for (const [k, v] of Object.entries((ctx.styles && ctx.styles.variables) || {}))
     if (v) document.documentElement.style.setProperty(k, v);
-  if (ctx.availableDisplayModes) host.modes = ctx.availableDisplayModes;
-  if (ctx.displayMode) host.mode = ctx.displayMode;
 }
 
 function take(result) {
-  const s = result && (result.structuredContent || (result._meta && result._meta['athos/panel']) ||
-    (() => { try { return JSON.parse(result.content[0].text) } catch (e) { return null } })());
-  if (!s || !s.trail) return;
-  const before = JSON.stringify(state);
-  state = s;
-  if (JSON.stringify(state) !== before && editing === null) draw();
-}
-
-function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
-// The pages are markdown: `code`, **bold** and [[page#step|label]] links read as such, not as symbols.
-function md(t) {
-  return esc(t)
-    .replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (_, p, l) => l || p.replace(/-/g, ' '))
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
-}
-const lower = t => t ? t[0].toLowerCase() + t.slice(1).replace(/[.\s]+$/, '') : t;
-// Long text cut at a word, with an ellipsis, never in the middle of one.
-const cut = (t, n) => t.length <= n ? t : t.slice(0, t.lastIndexOf(' ', n)).replace(/[,;:(\s]+$/, '') + '…';
-
-function thinking(t, W) {
-  const out = [W.searched(state.pieces)];
-  const p = t.pieces[0];
-  if (p) {
-    out.push(W.found(p.title));
-    const r = p.record || {};
-    out.push(r.uses > 1 ? W.used(r.uses, r.ok, r.marked, r.agents || []) : W.first);
-    const i = p.steps.findIndex(x => x.state === 'now');
-    const done = p.steps.filter(x => x.state === 'done').length;
-    out.push(i >= 0 ? W.at(i + 1, p.steps.length, lower(p.steps[i].label.replace(/^↳ /, '')))
-      : done && done === p.steps.length ? W.allDone(done) : W.notYet);
-    // Only pieces the agent opened on purpose; another one the request's words merely matched is not news to the
-    // person (and named a private piece in a demo, 2026-10-30).
-    // The strategy in words: which branch the case took and which it didn't need, and why.
-    for (const h of p.steps.filter(x => x.via && x.if)) {
-      if (h.state === 'skipped') out.push(W.skipped(lower(h.if), h.via));
-      else if (h.state !== 'ahead') out.push(W.took(lower(h.if), h.via));
-    }
-    for (const q of t.pieces.slice(1).filter(q => q.how === 'read')) out.push(W.opened(q.title));
-  } else if (!t.new.length) out.push(W.nothing);
-  for (const c of t.connectors || []) out.push(c.active ? W.guarded(c.name, c.what) : W.unguarded(c.name));
-  for (const b of t.beside) out.push(b.kind === 'agent' ? W.agent(b.name, b.why) : W.skill(b.name));
-  for (const n of t.new) out.push(W.newOne(n));
-  return out;
-}
-
-const tag = (x, W) => {
-  const t = x.state === 'skipped' ? W.notNeeded : x.state === 'ahead' ? (x.if ? W.pending : '') : W.taken;
-  return t ? ' · ' + esc(t) : '';
-};
-
-function step(p, x, W) {
-  const key = (x.piece || p.id) + '#' + x.id;   // a sub-step belongs to the page it came from
-  const isOpen = open.has(key) || x.state === 'now';
-  const mark = x.state === 'done' ? '✓' : x.state === 'now' ? '▸' : x.state === 'skipped' ? '–' : '';
-  const pad = x.depth ? ` style="margin-left:${x.depth * 18}px"` : '';
-  // Where the task branches: the condition and the page it goes to, and whether the case took it.
-  const head = !x.via ? '' : `<li class="branch ${x.state}"${pad}><span class="cond">${esc(x.if ? W.ifHead(lower(x.if)) : W.callHead)}</span>` +
-    ` → <span class="page">«${esc(x.via)}»</span>${tag(x, W)}</li>`;
-  return head + `<li class="${x.state}"${pad}><details data-key="${esc(key)}"${isOpen ? ' open' : ''}>
-    <summary><span class="box">${mark}</span><span class="label" data-now="${esc(W.now)}">${md(x.label)}</span></summary>
-    <div class="body">${x.when ? `<p class="because"><b>${esc(W.when)}:</b> ${md(lower(x.when))}</p>` : ''}${x.do && x.do !== x.label ? `<p>${md(x.do)}</p>` : ''}${x.because ? `<p class="because"><b>${esc(W.why)}:</b> ${md(x.because)}</p>` : ''}
-    ${editing === key
-      ? `<div class="row"><input id="adjustText" placeholder="${esc(W.how)}"><button data-send="${esc(key)}">${esc(W.send)}</button></div>`
-      : `<button class="link" data-adjust="${esc(key)}">${esc(W.adjust)}</button>`}</div></details></li>`;
-}
-
-// Besides the task: on a first use (no ways of working yet) the professions, one button each; the other agents on
-// this computer with [Connect]; one line when an agent runs an older Athos. Each button calls an app-only tool on
-// the person's click: nothing changes their setup by itself.
-function setupHtml(W, idle) {
-  const s = state.setup || {};
-  if (!host.serverTools) return '';
-  let out = '';
-  if (state.pieces === 0 && (s.professions || []).length)
-    out += `<div class="welcome"><p>${esc(W.pick)}</p><div class="chips">` +
-      s.professions.map(([id, name]) => `<button data-profile="${esc(id)}">${esc(name)}</button>`).join('') + '</div></div>';
-  if (notice) out += `<p class="notice">${md(notice)}</p>`;
-  if (tryText) out += `<div class="row"><span class="because">${esc(W.tryIt)}</span><button data-try="1">${esc(tryText)}</button></div>`;
-  const agents = s.agents || [];
-  if (agents.length) {
-    const todo = agents.some(a => !a.connected);
-    out += `<details class="others"${todo && idle ? ' open' : ''}><summary>${esc(W.others)}</summary>` +
-      agents.map(a => `<div class="agent"><span>${esc(a.name)}</span>` + (a.connected
-        ? `<span class="ok">✓ ${esc(W.connected)}</span>`
-        : `<button data-connect="${esc(a.id)}">${esc(W.connect)}</button>`) + '</div>').join('') + '</details>';
+  const s = (result && result._meta && result._meta['athos/panel']) || (result && result.structuredContent);
+  let next = s;
+  if (!next && result && result.content) {
+    try { next = JSON.parse(result.content[0].text); } catch (e) { return; }
   }
-  if (s.behind) out += `<p class="behind">⚠ ${esc(s.behind)}</p>`;
-  return out;
+  if (!next || !next.trail) return;
+  prev = state; state = next;
+  triggers(prev, state);
+  draw();
 }
 
-async function act(name, args) {
-  const W = w();
-  notice = W.working; draw();
-  try {
-    const r = await request('tools/call', { name, arguments: args });
-    const text = ((r && r.content && r.content[0]) || {}).text || '';
-    if (r && r.isError) { notice = `${W.failed} ${text}`; }
-    else if (name === 'athos_start') {
-      try { const o = JSON.parse(text); notice = o.line; tryText = (o.added || []).length ? o.try : ''; }
-      catch (e) { notice = text; }
-    } else notice = text;
-    take(r);
-  } catch (e) { notice = `${W.failed} ${(e && e.message) || ''}`; }
-  draw();
+// Contextual triggers: what changed since the panel last looked decides what it shows and how it moves.
+function triggers(a, b) {
+  if (!a || a.trail.task_id !== b.trail.task_id) { flash = null; sel = null; return; }
+  const before = new Map(((a.trail.pieces[0] || {}).steps || []).map(x => [(x.piece || '') + '#' + x.id, x.state]));
+  const steps = (b.trail.pieces[0] || {}).steps || [];
+  for (const x of steps) {
+    if (!x.via) continue;
+    const was = before.get((x.piece || '') + '#' + x.id);
+    if (was === 'ahead' && (x.state === 'now' || x.state === 'done'))
+      flash = { text: x.if ? w().took(lower(x.if), x.via) : w().called(x.via), quiet: false, until: Date.now() + 9000 };
+    else if (was === 'ahead' && x.state === 'skipped')
+      flash = { text: w().skipped(x.via), quiet: true, until: Date.now() + 7000 };
+  }
+  if ((a.moment || {}).moved !== (b.moment || {}).moved) pulse();
+}
+
+function pulse() {
+  const m = $('mark'); m.classList.remove('pulse'); void m.offsetWidth; m.classList.add('pulse');
+}
+
+function mode() {
+  if (learning > Date.now()) return 'learning';
+  const t = state && state.trail;
+  if (state && state.ended) return 'done';
+  if (!t || !t.busy) return 'idle';
+  const steps = (t.pieces[0] || {}).steps || [];
+  if (steps.length && steps.every(x => x.state === 'done' || x.state === 'skipped')) return 'done';
+  return 'active';
 }
 
 function draw() {
-  if (!state) return;
-  const W = w(), t = state.trail;
-  $('hello').textContent = state.greeting || '';
-  $('foot').textContent = W.foot;
-  let html = `<details class="think" open><summary>${esc(W.thinking)}</summary>` +
-    thinking(t, W).map(l => `<p>${md(l)}</p>`).join('') + '</details>';
-  const p = t.pieces[0];
+  const W = w(), t = state ? state.trail : null, m = (state && state.moment) || {};
+  $('app').dataset.mode = mode();
+  const p = t && t.pieces[0];
+  const steps = (p && p.steps) || [];
+  let what = W.idle, sub = W.idleSub;
   if (p) {
-    html += `<article><h1>${esc(p.title)}</h1><div class="meta">${esc(W.version(p.version))}</div>` +
-      `<p class="lede"><b>${esc(W.for)}:</b> ${md(cut(lower(p.when), 240))}</p>` +
-      `<h2>${esc(W.steps)}</h2><ol class="tasks">${p.steps.map(x => step(p, x, W)).join('')}</ol>`;
-    if (p.see.length)
-      html += `<div class="see">${esc(W.see)}: ` + p.see.map(s =>
-        `<button class="link" data-show="${esc(s.title)}">${esc(s.title)}</button>`).join(' · ') + '</div>';
-    html += '</article>';
-  }
-  if (t.new.length) {
-    html += `<h2>${esc(W.newSteps)}</h2><ol class="tasks">` + t.new.map(n =>
-      `<li class="new"><details><summary><span class="box">+</span><span class="label">${md(n)}</span></summary></details></li>`).join('') +
-      `</ol><div class="row"><button id="save">${esc(W.saveNew)}</button></div>`;
-  }
-  // A file the person edited by hand after the agent wrote it: the agent proposed the rule; one click keeps it.
-  for (const x of t.edits || [])
-    html += `<div class="row"><span>✎ ${esc(W.edited(x.name))}</span><button data-keep="${esc(x.keep)}">${esc(W.keepRule)}</button></div>`;
-  if (!p && !t.new.length && !state.trail.task_id) html = `<p class="empty">${esc(W.waiting)}</p>`;
-  html += setupHtml(W, !p);
-  $('page').innerHTML = html;
+    const i = steps.findIndex(x => x.state === 'now'), n = steps.length;
+    what = W.following(p.title);
+    sub = i >= 0 ? `${W.step(i + 1, n)} · ${plain(steps[i].label)}`
+      : steps.every(x => x.state === 'done' || x.state === 'skipped') && n ? W.done(steps.filter(x => x.state === 'done').length)
+      : (state.greeting || '');
+  } else if (t && t.new.length) { what = W.drafting; sub = t.new[t.new.length - 1]; }
+  if (state && state.ended) { what = W.finished(p ? p.title : ''); sub = state.ended.outcome || sub; }
+  $('what').textContent = what; $('sub').textContent = sub;
 
-  const modes = host.modes || [];
-  $('pip').textContent = W.pip; $('pip').classList.toggle('hidden', !modes.includes('pip') || host.mode === 'pip');
-  $('full').textContent = W.full;
-  $('full').classList.toggle('hidden', !modes.includes('fullscreen') || host.mode === 'fullscreen');
-  const input = $('adjustText');
-  if (input) { input.focus(); input.onkeydown = e => { if (e.key === 'Enter') adjustSend(editing); }; }
+  const now = steps.find(x => x.state === 'now');
+  if (sel && !steps.some(x => keyOf(x, p) === sel)) sel = null;
+  const cur = (sel && steps.find(x => keyOf(x, p) === sel)) || now;
+  const curKey = cur ? keyOf(cur, p) : '';
+  const isSel = k => sel && k === sel;
+  $('dots').innerHTML = steps.map(x => `<button class="dot ${x.state}${x.depth ? ' sub' : ''}${isSel(keyOf(x, p)) ? ' sel' : ''}" data-k="${esc(keyOf(x, p))}" title="${esc(plain(x.label))}"></button>`).join('');
+  // Every step, to open one later and rate it: what it says and what was done there.
+  const mk = { done: '✓', now: '▸', skipped: '–', ahead: '○' };
+  $('list').hidden = !steps.length;
+  $('listsum').textContent = W.steps(steps.filter(x => x.state === 'done').length, steps.length);
+  $('steps').innerHTML = steps.map(x => { const k = keyOf(x, p); return `<li class="${x.state}${isSel(k) ? ' sel' : ''}" data-k="${esc(k)}" style="${x.depth ? `padding-left:${4 + x.depth * 14}px` : ''}">` +
+    `<span class="m">${mk[x.state] || ''}</span><span class="t">${md(plain(x.label))}</span>` +
+    (rated[k] ? `<span class="r">${'★'.repeat(rated[k])}</span>` : '') + '</li>'; }).join('');
+  let card = '';
+  if (cur) {
+    const earlier = (m.earlier || [])[0];
+    // The step's title is the start of what to do: when it is, the card says what to do once, in full.
+    // A short title (the step's action), then what to do in full only when it says more than the title.
+    const title = plain(cur.label);
+    const whole = !cur.do || cur.do.replace(/[.\s]+$/, '').toLowerCase() === title.replace(/…$/, '').toLowerCase();
+    // Inside a branch, the card says which page it is in and the condition that led there.
+    const at = steps.indexOf(cur);
+    const head0 = cur.depth ? steps.slice(0, at + 1).reverse().find(x => x.via && x.depth === cur.depth) : null;
+    const branch = head0 ? `<div class="k" style="font-size:12px">${esc(head0.if ? W.took(lower(head0.if), head0.via) : W.called(head0.via))}</div>` : '';
+    card = `<div class="card">${branch}<div class="label">${md(title)}</div>` +
+      (cur.when ? `<p><span class="k">${esc(W.when)}:</span> ${md(lower(cur.when))}</p>` : '') +
+      (!whole ? `<p>${md(cur.do[0].toUpperCase() + cur.do.slice(1))}</p>` : '') +
+      (cur.because ? `<p><span class="k">${esc(W.why)}:</span> ${md(cur.because)}</p>` : '') +
+      (cur.did ? `<p class="did"><span class="k">${esc(W.did)}:</span> ${md(cur.did)}</p>` : '') +
+      (earlier && !sel ? `<div class="earlier">${esc(W.earlier('★'.repeat(earlier.stars) + '☆'.repeat(5 - earlier.stars)))}</div>` : '') +
+      (sel && cur !== now ? `<button class="back" data-back="1">${esc(W.back)}</button>` : '') +
+      '</div>';
+  }
+  // The receipt: once the task is closed, what it did, what it learned (with undo) and what else fits.
+  if (state && state.ended && !sel) {
+    const took = steps.filter(x => x.via && x.state !== 'skipped' && x.state !== 'ahead').map(x => `«${x.via}»`);
+    const skip = steps.filter(x => x.via && x.state === 'skipped').map(x => `«${x.via}»`);
+    const done = steps.filter(x => x.state === 'done').length;
+    card = `<div class="receipt"><div class="sum">${esc(W.summary(done, steps.length))}` +
+      (took.length ? ` · ${esc(W.tookList)} ${esc(took.join(', '))}` : '') +
+      (skip.length ? ` · ${esc(W.skippedList)} ${esc(skip.join(', '))}` : '') + '</div>' +
+      ((state.learned || []).length ? `<h3>${esc(W.learned)}</h3>` + state.learned.map(l => {
+        const k = l.id + '@' + l.version;
+        return `<div class="row"><span>${esc(l.title)} · ${l.before ? 'v' + l.version : esc(W.newPage)}` +
+          (l.note ? `<span class="k"> — ${esc(l.note)}</span>` : '') + '</span>' +
+          (l.before && !undone.has(k) ? `<button class="undo" data-undo="${esc(l.id)}" data-v="${l.before}" data-key="${esc(k)}">${esc(W.undo)}</button>`
+            : undone.has(k) ? `<span class="k undo-done">${esc(W.undone)}</span>` : '') + '</div>'; }).join('') : '') +
+      ((state.related || []).length ? `<h3>${esc(W.related)}</h3>` + state.related.map(r =>
+        `<button class="chip" data-use="${esc(r.title)}">${esc(r.title)}</button>`).join('') : '') + '</div>';
+  }
+  // Redrawn only when the moment changes, so the card rises once per step instead of on every poll.
+  if ($('ctx').dataset.card !== card) { $('ctx').dataset.card = card; $('ctx').innerHTML = card; }
+
+  $('flash').innerHTML = flash && flash.until > Date.now() ? `<div class="flash${flash.quiet ? ' quiet' : ''}">${esc(flash.text)}</div>` : '';
+
+  const whole = state && state.ended && !sel;
+  const shown = hover || rated[whole ? 'task' : curKey] || 0;
+  $('stars').innerHTML = [1, 2, 3, 4, 5].map(n =>
+    `<button data-n="${n}" class="${n <= shown ? 'on' : ''}" title="${esc(W.labels[n - 1])}" aria-label="${n}/5 ${esc(W.labels[n - 1])}">★</button>`).join('');
+  if (!$('hint').dataset.locked)
+    $('hint').textContent = hover ? W.labels[hover - 1] : whole ? W.rateTask
+      : sel && cur ? W.rating(plain(cur.label).slice(0, 40)) : W.rateHint;
+  const pin = $('pin');
+  pin.hidden = !(host.modes || []).includes('pip') || host.mode === 'pip';
+  pin.textContent = W.pin;
   size();
 }
 
-// The person's words go to the chat as their message; the agent then improves the page (the server's
-// instructions say how). Hosts may ask the person first.
-function say(text) { return request('ui/message', { role: 'user', content: { type: 'text', text } }).catch(() => {}); }
-function adjustSend(key) {
-  const text = ($('adjustText') || {}).value;
-  if (!key || !text || !text.trim()) return;
-  say(`${state.adjust_prefix} ${key}: ${text.trim()}`);
-  editing = null; draw();
+// The only thing the panel asks: stars, whenever the person wants. The moment and its context go with them; the
+// learning is left to the model, told once in its next Athos result (and in its context where the host allows it).
+async function rate(n) {
+  const p = state && state.trail.pieces[0], steps = (p && p.steps) || [];
+  const cur = (sel && steps.find(x => keyOf(x, p) === sel)) || steps.find(x => x.state === 'now');
+  const args = { stars: n };
+  if (state && state.ended && !sel && p) { args.piece = p.id; rated.task = n; }
+  else if (cur) { args.piece = cur.piece || p.id; args.step = cur.id; rated[keyOf(cur, p)] = n; }
+  hover = 0; learning = Date.now() + 2600; draw();
+  $('stars').classList.add('sent');
+  try {
+    const r = await request('tools/call', { name: 'athos_rate', arguments: args });
+    let out = {};
+    try { out = JSON.parse(r.content[0].text); } catch (e) {}
+    const W = w();
+    $('hint').dataset.locked = '1';
+    const short = out.label && out.label.length > 38 ? out.label.slice(0, out.label.lastIndexOf(' ', 36)) + '…' : out.label;
+    $('hint').textContent = `${W.thanks(n, short)}. ${n <= 2 ? W.learnBad : n >= 4 ? W.learnGood : W.learnOk}`;
+    setTimeout(() => { delete $('hint').dataset.locked; $('stars').classList.remove('sent'); draw(); }, 6000);
+    if (host.modelContext && out.model_context)
+      request('ui/update-model-context', { content: [{ type: 'text', text: out.model_context }] }).catch(() => {});
+  } catch (e) {}
+  setTimeout(draw, 2700);
 }
 
 document.addEventListener('click', e => {
-  const b = e.target.closest('button');
-  if (!b) return;
-  if (b.dataset.adjust) { editing = b.dataset.adjust; open.add(editing); draw(); }
-  else if (b.dataset.send) adjustSend(b.dataset.send);
-  else if (b.dataset.show) say(w().show(b.dataset.show));
-  else if (b.dataset.keep) say(b.dataset.keep);
-  else if (b.dataset.profile) act('athos_start', { profile: b.dataset.profile, lang: state.lang });
-  else if (b.dataset.connect) act('athos_connect', { agent: b.dataset.connect });
-  else if (b.dataset.try) { say(tryText); tryText = ''; draw(); }
-  else if (b.id === 'save') say(state.save_prompt);
-  else if (b.id === 'pip') mode('pip');
-  else if (b.id === 'full') mode('fullscreen');
+  const b = e.target.closest('.stars button');
+  if (b) return rate(+b.dataset.n);
+  const s = e.target.closest('[data-k]');
+  if (s) { sel = s.dataset.k === sel ? null : s.dataset.k; draw(); return; }
+  if (e.target.closest('[data-back]')) { sel = null; draw(); return; }
+  const u = e.target.closest('[data-undo]');
+  if (u) {
+    request('tools/call', { name: 'athos_library_do', arguments: { action: 'revert', id: u.dataset.undo, version: +u.dataset.v } })
+      .then(() => { undone.add(u.dataset.key); $('ctx').dataset.card = ''; draw(); }).catch(() => {});
+    return;
+  }
+  // Another way of working, chosen by the person: it goes to the chat as their own message, in plain sight.
+  const c = e.target.closest('[data-use]');
+  if (c) { request('ui/message', { role: 'user', content: { type: 'text', text: w().use(c.dataset.use) } }).catch(() => {}); return; }
+  if (e.target.closest('#pin')) request('ui/request-display-mode', { mode: 'pip' })
+    .then(r => { host.mode = r.mode; draw(); }).catch(() => {});
 });
-// Only the person's own clicks keep a step open: the current step opens by itself and closes once it is done, so
-// the finished list reads as a list (a step opened while current stayed open, 2026-10-30).
-document.addEventListener('click', e => {
-  const sum = e.target.closest('ol.tasks summary');
-  const d = sum && sum.parentElement;
-  if (!d || !d.dataset.key) return;
-  const k = d.dataset.key, now = d.parentElement.classList.contains('now');
-  setTimeout(() => { (d.open && !now) ? open.add(k) : open.delete(k); size(); });
-}, true);
-document.addEventListener('toggle', () => size(), true);
-
-async function mode(m) {
-  try { host.mode = (await request('ui/request-display-mode', { mode: m })).mode; } catch (e) {}
-  draw();
-}
+document.addEventListener('mouseover', e => {
+  const b = e.target.closest('.stars button');
+  const n = b ? +b.dataset.n : 0;
+  if (n !== hover) { hover = n; draw(); }
+});
 
 function size() {
   notify('ui/notifications/size-changed', { width: document.documentElement.scrollWidth,
@@ -393,19 +389,23 @@ async function poll() {
   if (!host.serverTools || polls > 1800) return;
   polls++;
   try { take(await request('tools/call', { name: 'athos_trail', arguments: {} })); } catch (e) {}
+  if (flash && flash.until <= Date.now()) { flash = null; draw(); }
   setTimeout(poll, polls < 300 ? 1500 : 5000);
 }
 
 (async () => {
   try {
     const r = await request('ui/initialize', {
-      protocolVersion: '2025-06-18', appInfo: { name: 'athos-trail', version: '2' },
-      appCapabilities: { availableDisplayModes: ['inline', 'pip', 'fullscreen'] },
+      protocolVersion: '2025-06-18', appInfo: { name: 'athos', version: '3' },
+      appCapabilities: { availableDisplayModes: ['inline', 'pip'] },
     });
-    host.serverTools = !!(r.hostCapabilities && r.hostCapabilities.serverTools);
+    const caps = r.hostCapabilities || {};
+    host.serverTools = !!caps.serverTools;
+    host.modelContext = !!caps.updateModelContext;
     theme(r.hostContext || {});
   } catch (e) {}
   notify('ui/notifications/initialized', {});
+  draw();
   poll();
 })();
 new ResizeObserver(size).observe(document.body);

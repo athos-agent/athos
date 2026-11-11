@@ -108,8 +108,15 @@ def on_tool(event: dict) -> None:
             note(sid, {"kind": "read", "piece": p.id, "title": p.title})
 
 
-def step(session_id: str, ref: str | None, new: str | None) -> str:
-    """`athos step <piece>#<statement>` / `athos step --new "<what>"`, run by the agent as it moves through a task."""
+def step(session_id: str, ref: str | None, new: str | None, did: str | None = None) -> str:
+    """`athos step <piece>#<statement>` / `athos step --new "<what>"`, run by the agent as it moves through a task.
+    `did`: one line of what the agent did in the step it is leaving, shown in the panel when the person opens it."""
+    if did:
+        state = session.load(session_id)
+        steps = [x for x in state.get("trail") or [] if x["kind"] in ("step", "new")]
+        if steps:
+            steps[-1]["did"] = did.strip()[:240]
+            session.save(session_id, state)
     if new:
         note(session_id, {"kind": "new", "text": new.strip()[:160]})
         return "ok"
@@ -158,9 +165,13 @@ def view(state: dict) -> dict:
         x = next((x for x in trail if x["kind"] == "step" and x["piece"] == pid and x["step"] == sid), None)
         return ("done" if x.get("done") else "now") if x else "ahead"
 
+    did = {(x["piece"], x["step"]): x["did"] for x in trail if x["kind"] == "step" and x.get("did")}
+
     def as_step(s, depth: int = 0) -> dict:
         d = {"id": s.id, "label": ("↳ " if depth else "") + label(s.when, s.do, s.id), "when": s.when[:200],
              "do": s.do[:400], "because": s.because[:300], "state": state_of(s.page, s.id)}
+        if (s.page, s.id) in did:
+            d["did"] = did[(s.page, s.id)]
         return {**d, "piece": s.page, "depth": depth} if depth else d
 
     # A step that hands over to another page (**Calls:** / **If:**) shows that page's statements right under it, as
