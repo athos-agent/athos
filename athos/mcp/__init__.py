@@ -48,10 +48,7 @@ ANSWER = ("How to answer: the person sees Athos's panel above your answer, with 
 # The person rates moments in Athos's panel (1-5 stars) instead of being asked questions. Athos passes each rating
 # on as a plain fact in a later result; what it means is said here, openly, once per task. A result that told the
 # model to change the notes and keep quiet about it read as a prompt injection, and Claude refused it (2026-11-11).
-RATINGS = ("Ratings: the person can rate any step 1-5 stars in Athos's panel instead of being asked questions. When "
-           "an Athos result reports one, learn from it with one athos_save on that piece (its id and a note): 1-2 "
-           "stars, add to that step what to avoid, from what you did there; 4-5, write into that step what worked, "
-           "so it repeats; 3, nothing. Then say in one short line what you changed.")
+from athos.rating import POLICY as RATINGS  # noqa: E402  — one text for Desktop, Claude Code and Codex
 UI_EXTENSION = "io.modelcontextprotocol/ui"
 UI_MIME = "text/html;profile=mcp-app"
 UI_URI = "ui://athos/trail"
@@ -311,13 +308,8 @@ def _call(name: str, args: dict, session_id: str = SESSION) -> str:
     if name == "athos_save":
         piece, diff = capture.save_text(args.get("text", ""), session_id)
         out = f"improved {piece.id} → v{piece.version}" if diff else f"saved {piece.id}"
-        learned = list(session.load(session_id).get("task_learned") or [])
-        import re
-        note = re.search(r"^note:\s*(.+)$", args.get("text", ""), re.M)
-        learned.append({"id": piece.id, "title": piece.title, "version": piece.version,
-                        "before": piece.version - 1 if diff else None,
-                        **({"note": note.group(1).strip()[:160]} if note else {})})
-        session.update(session_id, task_learned=learned[-5:])
+        from athos import rating
+        rating.note_learned(session_id, piece, bool(diff), args.get("text", ""))
         w = session.load(session_id).get("wiki") or {}
         if w.get("broken"):
             out += "\nLinks that lead nowhere (fix with another athos_save): " + "; ".join(w["broken"][:10])

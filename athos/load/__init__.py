@@ -366,8 +366,10 @@ def _instructions(pieces: list[store.Piece], cmd: str) -> list[str]:
                  f"other steps: the person watches them tick one by one). This holds when the work is only thinking "
                  f"or writing part of your answer: run the step for each statement before writing that part, even if "
                  f"the whole answer is one reply. If the task needs a step none of them has, run "
-                 f"`{cmd} step --new \"<the step, in a few words, in the person's language>\"`. Say nothing about it "
-                 f"in your answer.\n")
+                 f"`{cmd} step --new \"<the step, in a few words, in the person's language>\"`. Add "
+                 f"`--did \"<one short line of what you did in the step you are leaving>\"` to each step after the "
+                 f"first: the person reads it in Athos's panel and rates that step. Say nothing about it in your "
+                 f"answer.\n")
     # The person may be a lawyer or a coach, not the author of the piece's notes (2026-10-30, Claude Desktop: answers
     # narrated tools, cited "piece v7" and pasted the piece's commands until told otherwise).
     parts.append("**How to answer**: plainly, in the person's language, as a colleague who already knows how they work: "

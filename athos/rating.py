@@ -64,6 +64,9 @@ def rate(session_id: str, stars: int, piece: str | None = None, step: str | None
     r = {"type": "rating", "id": uuid.uuid4().hex[:8], "stars": stars, "at": ev._iso(ev.now()),
          "session": session_id, "platform": state.get("platform") or "claude-desktop", "t": round(time.time(), 1),
          **snapshot(state, piece, step)}
+    page = store.get(r.get("piece") or "")
+    if page:
+        r["version"] = page.version            # the review only counts ratings on the page as it is now
     ev.append(r)
     session.update(session_id, **{PENDING: r, "last_rating": {"stars": stars, "t": round(time.time(), 1),
                                                                 "piece": r.get("piece"), "step": r.get("step")}})
@@ -77,6 +80,25 @@ def instruction(r: dict) -> str:
     did = f" There you had done: {r['did'].rstrip('. ')}." if r.get("did") else ""
     return (f"Rating from the person, in Athos's panel: {r['stars']}/5 on {where}, in the task «"
             f"{(r.get('request') or '')[:120]}».{did} (What ratings mean is in Athos's instructions for ratings.)")
+
+
+def note_learned(session_id: str, piece, diff: bool, text: str) -> None:
+    """A save during the task: shown in the receipt with its note and an undo (back to the version before)."""
+    import re
+    note = re.search(r"^note:\s*(.+)$", text or "", re.M)
+    learned = list(session.load(session_id).get("task_learned") or [])
+    learned.append({"id": piece.id, "title": piece.title, "version": piece.version,
+                    "before": piece.version - 1 if diff else None,
+                    **({"note": note.group(1).strip()[:160]} if note else {})})
+    session.update(session_id, task_learned=learned[-5:])
+
+
+# What a rating means, said openly once per task, in every agent: Desktop's athos_find result, and the request's
+# context in Claude Code and Codex. Never as a hidden order (2026-11-11: Claude refused one as a prompt injection).
+POLICY = ("Ratings: the person can rate any step 1-5 stars in Athos's panel instead of being asked questions. When "
+          "Athos reports one, learn from it by improving that way of working (its id and a note): 1-2 stars, add to "
+          "that step what to avoid, from what you did there; 4-5, write into that step what worked, so it repeats; "
+          "3, nothing. Then say in one short line what you changed.")
 
 
 FRESH = 30 * 60          # a rating older than this, from another task, is not passed on
