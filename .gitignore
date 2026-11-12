@@ -43,3 +43,6 @@ demo/*.gif
 dist/
 build/
 !docs/bench/*.jsonl
+
+# built by articles/build.py in the Pages workflow
+articles/*/index.html

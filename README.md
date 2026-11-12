@@ -119,6 +119,10 @@ nine steps as Muse reports them:
 [a lawyer in Codex](demo/codex-lawyer-en.gif). In OpenCode, **Athos:
 change this step** and **Athos: save as a way of working** are in its command palette (ctrl+p).*
 
+**Teach it once in Claude; Codex works your way.** A month-end close taught once to Claude Fable 5.2, saved as a
+page, then done the person's way by Sonnet 5.5 in Claude and by GPT-6.1-Sol in Codex: 46% → 100% of the items, nine
+runs out of nine ([article and video](https://athos-agent.github.io/athos/articles/teach-it-once/)).
+
 **A gallery of ways of working.** [Browse examples](https://athos-agent.github.io/athos/) from law, finance,
 journalism, science and operations, each with the branches it takes when the case needs them, each step opening to
 when it applies, what to do and why, and take one into your own Athos with **Use in Athos**. Every profession in it
