@@ -205,3 +205,19 @@ class Language(TempHome):
         start.save_choice("en", "other")                                     # a choice always wins
         start.note_language("dime como viene la corrida y que falta para el PR")
         self.assertEqual(start.lang(), "en")
+
+
+class EventsReadOnceTest(TempHome):
+    def test_the_log_is_parsed_once_per_process_until_it_changes(self):
+        from unittest import mock
+        from athos import eval as ev
+        ev.append({"type": "x", "n": 1})
+        first = ev.events()
+        with mock.patch.object(ev, "_decoded", wraps=ev._decoded) as decoded:
+            again = ev.events()
+            self.assertEqual(decoded.call_count, 0)                  # the same file: no second parse
+            again[0]["n"] = 99                                       # a caller's change does not reach the cache
+            ev.append({"type": "x", "n": 2})
+            self.assertEqual([e["n"] for e in ev.events()], [1, 2])  # it changed: read again
+            self.assertEqual(decoded.call_count, 1)
+        self.assertEqual(first[0]["n"], 1)

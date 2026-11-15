@@ -223,9 +223,21 @@ def _log_text() -> str:
         return ""
 
 
+_EVENTS_CACHE: dict = {}
+
+
 def events() -> list[Event]:
-    """Every readable event in the log, oldest first; an absent log is simply empty."""
-    return list(_decoded(_log_text().splitlines()))
+    """Every readable event in the log, oldest first; an absent log is simply empty. One hook process asks for it many
+    times (grading each piece, the verifier's caps, the audit): the log is parsed once and parsed again only when the
+    file changed (its size, time or inode). Each caller gets its own copies of the events."""
+    try:
+        st = paths.events_file().stat()
+        key = (str(paths.events_file()), st.st_ino, st.st_size, st.st_mtime_ns)
+    except OSError:
+        return []
+    if _EVENTS_CACHE.get("key") != key:
+        _EVENTS_CACHE.update(key=key, rows=list(_decoded(_log_text().splitlines())))
+    return [dict(e) if isinstance(e, dict) else e for e in _EVENTS_CACHE["rows"]]
 
 
 # ================================================================================================ tokens
