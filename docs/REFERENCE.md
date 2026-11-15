@@ -193,7 +193,9 @@ run this command, with your `MODEL_API_KEY`.
 
 Each page says which projects it belongs to (`projects:` in its frontmatter). A page you save belongs to the project
 you saved it in. By default (`auto`), a session in a project's folder loads that project's pages and your **profile**;
-another project's pages load only when the request names that project ("…like we did in heat-v2"). A project with no
+another project's pages load only when the request names that project ("…like we did in heat-v2"; "heat v2" counts
+too). The longest name wins: "heat-v2" names heat-v2, not a project called heat; and a name of four letters or fewer
+counts only as a word of its own ("api" is named by "the api", not by "api.js"). A project with no
 pages of its own yet sees only the profile (until 0.1.110 it saw every page, and loaded other projects' pages on its
 first day). Claude Desktop's chat, which has no folder, still sees every page, and `athos load all` brings back one pool
 for everything (but a private page, below, stays in its projects).

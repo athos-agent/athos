@@ -115,13 +115,6 @@ def describe(sel: dict | None = None, lang: str = "en") -> str:
     return labels[mode]() if mode in labels else mode
 
 
-def _named(project: str, prompt: str) -> bool:
-    """Whether a request names a project: its folder name, or the name with spaces ("heat v2")."""
-    text = " " + _NOT_A_NAME_CHAR.sub(" ", (prompt or "").lower()) + " "
-    name = _NOT_A_NAME_CHAR.sub(" ", project.lower()).strip()
-    return bool(name) and f" {name} " in text
-
-
 # ------------------------------------------------------------------------------------------------ the profile
 def _read_profile() -> dict:
     try:
@@ -199,11 +192,35 @@ def profile_remove(ids: list[str]) -> list[str]:
 
 
 # ------------------------------------------------------------------------------------------------ the scope
+SHORT_NAME = 4             # a one-word project name this short counts only as a word of its own in the request
+
+
+def named_projects(known, prompt: str) -> list[str]:
+    """The projects among `known` a request names: by its name, or the name with spaces ("heat v2" for heat-v2).
+    The longest name wins: a name found only inside a longer one that is also named does not count ("heat-v2" names
+    heat-v2, not heat). A short one-word name ("api", "heat") counts only as a word of its own, not as part of a
+    compound ("api.js", "heat-v2"). A project named like a common word is still named by that word ("the api")."""
+    words = _NOT_A_NAME_CHAR.sub(" ", (prompt or "").lower()).split()
+    raw = {tok.strip(".,;:!?()[]{}\"'`") for tok in (prompt or "").lower().split()}
+    spans: dict[str, list[tuple[int, int]]] = {}
+    for q in dict.fromkeys(known):
+        name = _NOT_A_NAME_CHAR.sub(" ", str(q).lower()).split()
+        if not name or (len(name) == 1 and len(name[0]) <= SHORT_NAME and str(q).lower() not in raw):
+            continue
+        k = len(name)
+        hits = [(i, i + k) for i in range(len(words) - k + 1) if words[i:i + k] == name]
+        if hits:
+            spans[q] = hits
+
+    def inside(a: tuple[int, int], b: tuple[int, int]) -> bool:
+        return b[0] <= a[0] and a[1] <= b[1] and b[1] - b[0] > a[1] - a[0]
+    return sorted(q for q, hits in spans.items()
+                  if any(not any(inside(h, g) for r, gs in spans.items() if r != q for g in gs) for h in hits))
+
+
 def _named(project: str, prompt: str) -> bool:
-    """Whether a request names a project: its folder name, or the name with spaces ("heat v2")."""
-    text = " " + _NOT_A_NAME_CHAR.sub(" ", (prompt or "").lower()) + " "
-    name = _NOT_A_NAME_CHAR.sub(" ", project.lower()).strip()
-    return bool(name) and f" {name} " in text
+    """Whether a request names this project (`named_projects`, with no other project to compare with)."""
+    return project in named_projects([project], prompt)
 
 
 def may_see(piece: store.Piece, here: str | None, public: bool = False) -> bool:
@@ -302,7 +319,7 @@ def _auto(pieces: list[store.Piece], here: str, prompt: str,
     """The `auto` scope for a session in project `here`: (pieces, reason, other projects the request named, private
     pieces held back that would otherwise be in it)."""
     known = {q for p in pieces for q in p.projects}
-    named = sorted(q for q in known if q != here and _named(q, prompt))
+    named = [q for q in named_projects(known | {here}, prompt) if q != here]
     profile = set(profile_ids())
     own = any(here in p.projects for p in pieces)
     reach = [p for p in pieces if here in p.projects or p.id in profile or set(named) & set(p.projects)]

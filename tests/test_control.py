@@ -101,3 +101,32 @@ class ControlTest(TempHome):
 
     def test_harness_messages_are_not_requests(self):
         self.assertEqual(load.relevant("<agent-message from=\"x\"> release athos", load.enabled()), [])
+
+
+class NamedProjectsTest(TempHome):
+    """Which projects a request names: the longest name wins over one it contains, and a short name counts only as
+    a word of its own."""
+
+    def test_names(self):
+        named = control.named_projects
+        self.assertEqual(named(["heat", "heat-v2"], "fix the heat-v2 login"), ["heat-v2"])
+        self.assertEqual(named(["heat"], "fix the heat-v2 login"), [])
+        self.assertEqual(named(["heat"], "the heat pump, as in heat: again"), ["heat"])
+        self.assertEqual(named(["api"], "update api.js and api-docs"), [])
+        self.assertEqual(named(["api", "billing"], "billing api"), ["api", "billing"])
+        self.assertEqual(named(["my-app"], "like in my app please"), ["my-app"])
+        self.assertEqual(named(["heat-v2", "heat-v2-mobile"], "heat v2 mobile crash"), ["heat-v2-mobile"])
+        self.assertTrue(control._named("billing", "the billing report"))
+        self.assertFalse(control._named("heat", "heat-v2"))
+
+    def test_defined_once(self):
+        import inspect
+        self.assertEqual(inspect.getsource(control).count("def _named("), 1)
+
+    def test_the_scope_uses_them(self):
+        for pid, project in (("h1", "heat"), ("h2", "heat-v2"), ("a1", "alpha")):
+            store._write(store.Piece(id=pid, title=f"{project} thing", when=f"{project} work", body="b",
+                                     projects=[project], created="2026-11-01", last_used="2026-11-01",
+                                     origin={"platform": "t", "model": "t"}))
+        pool, why = control.select(store.all_pieces(), None, "the heat-v2 login", project="alpha")
+        self.assertEqual(why["named"], ["heat-v2"])
