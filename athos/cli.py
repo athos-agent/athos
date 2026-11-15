@@ -1417,17 +1417,27 @@ def cmd_public(args) -> int:
     pushed."""
     action = args.action or "on"
     cwd = os.getcwd()
+    if action == "name":
+        try:
+            at, name = paths.accept_name(cwd)
+        except (ValueError, OSError) as refused:
+            return _fail(f"athos public name: {refused}")
+        print(f"Athos calls the repository in {at} {name!r} from now on, as its {paths.MARKER} says (accepted on this "
+              f"machine only, in {paths.accepted_names_file()}).")
+        return 0
     if action == "status":
         here, mark = paths.locate(cwd)
         hosts = paths.code_remotes(cwd)
         state = ("public" if mark.get("public") else "not public") if "public" in mark else "not declared"
         info = {"project": here, "root": str(paths.repo_root(cwd)), "marker": mark.get("file"), "declared": state,
-                "code_remotes": hosts}
+                "code_remotes": hosts, **({"name_ignored": mark["name_ignored"]} if mark.get("name_ignored") else {})}
         if args.json:
             print(json.dumps(info, indent=1))
             return 0
         print(f"{here}: {state}" + (f" ({mark['file']})" if mark.get("file") else "")
               + (f" · pushed to {', '.join(hosts)}" if hosts else ""))
+        if mark.get("name_ignored"):
+            print(_name_ignored_line(mark["name_ignored"], here))
         if state == "not declared" and hosts:
             print(f"Athos cannot see whether that copy is public. If it is, run `{_cmd()} public`; if not, "
                   f"`{_cmd()} public off`.")
@@ -1441,6 +1451,12 @@ def cmd_public(args) -> int:
         print(f"{mark.get('name')} is marked not public in {target}: the usual rules apply (another project's pieces "
               f"load when a request names it).")
     return 0
+
+
+def _name_ignored_line(name: str, here: str) -> str:
+    return (f"Its marker names it {name!r}, but Athos calls it {here!r}, the folder's name, until you accept that name "
+            f"on this machine with `{_cmd()} public name` (a repository's author writes its marker; a clone must not "
+            f"take the name of one of your projects).")
 
 
 def cmd_tiers(args) -> int:
@@ -2078,7 +2094,8 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--lang", choices=["es", "en"], help="the language it is written in (guessed if left out)")
     s = sub.add_parser("public", help="say that this repository is public (or, with off, that it is not), in its "
                                       ".athos.toml; status shows what is declared and where the code is pushed")
-    s.add_argument("action", nargs="?", choices=["on", "off", "status"], help="on (default), off or status")
+    s.add_argument("action", nargs="?", choices=["on", "off", "status", "name"],
+                   help="on (default), off, status, or name: accept the name the marker gives the project")
     s.add_argument("--json", action="store_true", help="with status: as JSON")
     s = sub.add_parser("tiers", help="which models learn (frontier) and which apply what was learned")
     s.add_argument("action", nargs="?", choices=["add", "remove", "reset", "which"], help="change the tiers, or ask "

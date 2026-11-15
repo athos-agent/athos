@@ -112,6 +112,9 @@ class MarkerTest(Folders):
     def test_the_marker_names_the_project_and_marks_it_public(self):
         root = Path(self.folder("gamma"))
         (root / paths.MARKER).write_text('name = "beta"\npublic = true\n')
+        self.assertEqual(paths.project_of(root), "gamma")       # a name other than the folder's: not until accepted
+        self.assertTrue(paths.is_public(root))                  # public holds anyway
+        paths.accept_name(root)                                 # the person accepts it on this machine
         self.assertEqual(paths.project_of(root), "beta")
         self.assertTrue(paths.is_public(root))
         (root / paths.MARKER).write_text("this is = not toml [\n")
@@ -124,6 +127,7 @@ class MarkerTest(Folders):
         piece("beta-report", "Write the beta weekly report", "writing the beta weekly report", ["beta"])
         root = Path(self.folder("gamma"))
         (root / paths.MARKER).write_text('name = "beta"\npublic = true\n')
+        paths.accept_name(root)                                 # a clone of beta in a folder of another name
         e = {"session_id": "p1", "cwd": str(root)}
         self.hook("prompt", {**e, "prompt": f"triage the clinic intake form {SECRET}"})
         added = self.hook("prompt", {**e, "prompt": f"write the beta weekly report {SECRET}"})

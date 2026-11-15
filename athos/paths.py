@@ -148,6 +148,10 @@ def _scan(folder: Path) -> dict:
     mark = dict(own[1]) if own else {}
     if own:
         mark["at"] = str(own[0])
+        if mark.get("name") and mark["name"] != own[0].name and accepted_name(own[0]) != mark["name"]:
+            # Whoever wrote the repository wrote its marker: a clone could name itself after one of the person's
+            # projects and get its pieces. A name other than the folder's own counts once the person accepted it.
+            mark["name_ignored"] = mark.pop("name")
     loud = next(((d, m) for d, m in found if m.get("public") is True), None)
     if loud is not None:
         mark["public"] = True
@@ -228,6 +232,62 @@ def _read_marker(root: Path) -> dict:
         else:
             out.update(public=True, unreadable=True)
     return out
+
+
+def write_atomic(target: Path, text: str) -> None:
+    """Replace a file's content in one step: written to a temporary file beside it, then moved over it, so a reader
+    sees the old content or the new one, never half of either."""
+    import tempfile
+    target = Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix="." + target.name + ".", suffix=".tmp", dir=str(target.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            out.write(text)
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def accepted_names_file() -> Path:
+    """The marker names the person accepted on this machine, by repository folder (`athos public name`). It lives
+    under the Athos home, never in a repository."""
+    return _under_home("marker-names.json")
+
+
+def _accepted() -> dict:
+    import json
+    try:
+        data = json.loads(accepted_names_file().read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def accepted_name(root: Path) -> str | None:
+    """The marker name the person accepted for this repository folder, if any."""
+    found = _accepted().get(os.path.realpath(root))
+    return found if isinstance(found, str) else None
+
+
+def accept_name(cwd: str | Path | None = None) -> tuple[Path, str]:
+    """The person accepts the name the marker of this folder's repository gives it (`athos public name`): from now on
+    Athos calls the project so on this machine. Returns the marker's folder and the name. ValueError when there is
+    no marker, or it names nothing other than its folder."""
+    import json
+    scan = _scan(Path(cwd) if cwd else Path(os.getcwd()))
+    name, at = scan["mark"].get("name_ignored"), scan.get("named_at")
+    if not name or at is None:
+        raise ValueError("there is no marker name to accept here: the project already goes by "
+                         f"{_named(scan)!r}")
+    data = _accepted()
+    data[os.path.realpath(at)] = name
+    write_atomic(accepted_names_file(), json.dumps(data, indent=1, ensure_ascii=False) + "\n")
+    return at, name
 
 
 def _named(scan: dict) -> str:

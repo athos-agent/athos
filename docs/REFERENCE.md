@@ -231,6 +231,13 @@ name = "my-app"      # the project's name, whatever the folder is called (defaul
 public = true        # a public repository
 ```
 
+Whoever wrote a repository wrote its marker, so a `name` is not taken on trust: a cloned repository could name itself
+after one of your projects and get that project's pages. Athos uses the marker's `name` when it is the folder's own
+name, or once you accept it for that folder on this machine with `athos public name` (kept in
+`~/.athos/marker-names.json`, never in the repository; a later change of the name is not accepted until you run it
+again). Until then the folder's name is used, `athos public status` says so, and `athos audit` reports
+`marker_name_ignored`. `public = true` holds whatever the name: declaring a repository public can only restrict.
+
 Athos looks for it in the folder a session runs in and in every folder above it, without relying on git, and fails
 closed: any marker on the way up that says `public = true` makes the folder public, so a subfolder, a repository
 nested in a public one, and a folder where git cannot run (not installed, timed out, refused by `safe.directory`) are
@@ -253,7 +260,7 @@ stays available, and in a repository that is not marked public the usual rule ho
 **Declaring a repository public.** `athos public` writes `public = true` into the `.athos.toml` at the root of the
 repository you run it in (creating it with the project's name when there is none, and keeping any other line); `athos
 public off` writes `public = false`; `athos public status [--json]` says what is declared and which code-hosting sites
-the repository is pushed to. Athos asks because it cannot know: whether a repository is public lives on the hosting
+the repository is pushed to; `athos public name` accepts the name its marker gives it. Athos asks because it cannot know: whether a repository is public lives on the hosting
 site, behind your account, and Athos makes no network call. Your local git configuration only says where the code is
 pushed, not who can read it there. So `athos audit`, run in a repository that has a remote on a code-hosting site
 (GitHub, GitLab, Bitbucket, Codeberg and the like) and no `public` line in its marker, reports `public_not_declared`
@@ -481,6 +488,7 @@ the session of the folder you run it in) and checks each one against these rules
 | `promotion_without_verifier` | a piece of the session's project moved to verified with no earlier passing verdict of the independent verifier whose prompt carried paths only |
 | `verifier_saw_summary` | a verifier run of the session's project whose recorded `paths_only` is false, whose inputs were not exactly the four files, or whose kept `prompt.txt` is not the fixed text with the four paths |
 | `verifier_over_cap` | a UTC day whose model runs (verifier and replay, every project) went over the runs or the cost cap they recorded (a run with no reported cost counts its estimate) |
+| `marker_name_ignored` | the repository the audit runs in has a `.athos.toml` whose `name` is not the folder's own and was never accepted on this machine (`athos public name`), so Athos uses the folder's name |
 | `public_not_declared` | the repository the audit runs in (when it is the session's project) is pushed to a code-hosting site, read from its local git configuration, and its `.athos.toml` does not say whether it is public; `athos public` or `athos public off` answers it |
 
 Each rule says how it was judged: flagged, clean, partial (checked with older data, which is not a proof) or not

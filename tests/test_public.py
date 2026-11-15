@@ -123,8 +123,10 @@ class DeclareTest(Folders):
         (self.root / paths.MARKER).write_text('name = "gamma-app"\n# mine\npublic = true\n')
         self.run_cli("public", "off")
         self.assertEqual((self.root / paths.MARKER).read_text(), 'name = "gamma-app"\n# mine\npublic = false\n')
-        self.assertEqual(self.audit_rule()["status"], "not_evaluated")    # the project is now called gamma-app
+        self.assertEqual(self.audit_rule()["status"], "clean")    # still gamma: the new name was never accepted
         self.assertFalse(paths.is_public(self.root))
+        paths.accept_name(self.root)
+        self.assertEqual(self.audit_rule()["status"], "not_evaluated")    # now the project is called gamma-app
 
     def test_a_repository_with_no_hosted_remote_is_not_asked_about(self):
         import subprocess

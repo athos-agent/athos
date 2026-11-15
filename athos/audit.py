@@ -45,6 +45,8 @@ RULES = (
     ("verifier_over_cap", "model runs Athos started in one day above the daily cap of runs or of cost"),
     ("public_not_declared", "the repository the audit runs in is pushed to a code-hosting site and its .athos.toml "
                             "does not say whether it is public"),
+    ("marker_name_ignored", "the repository the audit runs in has a .athos.toml whose name is not the folder's and "
+                            "was never accepted on this machine, so Athos uses the folder's name"),
 )
 WEAK_EVIDENCE = {"", "model", "model_opinion", "self_report"}
 AUDIT_TYPES = {"route", "edit_seen", "model", "trigger", "hook_error", "learn", "grade", "ui", "context", "piece_opened",
@@ -560,6 +562,19 @@ def _public_not_declared(c: _Ctx, cwd: str | None) -> dict:
                    "cannot know whether a repository is public)")
 
 
+def _marker_name_ignored(cwd: str | None) -> dict:
+    """The folder the audit runs in: a marker `name` other than the folder's own that the person never accepted
+    (`athos public name`). Athos ignores it, since whoever wrote the repository wrote its marker."""
+    from athos import paths
+    if not cwd:
+        return _result("marker_name_ignored", "not_evaluated", [], "no folder to look at")
+    here, mark = paths.locate(cwd)
+    found = [{"project": here, "marker_name": mark["name_ignored"], "fix": "athos public name (to accept it)"}] \
+        if mark.get("name_ignored") else []
+    return _result("marker_name_ignored", _status(found, False), found,
+                   "the .athos.toml of the folder the audit runs in, against the names accepted on this machine")
+
+
 def check(sid: str, evs: list[dict], pieces: list[store.Piece] | None = None, versions: dict | None = None,
           show: bool = False, transcripts: bool = True, cwd: str | None = None,
           everything: list[dict] | None = None) -> dict:
@@ -571,7 +586,7 @@ def check(sid: str, evs: list[dict], pieces: list[store.Piece] | None = None, ve
     rules = [_other_project_load(c), _load_without_own_pieces(c), _edit_without_basis(c),
              _model_inconsistent(c, transcripts), _injected_over_cap(c), _trigger_not_from_person(c),
              _version_mismatch(c, versions), _private_piece_named(c), _weak_evidence_learning(c),
-             _public_not_declared(c, cwd), _save_in_apply_mode(c), _promotion_without_verifier(c, everything),
+             _public_not_declared(c, cwd), _marker_name_ignored(cwd), _save_in_apply_mode(c), _promotion_without_verifier(c, everything),
              _verifier_saw_summary(c, everything), _verifier_over_cap(everything)]
     return {"summary": _summary(c), "rules": rules,
             "anomalies": sum(r["count"] for r in rules if r["status"] == "flagged")}

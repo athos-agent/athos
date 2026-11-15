@@ -101,6 +101,55 @@ class FindTest(TempHome):
         self.assertTrue(paths.is_public(self.root))
 
 
+class NameTest(TempHome):
+    """A marker's `name` comes from whoever wrote the repository: it is honoured only when it is the folder's own
+    name, or once the person accepted it for that folder on this machine. `public = true` always holds."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = Path(self.home) / "cloned"
+        self.root.mkdir()
+
+    def run_cli(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.chdir(self.root), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = cli.main(list(argv))
+        return code, out.getvalue() + err.getvalue()
+
+    def test_a_name_other_than_the_folders_is_ignored_until_the_person_accepts_it(self):
+        (self.root / paths.MARKER).write_text('name = "secret-project"\n')
+        self.assertEqual(paths.project_of(self.root), "cloned")
+        self.assertEqual(paths.marker(self.root).get("name_ignored"), "secret-project")
+        code, out = self.run_cli("public", "status")
+        self.assertIn("secret-project", out)
+        self.assertIn("public name", out)
+        code, out = self.run_cli("public", "name")
+        self.assertEqual(code, 0)
+        self.assertEqual(paths.project_of(self.root), "secret-project")
+        self.assertFalse(list(self.root.glob("*acknowledged*")))            # kept under the Athos home only
+        (self.root / paths.MARKER).write_text('name = "another"\n')         # changed again: asked again
+        self.assertEqual(paths.project_of(self.root), "cloned")
+
+    def test_public_holds_whatever_the_name(self):
+        (self.root / paths.MARKER).write_text('name = "secret-project"\npublic = true\n')
+        self.assertTrue(paths.is_public(self.root))
+        self.assertEqual(paths.project_of(self.root), "cloned")
+
+    def test_the_folders_own_name_needs_no_acceptance(self):
+        (self.root / paths.MARKER).write_text('name = "cloned"\n')
+        self.assertEqual(paths.project_of(self.root), "cloned")
+        self.assertNotIn("name_ignored", paths.marker(self.root))
+
+    def test_the_audit_says_when_a_name_is_ignored(self):
+        from athos import audit
+        (self.root / paths.MARKER).write_text('name = "secret-project"\n')
+        evs = [{"type": "route", "session_id": "n1", "task_id": "t1", "project": "cloned", "chosen": []}]
+        r = next(r for r in audit.check("n1", evs, [], cwd=str(self.root))["rules"]
+                 if r["rule"] == "marker_name_ignored")
+        self.assertEqual(r["status"], "flagged")
+        self.assertIn("public name", r["found"][0]["fix"])
+
+
 class OlderPythonTest(TempHome):
     """The hooks run under whatever `python3` the agent finds, which may be older than 3.11 (no tomllib)."""
 
