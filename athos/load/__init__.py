@@ -343,6 +343,7 @@ def _rank_traced(prompt: str, pieces: list[store.Piece]) -> tuple[list[tuple[flo
         in_head = asked & head
         only_in_body = (asked & body) - head
         score = sum(pool.weight(t) for t in in_head) + 0.25 * sum(pool.weight(t) for t in only_in_body)
+        score *= _confidence_factor(piece)      # 1 for every piece without a confidence (all legacy pieces)
         shared = len(request_words & pool.head_words[i])
         head_share = shared / max(1, len(pool.head_words[i]))
         request_share = shared / max(1, len(request_words))
@@ -366,6 +367,24 @@ def _rank_traced(prompt: str, pieces: list[store.Piece]) -> tuple[list[tuple[flo
                          "head_share": round(head_share, 3), "request_share": round(request_share, 3),
                          "projects": list(piece.projects), "kept": False, "reason": reason})
     return _by_score(kept), seen
+
+
+def _confidence_factor(piece: store.Piece) -> float:
+    from athos import grade
+    return grade.router_factor(piece)
+
+
+def usable(pieces: list[store.Piece], tier: str, project: str | None = None) -> list[store.Piece]:
+    """What a model of this tier may be given (autonomous learning, athos/grade.py): never a retired piece; to an apply
+    model (or one of unknown tier) only verified and legacy pieces, plus its project's candidates when
+    `autolearn.apply_candidates` is on. A frontier model may be offered candidates: its clean reuses verify them."""
+    from athos import autolearn, tiers
+    out = [p for p in pieces if store.status(p) != "retired"]
+    if tier == tiers.FRONTIER:
+        return out
+    allow = bool(autolearn.settings().get("apply_candidates"))
+    return [p for p in out if store.usable_as_verified(p)
+            or (allow and p.status == "candidate" and project and project in p.projects)]
 
 
 def sure(ranked: list[tuple[float, store.Piece]]) -> bool:
@@ -497,10 +516,64 @@ def handover(pieces: list[store.Piece], show: str) -> str:
             f"doesn't, skip it and say why in one short clause.")
 
 
-def _page_section(piece: store.Piece) -> str:
-    """A loaded page as the model reads it: heading with id and version, its "when", then the body."""
+def _page_section(piece: store.Piece, apply: bool = False) -> str:
+    """A loaded page as the model reads it: heading with id and version, its "when", then the body. To an apply model
+    a learned page (candidate or verified) comes as a short checklist with its Check lines (`_checklist`), and any
+    page's risky steps carry an instruction to ask the person first (`_ask_first`)."""
     heading = f"## {piece.title} (`{piece.id}`, v{piece.version})"
-    return "\n".join((heading, f"When: {piece.when}", "", piece.body, ""))
+    if apply and piece.status in ("candidate", "verified") and _wiki().is_wiki(piece):
+        return _checklist(piece)
+    return "\n".join((heading, f"When: {piece.when}", "", _ask_first(piece) if apply else piece.body, ""))
+
+
+RISK_WORDS = {"publish": "publishes", "merge": "merges", "deploy": "deploys", "delete": "deletes",
+              "force_push": "force-pushes", "production": "touches production"}
+ASK_FIRST = "**Ask first:** this step {what}: ask the person and do it only on their clear yes."
+CHECKLIST_HEAD = ("Steps, in order. After each one, run its Check and go on only when it holds; if a Check fails, stop "
+                  "and say which one failed.")
+
+
+def _risk_words(kinds: list[str]) -> str:
+    words = [RISK_WORDS.get(k, k) for k in kinds]
+    return ", ".join(words[:-1]) + (" and " if len(words) > 1 else "") + words[-1]
+
+
+def _ask_first(piece: store.Piece) -> str:
+    """The page's body with an Ask-first line after the Do of each risky step (athos/autolearn.py: publishes, merges,
+    deploys, deletes, force-pushes or touches production); a page without statements gets one line on top."""
+    from athos import autolearn
+    risky = autolearn.risky_steps(piece)
+    if not risky:
+        return piece.body
+    if not _wiki().is_wiki(piece):
+        return ASK_FIRST.format(what=_risk_words(risky["steps"])).replace("this step", "some of these steps") + \
+            "\n\n" + piece.body
+    out, current = [], None
+    for line in piece.body.splitlines():
+        head = re.match(r"^## #([a-z0-9][a-z0-9_-]*)\s*$", line)
+        if head:
+            current = head.group(1)
+        out.append(line)
+        if current in risky and line.startswith("**Do:**"):
+            out.append(ASK_FIRST.format(what=_risk_words(risky[current])))
+    return "\n".join(out)
+
+
+def _checklist(piece: store.Piece) -> str:
+    """A learned page for an apply model: each step's When and Do, its Check, its hand-overs and, for a risky step, the
+    instruction to ask first; without the reasons, links or history."""
+    from athos import autolearn
+    risky = autolearn.risky_steps(piece)
+    lines = [f"## {piece.title} (`{piece.id}`, v{piece.version})", f"When: {piece.when}", "", CHECKLIST_HEAD]
+    for n, st in enumerate(_wiki().statements(piece), 1):
+        lines.append(f"{n}. #{st.id} — " + " · ".join(f"{k}: {v}" for k, v in (("When", st.when), ("Do", st.do)) if v))
+        if st.check:
+            lines.append(f"   Check: {st.check}")
+        raw = _raw_statement(piece, st.id)
+        lines += ["   " + ln for ln in raw.splitlines() if ln.startswith(("**Calls:**", "**If:**"))]
+        if st.id in risky:
+            lines.append("   " + ASK_FIRST.format(what=_risk_words(risky[st.id])))
+    return "\n".join(lines) + "\n"
 
 
 PREFACE = ("# Athos — know-how that matches this request\n\nThe user's own know-how for this kind of task. "
@@ -534,8 +607,8 @@ def fit_steps(pieces: list[store.Piece], cmd: str = "athos", cap: int | None = N
     return _fit(pieces, cmd, cap)[3]
 
 
-def _fit(pieces: list[store.Piece], cmd: str = "athos",
-         cap: int | None = None) -> tuple[str, list[str], list[str], list[str]]:
+def _fit(pieces: list[store.Piece], cmd: str = "athos", cap: int | None = None,
+         apply: bool = False) -> tuple[str, list[str], list[str], list[str]]:
     if not pieces:
         return "", [], [], []
     cap = INJECT_CAP if cap is None else cap
@@ -546,7 +619,7 @@ def _fit(pieces: list[store.Piece], cmd: str = "athos",
     left: list[str] = []
     steps: list[str] = []
     for piece in pieces:
-        section = _page_section(piece)
+        section = _page_section(piece, apply)
         if cut or left or steps or room <= 0:
             left.append(piece.id)
             continue
@@ -554,7 +627,7 @@ def _fit(pieces: list[store.Piece], cmd: str = "athos",
             sections.append(section)
             room -= len(section) + 1
             continue
-        short, whole = _steps_section(piece, room - 1, cmd)
+        short, whole = _steps_section(piece, room - 1, cmd, apply)
         if short:
             sections.append(short)
             (steps if whole else cut).append(piece.id)
@@ -574,7 +647,7 @@ def _fit(pieces: list[store.Piece], cmd: str = "athos",
     return "\n".join([PREFACE, *sections, *notes]), cut, left, steps
 
 
-def _steps_section(piece: store.Piece, room: int, cmd: str) -> tuple[str, bool]:
+def _steps_section(piece: store.Piece, room: int, cmd: str, apply: bool = False) -> tuple[str, bool]:
     """A page as its steps only, within `room` characters: the heading and "when", then each statement's id, When,
     Do, Check and hand-overs (Calls, If), without Because, Links or the page's history. Returns the text ("" for a page
     without statements, or when not even one step fits) and whether every step fit."""
@@ -582,6 +655,8 @@ def _steps_section(piece: store.Piece, room: int, cmd: str) -> tuple[str, bool]:
     if not wiki.is_wiki(piece):
         return "", False
     head = "\n".join((f"## {piece.title} (`{piece.id}`, v{piece.version})", f"When: {piece.when}", ""))
+    from athos import autolearn
+    risky = autolearn.risky_steps(piece) if apply else {}
     blocks = []
     for st in wiki.statements(piece):
         lines = [f"### #{st.id}"]
@@ -589,6 +664,8 @@ def _steps_section(piece: store.Piece, room: int, cmd: str) -> tuple[str, bool]:
         raw = _raw_statement(piece, st.id)
         # A step's Check stays with it: it is how an apply model knows the step went right without judging it.
         lines += [ln for ln in raw.splitlines() if ln.startswith(("**Check:**", "**Calls:**", "**If:**"))]
+        if apply and st.id in risky:
+            lines.append(ASK_FIRST.format(what=_risk_words(risky[st.id])))
         blocks.append((st.id, "\n".join(lines) + "\n"))
     whole_note = STEPS_NOTE.format(cmd=cmd, id=piece.id)
     text = head + "\n".join(b for _, b in blocks)
@@ -695,11 +772,13 @@ def on_prompt(event: dict, cmd: str = "athos", defer: bool = False) -> str:
     sid = _session_of(event)
     started = time.perf_counter()
     everything = store.all_pieces()
+    tier = tiers.tier_of(session.load(sid).get("model"))     # the model resolved for this request (eval.task_start)
     pool, scope = control.select(everything, event.get("cwd"), prompt)
+    pool = usable(pool, tier, scope.get("project"))          # an apply model: verified and legacy pieces only
     found, trace = decide(prompt, pool)
     ms = (time.perf_counter() - started) * 1000
-    tier = tiers.tier_of(session.load(sid).get("model"))     # the model resolved for this request (eval.task_start)
-    d = deliver(found, trace, pool, tier, cmd)
+    notes = index_notes(found, trace, pool, sid, event.get("cwd"), cmd) if tier == tiers.FRONTIER and found else None
+    d = deliver(found, trace, pool, tier, cmd, notes=notes)
     extra = ""
     parts: dict[str, int] = {}
     if d["delivery"] == "piece":
@@ -711,7 +790,7 @@ def on_prompt(event: dict, cmd: str = "athos", defer: bool = False) -> str:
         extra += "\n" + offer + "\n" if offer else ""
         parts["offer"] = len(offer or "")
         if extra:
-            d = deliver(found, trace, pool, tier, cmd, INJECT_CAP - len(extra))
+            d = deliver(found, trace, pool, tier, cmd, INJECT_CAP - len(extra), notes=notes)
     body, cut, left = d["text"], d["cut"], d["left_out"]
     shown = [p for p in found if p.id not in left] if d["delivery"] == "piece" else []
     if shown:
@@ -738,7 +817,7 @@ def on_prompt(event: dict, cmd: str = "athos", defer: bool = False) -> str:
 
 
 def deliver(found: list[store.Piece], trace: dict, pool: list[store.Piece], tier: str, cmd: str = "athos",
-            cap: int | None = None) -> dict:
+            cap: int | None = None, notes: dict[str, str] | None = None) -> dict:
     """How the router's choice reaches the model. Nothing when nothing was chosen. To an apply model (and any model of
     unknown tier) the pieces themselves (`fit`): it follows better than it picks. To a frontier model an index of the
     pieces in reach (`pull_index`): it picks well, and opens the one it needs with `athos show`, so a wrong choice of
@@ -748,13 +827,39 @@ def deliver(found: list[store.Piece], trace: dict, pool: list[store.Piece], tier
     if not found:
         return {"delivery": None, "text": "", "cut": [], "left_out": [], "steps_only": [], "offered": [],
                 "piece_chars": 0, "index_chars": 0}
-    body, cut, left, steps = _fit(found, cmd, cap)
-    index, offered = pull_index(found, trace, pool, cmd)
+    body, cut, left, steps = _fit(found, cmd, cap, apply=tier != tiers.FRONTIER)
+    index, offered = pull_index(found, trace, pool, cmd, notes=notes)
     if tier == tiers.FRONTIER:
         return {"delivery": "index", "text": index, "cut": [], "left_out": [], "steps_only": [], "offered": offered,
                 "piece_chars": len(body), "index_chars": len(index)}
     return {"delivery": "piece", "text": body, "cut": cut, "left_out": left, "steps_only": steps, "offered": [],
             "piece_chars": len(body), "index_chars": len(index)}
+
+
+def index_notes(found: list[store.Piece], trace: dict, pool: list[store.Piece], sid: str, cwd: str | None,
+                cmd: str = "athos") -> dict[str, str]:
+    """A few words after a piece in a frontier model's index: a candidate not verified yet, a piece that failed on an
+    apply model and needs review, or one whose files or commands are no longer found here (`grade.reverify`)."""
+    from athos import grade
+    _text, offered = pull_index(found, trace, pool, cmd)
+    byid = {p.id: p for p in [*pool, *found]}
+    review = grade.reviews()
+    out = {}
+    for pid in offered:
+        p = byid.get(pid)
+        if p is None:
+            continue
+        words = []
+        if p.status == "candidate":
+            words.append("candidate, not verified yet")
+        if pid in review:
+            words.append("needs review: it failed on an apply model")
+        stale = grade.reverify_cached(p, sid, cwd)
+        if stale:
+            words.append(f"may be stale: {stale}")
+        if words:
+            out[pid] = "; ".join(words)
+    return out
 
 
 PULL_HEAD = ("# Athos — know-how that may fit this request\n\n"
@@ -771,7 +876,8 @@ def _short(text: str, limit: int) -> str:
 
 
 def pull_index(found: list[store.Piece], trace: dict, pool: list[store.Piece], cmd: str = "athos",
-               lines: int = PULL_LINES, cap: int = PULL_CAP) -> tuple[str, list[str]]:
+               lines: int = PULL_LINES, cap: int = PULL_CAP,
+               notes: dict[str, str] | None = None) -> tuple[str, list[str]]:
     """The index a frontier model gets instead of the pieces: the router's choice first (and the pages it hands over
     to), then the other candidates it scored, then the rest of the pieces in reach for this request (the scope the
     hooks apply: this project's and the profile, never a piece the session may not see), most recently used first;
@@ -787,6 +893,8 @@ def pull_index(found: list[store.Piece], trace: dict, pool: list[store.Piece], c
         if p is None or len(ids) >= lines:
             continue
         line = f"- `{p.id}` — {_short(p.title, 100)}. When: {_short(p.when, PULL_WHEN)}"
+        if (notes or {}).get(p.id):
+            line += f" ({notes[p.id]})"
         if used + len(line) + 1 > cap:
             break
         out.append(line)
@@ -919,8 +1027,8 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
         session.update(sid, model=model, model_reported=model, model_reported_at=ev._iso(ev.now()))
     project = paths.project_of(event["cwd"]) if event.get("cwd") else None
     ev.note_model(sid, None, model, "event" if model else "unknown", None, project, stage="session_start")
-    from athos import capture
-    here = enabled(event.get("cwd"))
+    from athos import capture, tiers
+    here = usable(enabled(event.get("cwd")), tiers.tier_of(session.load(sid).get("model")), project)
     public = paths.is_public(event.get("cwd"))
     text = index_text(here, cmd, other_projects(here, public))
     parts = {"index": len(text)}

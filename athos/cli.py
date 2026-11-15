@@ -304,6 +304,8 @@ def _add_context(hook_event: str, text: str) -> None:
 def _on_session_start(event: dict, platform: str) -> None:
     """A session opens: the know-how that may load for it goes in as context (nothing at all on an empty store), and
     the overnight review runs if it is due; its proposals are offered once, never applied without the person's yes."""
+    from athos import grade
+    _quietly(grade.age_all)                  # verified pieces unused and unverified for too long: back to candidate
     intro = load.on_session_start(event, _cmd())
     from athos import consolidate, start
     dream = _quietly(consolidate.run) if consolidate.due() else None
@@ -353,6 +355,7 @@ def _on_prompt(event: dict, platform: str) -> None:
     from athos import start
     start.note_language(prompt)
     previous = session.load(sid).get("task_id") if sid else None
+    before = session.load(sid) if sid else {}    # the task that just ended, for grading its reuses below
     _quietly(autolearn.on_next_request, sid)     # a task asked to learn that saved nothing: recorded as skipped
     if sid:
         # After `athos mark c`, these words are the correction the last task needed (athos/cases.py).
@@ -370,6 +373,9 @@ def _on_prompt(event: dict, platform: str) -> None:
             learned, found = edits.on_prompt(event, _cmd(), tell=autolearn.tells_edits(sid))
             _quietly(evidence.note_person_edits, found, previous)
             added["edit"] = len(learned or "")
+            # The task before this request is over, its reaction and edits known: each piece it used is graded.
+            from athos import grade
+            _quietly(grade.finish_task, sid, previous, before)
             context = (context + "\n" + learned) if context and learned else (context or learned)
         if share.asked(prompt) and _act_on(event, "share"):
             # The person asked to share a way of working with the gallery: a draft, anonymised by the agent in sight,

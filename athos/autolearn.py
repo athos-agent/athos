@@ -282,6 +282,11 @@ def save_auto(text: str, sid: str, cwd: str | None, transcript_path: str | None 
     checks = runnable_checks(piece)
     note(sid, state, "saved", reason, items, cwd, piece=piece.id, version=piece.version, risk=piece.risk,
          checks=checks, confidence=float(INITIAL_CONFIDENCE))
+    from athos import replay
+    try:                                       # with replays on: the task becomes the candidate's case
+        replay.keep_candidate_case(piece, session.load(sid), transcript_path)
+    except (OSError, ValueError):
+        pass
     after = "" if checks else " It has no runnable Check, so it stays a candidate."
     return piece, (f"saved {piece.id} as a candidate of {project} ({piece.path}).{after}"), False
 

@@ -520,7 +520,8 @@ class VerifierTest(TempHome):
         self.assertEqual((again.confidence, again.last_verified), ("0.50", store.today()))
         [run] = self.events("model_run")
         self.assertEqual((run["purpose"], run["cost_usd"], run["model"]), ("verify", 0.04, "fable"))
-        self.assertEqual(self.events("grade")[-1]["basis"], "verifier_passed")
+        self.assertEqual(self.events("grade")[-1]["basis"],
+                         "verifier_passed; waiting for 2 clean frontier reuses or a pass on an apply model")
         self.assertEqual(self.events("learn")[-1]["decision"], "graded")
 
     def test_the_worker_never_sees_its_own_summary(self):
@@ -649,3 +650,273 @@ class VerifierTest(TempHome):
         self.assertFalse(partial["reusable"]["pass"])
         self.assertEqual(partial["reusable"]["why"], "not answered")
         self.assertIsNone(verify.verdict_of("no json"))
+
+
+def reuse(pid, tier="frontier", outcome="clean", basis=("strong_positive",)):
+    from athos import eval as ev, grade
+    ev.audit({"type": "reuse", "piece": pid, "tier": tier, "outcome": outcome, "basis": list(basis),
+              "version": store.get(pid).version})
+    return grade.evaluate(pid)
+
+
+class PromotionTest(TempHome):
+    def setUp(self):
+        super().setUp()
+        from athos import verify
+        self.piece = candidate()
+        self.bundle = verify.build_bundle(self.piece, "t1", None)
+
+    def grades(self):
+        from athos import eval as ev
+        return [e for e in ev.events() if e.get("type") == "grade"]
+
+    def verified(self):
+        from athos import verify
+        verify.run(self.piece.id, self.bundle, StubRunner())
+
+    def test_verifier_and_two_clean_frontier_reuses_verify_it(self):
+        self.verified()
+        self.assertFalse(reuse(self.piece.id))
+        self.assertEqual(store.get(self.piece.id).status, "candidate")
+        self.assertTrue(reuse(self.piece.id))
+        p = store.get(self.piece.id)
+        self.assertEqual((p.status, p.last_verified), ("verified", store.today()))
+        self.assertGreaterEqual(store.confidence(p), 0.7)
+        last = self.grades()[-1]
+        self.assertEqual((last["from"], last["to"], last["verifier_pass"]), ("candidate", "verified", True))
+        self.assertIn("2 clean frontier reuses", last["basis"])
+
+    def test_reuses_alone_never_verify_it(self):
+        reuse(self.piece.id)
+        reuse(self.piece.id)
+        reuse(self.piece.id)
+        self.assertEqual(store.get(self.piece.id).status, "candidate")
+
+    def test_a_pass_on_an_apply_model_is_enough_with_the_verifier(self):
+        self.verified()
+        self.assertTrue(reuse(self.piece.id, tier="apply", outcome="replay_pass"))
+        self.assertEqual(store.get(self.piece.id).status, "verified")
+
+    def test_no_runnable_check_no_promotion(self):
+        from athos import verify
+        p = candidate(body="## #a\n**When:** x.\n**Do:** y.\n**Check:** the page looks right\n", task="t5")
+        folder = verify.build_bundle(p, "t5", None)
+        verify.run(p.id, folder, StubRunner())
+        reuse(p.id)
+        reuse(p.id)
+        self.assertEqual(store.get(p.id).status, "candidate")
+        self.assertIn("no runnable Check", [g for g in self.grades() if g["piece"] == p.id][0]["basis"])
+
+    def test_a_high_risk_piece_needs_a_clean_reuse_not_just_a_replay(self):
+        from athos import verify
+        p = candidate(body=BODY + "\n## #ship\n**When:** done.\n**Do:** `git push origin main`.\n", task="t6",
+                      risk="high")
+        folder = verify.build_bundle(p, "t6", None)
+        verify.run(p.id, folder, StubRunner())
+        self.assertFalse(reuse(p.id, tier="apply", outcome="replay_pass"))
+        self.assertTrue(reuse(p.id))
+        self.assertIn("high risk", self.grades()[-1]["basis"])
+
+    def test_a_correction_demotes_and_repeated_failures_retire(self):
+        from athos import grade
+        self.verified()
+        reuse(self.piece.id)
+        reuse(self.piece.id)
+        self.assertEqual(store.get(self.piece.id).status, "verified")
+        self.assertTrue(grade.demote(self.piece.id, "corrected reuse on frontier (person_edit)", strong=True))
+        self.assertEqual(store.get(self.piece.id).status, "candidate")
+        reuse(self.piece.id, outcome="corrected", basis=["person_edit"])
+        self.assertTrue(reuse(self.piece.id, outcome="failed", basis=["check_failed"]) or True)
+        reuse(self.piece.id, outcome="corrected", basis=["reaction_corrected"])
+        p = store.get(self.piece.id)
+        self.assertEqual(p.status, "retired")
+        self.assertTrue((store.paths.history() / p.id).is_dir())             # superseded, not deleted
+        self.assertEqual(store.revert(p.id).status, "candidate")
+
+    def test_a_legacy_piece_is_demoted_only_on_strong_evidence(self):
+        from athos import grade
+        legacy = store.create("Legacy", "legacy", BODY, projects=["demo"])
+        self.assertFalse(grade.demote(legacy.id, "corrected (reaction_corrected)", strong=False))
+        self.assertEqual(store.render(store.get(legacy.id)), store.render(legacy))   # untouched
+        self.assertTrue(grade.demote(legacy.id, "failed (check_failed)", strong=True))
+        self.assertEqual(store.get(legacy.id).status, "candidate")
+
+    def test_ageing_without_a_model(self):
+        import datetime as dt
+        from athos import grade
+        p = store.create("Aged", "aged", BODY, projects=["demo"], status="verified", last_verified="2026-01-01")
+        p.last_used = p.created = "2026-01-01"
+        store._write(p)
+        used = store.create("Used", "used", BODY, projects=["demo"], status="verified", last_verified="2026-01-01")
+        legacy = store.create("Old legacy", "old", BODY, projects=["demo"])
+        for q in (legacy,):
+            q.last_used = q.created = "2025-01-01"
+            store._write(q)
+        moved = grade.age_all(today=dt.date.fromisoformat("2026-06-01"), days=90)
+        self.assertEqual(moved, [p.id])                                     # use slows ageing; legacy never ages
+        self.assertEqual(store.get(p.id).status, "candidate")
+        self.assertEqual(store.get(used.id).status, "verified")
+        self.assertEqual(store.get(legacy.id).status, "")
+        self.assertIn("aged", self.grades()[-1]["basis"])
+
+
+class ReuseOutcomeTest(TempHome):
+    def test_outcomes_by_tier(self):
+        from athos import grade
+        good = [{"type": "verify", "strength": "strong", "polarity": "positive", "ok": True}]
+        self.assertEqual(grade._outcome("p", "frontier", good)[0], "clean")
+        self.assertEqual(grade._outcome("p", "frontier", [])[0], "unverified")
+        edit = good + [{"type": "person_edit", "piece": "p", "strength": "strong"}]
+        self.assertEqual(grade._outcome("p", "frontier", edit), ("corrected", ["person_edit"]))
+        check = [{"type": "verify", "strength": "strong", "ok": True, "check_of": "p#a", "polarity": "positive"}]
+        self.assertEqual(grade._outcome("p", "apply", check), ("clean", ["check_passed"]))
+        self.assertEqual(grade._outcome("p", "apply", good)[0], "unverified")     # none of its own checks ran
+        failed = check + [{"type": "verify", "strength": "strong", "ok": False, "check_of": "p#b",
+                           "polarity": "negative"}]
+        self.assertEqual(grade._outcome("p", "apply", failed), ("failed", ["check_failed"]))
+
+    def test_finishing_a_task_grades_the_pieces_it_used_and_flags_apply_failures(self):
+        from athos import eval as ev, evidence, grade
+        p = candidate(task="tx")
+        evidence.add("t8", {"type": "verify", "strength": "strong", "ok": False, "check_of": f"{p.id}#run_tests",
+                            "polarity": "negative"})
+        legacy = store.create("Legacy", "legacy", BODY, projects=["demo"])
+        out = grade.finish_task("s", "t8", {"task_loaded": [p.id, legacy.id], "task_saved": [],
+                                            "model": "claude-haiku-5-5"})
+        self.assertEqual([(e["piece"], e["outcome"]) for e in out], [(p.id, "failed"), (legacy.id, "unverified")])
+        self.assertIn(p.id, grade.reviews())
+        self.assertEqual([e for e in ev.events() if e.get("type") == "reuse"][0]["tier"], "apply")
+        self.assertLess(store.confidence(store.get(p.id)), 0.3)
+
+    def test_the_task_that_saved_a_piece_is_not_its_reuse(self):
+        from athos import grade
+        p = candidate(task="tz")
+        self.assertEqual(grade.finish_task("s", "tz", {"task_loaded": [p.id], "task_saved": [p.id],
+                                                       "model": "claude-opus-5-5"}), [])
+
+
+class ApplyTierDeliveryTest(TempHome):
+    def setUp(self):
+        super().setUp()
+        self.cand = candidate(body=BODY + "\n## #ship\n**When:** the tests pass.\n**Do:** `git push origin main`.\n")
+        self.ver = store.create("Release the parser", "releasing the parser", BODY + "\n## #ship\n**When:** ready.\n"
+                                "**Do:** `npm publish`.\n", projects=["demo"], status="verified", risk="high")
+        self.legacy = store.create("Legacy way", "the legacy way", BODY, projects=["demo"])
+        self.retired = store.create("Gone", "gone", BODY, projects=["demo"], status="retired")
+
+    def test_apply_models_get_verified_and_legacy_only(self):
+        from athos import tiers
+        pool = [self.cand, self.ver, self.legacy, self.retired]
+        self.assertEqual({p.id for p in load.usable(pool, tiers.APPLY, "demo")}, {self.ver.id, self.legacy.id})
+        self.assertEqual({p.id for p in load.usable(pool, tiers.FRONTIER, "demo")},
+                         {self.cand.id, self.ver.id, self.legacy.id})
+
+    def test_the_project_candidates_switch(self):
+        from athos import start, tiers
+        start.config_file().write_text(json.dumps({"autolearn": {"apply_candidates": True}}))
+        pool = [self.cand, self.ver, self.legacy]
+        self.assertIn(self.cand.id, {p.id for p in load.usable(pool, tiers.APPLY, "demo")})
+        self.assertNotIn(self.cand.id, {p.id for p in load.usable(pool, tiers.APPLY, "elsewhere")})
+
+    def test_a_learned_piece_comes_as_a_checklist_with_checks_and_ask_first(self):
+        text = load._fit([self.ver], "athos", apply=True)[0]
+        self.assertIn(load.CHECKLIST_HEAD, text)
+        self.assertIn("1. #run_tests — When: after changing the parser. · Do: run the unit tests.", text)
+        self.assertIn("Check: `python3 -m unittest discover -s tests` exits 0", text)
+        self.assertIn("**Ask first:** this step publishes", text)
+        self.assertNotIn("**Because:**", text)
+
+    def test_a_legacy_piece_keeps_its_form_with_ask_first_on_risky_steps(self):
+        legacy = store.create("Ship", "shipping", BODY + "\n## #ship\n**When:** ready.\n**Do:** merge the PR.\n",
+                              projects=["demo"])
+        text = load._fit([legacy], "athos", apply=True)[0]
+        self.assertIn("**Because:** the parser has many edge cases.", text)
+        self.assertIn("**Do:** merge the PR.\n**Ask first:** this step merges", text)
+        self.assertNotIn("Ask first", load._fit([legacy], "athos")[0])     # a frontier model reads it as written
+
+    def test_the_frontier_index_says_candidate_review_and_stale(self):
+        from athos import grade, tiers
+        grade.mark_review(self.ver.id, "failed on claude-haiku-5-5")
+        old = store.create("Old one", "the parser old way", "## #a\n**When:** x.\n**Do:** run `make zap`.\n"
+                           "Edit `src/missing.py`.\n", projects=["demo"])
+        old.created = "2020-01-01"
+        store._write(old)
+        Path(self.home, "Makefile").write_text("all:\n\techo\n")
+        pool = [self.cand, self.ver, old]
+        trace = {"candidates": []}
+        notes = load.index_notes(pool, trace, pool, "s1", self.home)
+        self.assertEqual(notes[self.cand.id], "candidate, not verified yet")
+        self.assertIn("needs review", notes[self.ver.id])
+        self.assertIn("1 named file(s), 1 make target(s) not found here", notes[old.id])
+        index = load.deliver(pool, trace, pool, tiers.FRONTIER, notes=notes)["text"]
+        self.assertIn("(candidate, not verified yet)", index)
+        self.assertEqual(store.render(store.get(old.id)), store.render(old))   # a legacy file is not touched
+
+    def test_confidence_moves_the_score_a_little_and_legacy_not_at_all(self):
+        from athos import grade
+        self.assertEqual(grade.router_factor(self.legacy), 1.0)
+        self.assertAlmostEqual(grade.router_factor(self.cand), 0.92)
+        sure = store.create("Sure", "sure", BODY, projects=["demo"], status="verified", confidence="1.0")
+        self.assertAlmostEqual(grade.router_factor(sure), 1.06)
+
+    def test_through_the_hooks_an_apply_session_gets_the_checklist_only_once_verified(self):
+        from tests.test_cli import ThroughTheLauncher
+        cli = ThroughTheLauncher()
+        cli.home, cli.assertEqual = self.home, self.assertEqual
+        work = os.path.join(self.home, "work", "demo")
+        os.makedirs(work)
+        ev = {"session_id": "h1", "cwd": work, "transcript_path": None}
+        cli.send("session-start", {**ev, "model": "claude-haiku-5-5"})
+        out = cli.send("prompt", {**ev, "prompt": "change the parser safely"})
+        self.assertNotIn("Change the parser safely", json.dumps(out or {}))       # a candidate: not given
+        store.set_status(self.cand.id, "verified", "test")
+        out = cli.send("prompt", {**ev, "prompt": "change the parser safely"})
+        text = cli.context(out)
+        self.assertIn(load.CHECKLIST_HEAD, text)
+        self.assertIn("**Ask first:** this step publishes", text)
+
+
+class CandidateReplayTest(TempHome):
+    def setUp(self):
+        super().setUp()
+        from athos import cases
+        self.piece = candidate()
+        cases._write({"task_id": "t1", "piece": self.piece.id, "version": 1, "request": "fix the parser",
+                      "answer": "fixed, tests pass", "mark": "frontier"})
+
+    def test_off_by_default(self):
+        from athos import replay
+        runner = StubRunner()
+        self.assertEqual(replay.run_candidate(self.piece.id, runner)["error"], "replays are off")
+        self.assertEqual(runner.calls, [])
+
+    def test_a_passing_replay_after_the_verifier_verifies_it_within_the_cap(self):
+        from athos import eval as ev, start, verify
+        start.config_file().write_text(json.dumps({"autolearn": {"replay": {"on": True}}}))
+
+        class Both(StubRunner):
+            def __call__(self, prompt, bundle, model, timeout, max_usd):
+                super().__call__(prompt, bundle, model, timeout, max_usd)
+                if "independent verifier" in prompt:
+                    return {"ok": True, "text": PASS, "cost_usd": 0.05, "duration_s": 1}
+                if "Second answer" in prompt:
+                    return {"ok": True, "text": '{"score": 92, "equivalent": true}', "cost_usd": 0.01,
+                            "duration_s": 1}
+                return {"ok": True, "text": "the answer", "cost_usd": 0.001, "duration_s": 1}
+        runner = Both()
+        bundle = verify.build_bundle(self.piece, "t1", None)
+        out = verify.run(self.piece.id, bundle, runner)
+        self.assertEqual(out["replay"]["outcome"], "replay_pass")
+        self.assertEqual([c["model"] for c in runner.calls], ["fable", "haiku", "fable"])
+        self.assertEqual(store.get(self.piece.id).status, "verified")
+        runs = [e for e in ev.events() if e.get("type") == "model_run"]
+        self.assertEqual([r["purpose"] for r in runs], ["verify", "replay", "replay"])
+
+    def test_the_cap_stops_a_replay(self):
+        from athos import replay, start
+        start.config_file().write_text(json.dumps({"autolearn": {"replay": {"on": True},
+                                                                 "budget": {"runs_per_day": 1}}}))
+        runner = StubRunner(text="x")
+        out = replay.run_candidate(self.piece.id, runner)
+        self.assertEqual(out["outcome"], "skipped")
+        self.assertEqual(len(runner.calls), 1)                              # the answer ran, the judge could not

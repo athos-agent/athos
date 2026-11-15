@@ -342,8 +342,13 @@ def run(piece_id: str, bundle: Path | None = None, runner=claude_runner) -> dict
         return _record(piece, folder, model, None, "error", "the answer held no readable verdict", meta,
                        fallback=fallback, cost=result.get("cost_usd"), named=named, prompt=prompt)
     passed = all(v["pass"] for v in verdict.values())
-    return _record(piece, folder, model, verdict, "pass" if passed else "fail", "", meta, fallback=fallback,
-                   cost=result.get("cost_usd"), named=named, prompt=prompt)
+    out = _record(piece, folder, model, verdict, "pass" if passed else "fail", "", meta, fallback=fallback,
+                  cost=result.get("cost_usd"), named=named, prompt=prompt)
+    after = store.get(piece_id)
+    if passed and after is not None and after.status == "candidate" and s["replay"].get("on"):
+        from athos import replay              # off by default: a replay on an apply model costs two more runs
+        out["replay"] = replay.run_candidate(piece_id, runner)
+    return out
 
 
 def _bundle_of(piece: store.Piece) -> Path | None:
@@ -372,7 +377,7 @@ def _record(piece: store.Piece, folder: Path | None, model: str | None, verdict:
            "inputs": sorted(Path(v).name for v in (named or {}).values()) or None,
            "prompt_file": str(folder / "prompt.txt") if folder and prompt else None,
            "paths_only": paths_only(prompt, named, folder) if prompt and named and folder else None,
-           "attempts": meta.get("attempts", 0)}
+           "attempts": meta.get("attempts", 0), "body_sha": grade.body_sha(piece)}
     project = piece.projects[0] if piece.projects else None
     ev.audit({"type": "verify", **out, "project": project},
              line=f"verifier on {_name(piece, project)}: {outcome}" + (f" ({error})" if error else "")

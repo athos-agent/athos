@@ -380,7 +380,7 @@ of it keeps a request's words: only its length and a 12-character fingerprint (`
 | `piece_opened` | the tool hook sees the agent run `athos show <id>` | `task_id`, `piece`, `projects`, `via` (show), `offered` (the frontier index of this request listed it), `again` (it was already in use for the task), `project` |
 | `hook_error` | a hook swallows an exception so your session carries on | `hook`, `where`, `error` (the exception's kind), `line` (file and line inside Athos), never its message |
 | `learn` | autonomous learning decides about a task: it asks the model to keep what it taught, saves, or skips (every decision, with its reason) | `task_id`, `decision` (asked, saved, skipped), `reason` (strong_evidence, no_strong_evidence, last_verification_failed, correction_after_success, apply_model, model_unknown, private_data, no_project, off, invalid, model_saved_nothing), `model`, `tier`, `work_mode`, `mode` (learn, apply, unknown), `project`, `strong`, `weak`, `positive`, `negative` (the task's evidence counted), `evidence` (its short summary), `grounds`, and for a save `piece`, `version`, `risk`, `checks` (runnable Check lines), `confidence`; for a private-data refusal `private` (the kinds found, never the text) |
-| `grade`, `ui` | reserved for a piece's grade and the panel's state | not written yet |
+| `ui` | reserved for the panel's state | not written yet |
 
 Every one of them also carries `at`, `session_id` and `v`, the version of Athos that wrote it. `candidates.reason`
 says why a piece did or didn't load: `chosen`, `runner_up_too_weak`, `over_budget`, `beyond_top_k`, `below_min_score`,
@@ -631,6 +631,65 @@ it by hand, in the foreground; `athos verify --pending` the oldest waiting one.
 |---|---|---|
 | `verify` | a verifier run ends, or is refused | `piece`, `version`, `task_id`, `outcome` (pass, fail, error, skipped), `model`, `worker_model`, `same_model_fallback`, `verdict` (per criterion, true or false), `why` (one line per criterion), `error`, `cost_usd`, `bundle`, `inputs` (the file names it was given), `prompt_file`, `paths_only`, `attempts` |
 | `model_run` | any model run Athos starts, or refuses to start for the cap | `purpose` (verify, replay), `piece`, `version`, `model`, `started`, `refused` (why), `ok`, `error`, `cost_usd`, `cost_estimated`, `usd_cap_run`, `usd_per_day`, `runs_per_day`, `duration_s` |
+
+**Promotion and demotion.** Each move is a `grade` event with its basis, and so is a decision not to move:
+
+- **candidate → verified** when the verifier passed on the piece as it is now (its title, when and body; `body_sha`
+  in the `verify` event), it has at least one runnable Check, and since it became a candidate either **two clean
+  reuses on a frontier model** or **one pass on an apply model** (a replay, below, or a real use whose Checks the hooks
+  saw pass). A `risk: high` piece needs the verifier and at least one clean reuse; a replay alone does not verify it.
+  Reuses alone, without the verifier, never verify anything.
+- **verified → candidate** after a reuse that was corrected or failed. A legacy piece moves only on strong evidence (a
+  change you made credited to it, a revert, one of its own Checks failing), never on a reaction read from your words.
+- **→ retired** when 3 of its last 5 judged reuses were corrected or failed (for a legacy piece, on strong evidence
+  only). Retiring supersedes it as a new version; `athos revert` restores it.
+- **ageing, without a model**: a verified piece with no use and no re-verification in `autolearn.age_days` (90) days
+  goes back to candidate, checked when a session starts. Using a piece moves its last-used date, so use slows ageing.
+  Legacy pieces do not age.
+
+A reuse is judged when your next request arrives, once your reaction and your edits are known: a `reuse` event per piece
+the task used (opened, on a frontier model; given, on an apply model), never for the task that saved it. On a frontier
+model it is **clean** when the task's evidence has a strong item for the work and nothing against the piece (no edit
+of yours credited to it, no revert, no reaction that it was wrong, none of its Checks failing last), **corrected** when
+something is against it, and **unverified** (not counted) when nothing proved the work. On an apply model it is
+**clean** only when at least one of its Checks was seen passing and none failing last, **failed** on a failing Check or
+a correction, and unverified when none of its Checks ran. A failure on an apply model also marks the piece for review:
+the next frontier model's index says so.
+
+Confidence (0 to 1) starts at 0.3, moves +0.2 on a verifier pass, −0.1 on a fail, +0.1 per clean reuse, −0.2 per
+corrected or failed one, −0.1 when the environment check below finds something missing, is at least 0.7 once verified
+and 0.05 once retired. It multiplies the router's score by 1 + 0.2 × (confidence − 0.7), from 0.92 to 1.06: the words
+decide and confidence only breaks near ties. A legacy piece has no confidence, its factor is exactly 1, and its file is
+never given one. `athos bench route` gives the same hit@1, wrong loads and "none ok" as before.
+
+**Checking an old piece against the environment.** Before a frontier model's index lists a piece not created or
+verified in `autolearn.reverify_days` (14) days, Athos checks once per session, without running anything, that what it
+names is still there: files in backticks relative to the repository, the commands its command lines start with (on
+PATH), its `npm run` scripts (in package.json) and its `make` targets (in the Makefile). Flags of other commands cannot be
+checked this way and are not. What is missing goes in the index line (`may be stale: 1 named file(s) not found here`), a
+`reverify` event, and, for a learned piece, a lower confidence. A frontier model's index also says `candidate, not
+verified yet` for a candidate and `needs review: it failed on an apply model` after such a failure.
+
+**On an apply model.** Only verified and legacy pieces load, and never a retired one;
+`"autolearn": {"apply_candidates": true}` also lets its own project's candidates load. A learned piece comes as a short
+checklist: each step's When and Do, its Check and hand-overs, without reasons, links or history, under "Steps, in order.
+After each one, run its Check and go on only when it holds; if a Check fails, stop and say which one failed." Any piece's
+risky steps, legacy ones too, get a line after their Do: `**Ask first:** this step publishes: ask the person and do it
+only on their clear yes.` (a frontier model reads pages as written). The apply model never saves or changes a piece:
+what the hooks saw (its Checks passing or failing, your corrections) is the evidence.
+
+**Replaying a candidate on an apply model**, off by default because it costs two model runs: with
+`"autolearn": {"replay": {"on": true, "model": "haiku"}}`, an autonomous save also keeps the task as the candidate's case
+(the request and the frontier answer, `mark: frontier`, never in a public repository), and once the verifier passes, the
+apply model answers that request with the piece as its know-how and a frontier model judges it against the frontier
+answer, as `athos shadow` does. A pass is a `reuse` event (tier apply, `replay_pass`) that can verify a normal-risk
+piece. Both runs count against the same daily cap.
+
+| event | written when | fields |
+|---|---|---|
+| `grade` | a piece moves, or a verifier outcome or a rule leaves it where it is | `piece`, `version`, `from`, `to` (candidate, verified, retired, legacy), `basis`, and for a move `trigger`, `verifier_pass`, `verifier_model`, `frontier_clean`, `apply_pass`, `risk`, `checks` |
+| `reuse` | the next request after a task that used a piece, or a replay | `piece`, `version`, `task_id`, `tier` (frontier, apply), `model`, `outcome` (clean, corrected, failed, unverified, replay_pass, replay_fail), `basis` (strong_positive, no_correction, check_passed, check_failed, person_edit, revert, reaction_corrected, no_check_ran, nothing_proved_the_work, replay, score), `status` |
+| `reverify` | an old piece is checked against the environment | `piece`, `version`, `age_days`, `checked`, `missing` (files, commands, scripts, targets: counts), `stale` |
 
 **Risk lanes.** A step is high risk when its When or Do publishes (`npm publish`, `git push`, `docker push`, `gh
 release create`, the word publish), merges (`gh pr merge`, `git merge`, merge), deploys (deploy, `kubectl apply`,
