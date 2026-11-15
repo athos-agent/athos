@@ -46,10 +46,30 @@ class HookCase(TempHome):
         self.ev = {"session_id": "s1", "cwd": str(self.work)}
         self.run_athos("save", stdin=PIECE, cwd=str(self.work))       # saved in this project, so it belongs to it
 
+    def call(self, tool, tool_input, act=None, hook="tool", extra=None):
+        """One tool call as Claude Code sends it: PreToolUse (the start stamp), the call's own work, PostToolUse."""
+        self._calls = getattr(self, "_calls", 0) + 1
+        payload = {**self.ev, "tool_name": tool, "tool_input": tool_input, "tool_use_id": f"call-{self._calls}",
+                   **(extra or {})}
+        self.hook("tool-start", payload)
+        done = act() if act else None
+        self.hook(hook, payload)
+        return done
+
+    def age_clock(self, seconds=60, sid="s1"):
+        """Move the detector's clock back, as if the last tool call and turn ended `seconds` ago: past the grace
+        window, without waiting for it."""
+        clock = Path(self.home) / "snapshots" / sid / "clock.json"
+        if clock.exists():
+            data = json.loads(clock.read_text())
+            for key in ("tool_end", "turn_end"):
+                if data.get(key):
+                    data[key] -= seconds
+            clock.write_text(json.dumps(data))
+
     def agent_writes(self, name="report.md", text=REPORT, tool="Write", **tin):
         f = self.work / name
-        f.write_text(text)
-        self.hook("tool", {**self.ev, "tool_name": tool, "tool_input": tin or {"file_path": str(f), "content": text}})
+        self.call(tool, tin or {"file_path": str(f), "content": text}, act=lambda: f.write_text(text))
         return f
 
     def snapshots(self, sid="s1"):
@@ -69,6 +89,7 @@ class EditsTest(HookCase):
                          [(str(f), ["review-a-services-contract"], "review-a-services-contract#penalties")])
         self.assertTrue((Path(self.home) / "snapshots" / "s1" / f"{snap[0]['hash']}.txt").is_file())
         self.hook("stop", self.ev)
+        self.age_clock()
         f.write_text(REPORT.replace("The supplier should pay", "The supplier shall pay"))   # the person's hand
         ctx = self.context(self.hook("prompt", {**self.ev, "prompt": "now draft the email to the client"}))
         self.assertIn("the person edited what you wrote", ctx)
@@ -99,6 +120,7 @@ class EditsTest(HookCase):
         self.assertNotIn("edited", self.context(self.hook("prompt", {**self.ev, "prompt": "go on"})))
         self.assertEqual(len(self.snapshots()), 1)                # untouched: kept for a later request
         self.hook("stop", self.ev)
+        self.age_clock()
         f.write_text(REPORT.replace("\n-", "\n  -"))               # spacing only
         self.assertNotIn("edited", self.context(self.hook("prompt", {**self.ev, "prompt": "go on"})))
         self.assertEqual(self.snapshots(), [])
@@ -166,17 +188,15 @@ class WhoChangedItTest(HookCase):
         self.report = self.agent_writes()
 
     def agent_runs(self, command, hook="tool"):
-        """The agent's shell tool: the command really runs, and the hook gets its duration as Claude Code sends it."""
-        started = time.time()
-        done = subprocess.run(command, shell=True, cwd=self.work, capture_output=True, text=True,
-                              env={**os.environ, "GIT_CONFIG_GLOBAL": os.path.join(self.home, "gitconfig")})
-        ms = (time.time() - started) * 1000
-        self.hook(hook, {**self.ev, "tool_name": "Bash", "tool_input": {"command": command}, "duration_ms": ms})
-        return done
+        """The agent's shell tool: stamped at its start, the command really runs, then its end hook."""
+        return self.call("Bash", {"command": command}, hook=hook, act=lambda: subprocess.run(
+            command, shell=True, cwd=self.work, capture_output=True, text=True,
+            env={**os.environ, "GIT_CONFIG_GLOBAL": os.path.join(self.home, "gitconfig")}))
 
     def next_request(self):
         """The turn ends, a moment passes, and the person sends the next request: what the model is told."""
         self.hook("stop", self.ev)
+        self.age_clock()
         return self.context(self.hook("prompt", {**self.ev, "prompt": "now draft the email to the client"}))
 
     def assert_given_to_nobody(self, ctx, source="agent_shell"):
@@ -226,19 +246,18 @@ class WhoChangedItTest(HookCase):
 
     def test_a_change_inside_a_long_command_is_the_agents_even_if_typed_by_hand(self):
         # The change falls inside the command's run: the agent may have made it, so nobody is credited.
-        started = time.time()
-        self.report.write_text(REPORT.replace("should pay", "shall pay"))
-        time.sleep(0.2)
-        self.hook("tool", {**self.ev, "tool_name": "Bash", "tool_input": {"command": "make build"},
-                           "duration_ms": (time.time() - started) * 1000 + 50})
+        def during():
+            self.report.write_text(REPORT.replace("should pay", "shall pay"))
+            time.sleep(0.2)
+        self.call("Bash", {"command": "make build"}, act=during)
         self.assert_given_to_nobody(self.next_request())
 
     def test_by_hand_between_two_tool_calls(self):
         self.classic()      # the classic interface: the person reads this
+        self.age_clock()                                                       # the last call ended a while ago
         self.report.write_text(REPORT.replace("should pay", "shall pay"))      # the person, while the agent thinks
         time.sleep(edits.MARGIN_S + 0.3)
-        self.hook("tool", {**self.ev, "tool_name": "Read", "tool_input": {"file_path": "other.md"},
-                           "duration_ms": 12})
+        self.call("Read", {"file_path": "other.md"})
         pending = [e for e in edit_events(self.home) if e["decision"] == "pending"]
         self.assertEqual([(e["source"], e["attributed_to"], e["basis"][0]) for e in pending],
                          [("outside", "person", "changed_between_tool_calls")])
@@ -256,6 +275,7 @@ class WhoChangedItTest(HookCase):
         self.classic()      # the classic interface: the person reads this
         self.agent_runs("sed -i.bak 's/Fine of 5%/Fine of 6%/' report.md")
         self.hook("stop", self.ev)
+        self.age_clock()
         self.report.write_text(self.report.read_text().replace("should pay", "shall pay"))
         ctx = self.context(self.hook("prompt", {**self.ev, "prompt": "now draft the email to the client"}))
         self.assertIn("+- The supplier shall pay", ctx)
@@ -277,6 +297,7 @@ class WhoChangedItTest(HookCase):
         self.hook("prompt", {**self.ev, "prompt": "review a services contract for a client"})
         f = self.agent_writes("client-memo.md")
         self.hook("stop", self.ev)
+        self.age_clock()
         f.write_text(REPORT.replace("should pay", "shall pay"))
         self.assertIn("edited", self.context(self.hook("prompt", {**self.ev, "prompt": "next"})))
         learned = edit_events(self.home, "learned_from_edit")

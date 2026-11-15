@@ -240,3 +240,57 @@ def models_in_tail(transcript_path: str | None) -> dict:
                 out.update(switch=model_id(m.group(1)), switch_name=m.group(1).strip(),
                            switch_at=row.get("timestamp"), newest="switch")
     return out
+
+
+# ------------------------------------------------------------------------------------------------ live tool calls
+LIVE_MAX_S = 2 * 3600            # a tool call still open after this long is taken as one whose end never came
+
+
+def _live_file(session_id: str) -> Path:
+    return paths.sessions() / "live" / (_UNSAFE_CHARS.sub("_", session_id or "default") + ".json")
+
+
+def live(session_id: str) -> dict:
+    """The session's tool calls that started (PreToolUse) and have not ended yet: {tool_use_id: {at, tool, agent,
+    background, ...}}. Calls older than LIVE_MAX_S are left out; an unreadable file reads as one live call of unknown
+    kind, so whoever asks "is anything running?" hears yes."""
+    import time
+    try:
+        data = paths.read_state(_live_file(session_id), retries=2)
+    except paths.StateUnreadable:
+        return {"?": {"at": time.time(), "tool": "?", "unknown": True}}
+    if not isinstance(data, dict):
+        return {}
+    now = time.time()
+    return {k: v for k, v in data.items() if isinstance(v, dict) and now - float(v.get("at") or 0) < LIVE_MAX_S}
+
+
+def live_start(session_id: str, call_id: str, info: dict) -> None:
+    """A tool call started: stamp it (its start time is the hook's own clock, not an estimate)."""
+    target = _live_file(session_id)
+    with paths.locked(target):
+        calls = {k: v for k, v in live(session_id).items() if k != "?"}
+        calls[call_id] = info
+        paths.write_atomic(target, json.dumps(calls))
+
+
+def live_end(session_id: str, call_id: str | None) -> dict | None:
+    """A tool call ended: its stamp, taken off the live calls (None when it had none)."""
+    if not call_id:
+        return None
+    target = _live_file(session_id)
+    if not target.exists():
+        return None
+    with paths.locked(target):
+        calls = {k: v for k, v in live(session_id).items() if k != "?"}
+        found = calls.pop(call_id, None)
+        paths.write_atomic(target, json.dumps(calls))
+    return found
+
+
+def live_clear(session_id: str) -> None:
+    """The turn ended: no tool call of it is still running (a background one is what the Stop hook reports)."""
+    try:
+        _live_file(session_id).unlink()
+    except FileNotFoundError:
+        pass

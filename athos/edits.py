@@ -6,25 +6,31 @@ agent left it (`<home>/snapshots/<session>/<hash>.txt`, plus `index.json`: path,
 routed piece, and the file's size and times as last seen). Everything stays local; snapshots are deleted after use and
 kept only for the last few tasks, under a size cap.
 
-A change is given to the person only on evidence that no agent tool call made it. The agent changes files in many ways
-besides its edit tools (a script, `sed -i`, a formatter, `git checkout`, a build), and until 0.1.111 every one of them
-read as the person's edit. So:
+A change is given to the person only on evidence that no agent tool call made it, and in doubt it is given to nobody.
+The agent changes files in many ways besides its edit tools (a script, `sed -i`, a formatter, `git checkout`, a build,
+another plugin's hook, a subagent, a task it left running), and until 0.1.111 every one of them read as the person's
+edit. So:
 
-- After every tool call (PostToolUse, and PostToolUseFailure where the agent has it) each kept file is looked at: a
-  `stat` first, the content only when the stat moved. A file that changed is the agent's when the change could have
-  happened during that call, and the snapshot moves to the new content. It is the person's only when the file's
-  status-change time (ctime, which no tool can set back) falls after the previous look and clearly before the call
-  started (the hook's time minus the call's `duration_ms`, minus a margin): it changed between two tool calls.
+- Each tool call's start is stamped by the PreToolUse hook (`session.live_start`): the hook's own clock, never an
+  estimate from `duration_ms`. After every tool call (PostToolUse, and PostToolUseFailure where the agent has it) each
+  kept file is looked at: a `stat` first, the content only when the stat moved. A changed file is the person's only
+  when its status-change time (ctime, which no tool can set back) falls after the previous look, more than GRACE_S
+  after the last tool call ended (another plugin's formatter runs right after a write), and clearly before this call's
+  stamped start, and while no other tool call, subagent or background task was running. Otherwise it is the agent's
+  (the change could have happened during the call) or nobody's.
 - On the person's next request each kept file is compared again. A change counts as the person's only when it came
-  after the agent's turn ended (the Stop hook) with no tool call since and no background task left running.
-- Anything else (no timing, a change before the turn ended, a background task) is given to nobody: an `edit_seen`
-  event records it as `agent_shell`, `agent_tool` or `unexplained`, and the model is told nothing.
+  more than GRACE_S after the agent's turn ended (the Stop hook: another Stop hook may still be writing), with no tool
+  call since or still open, no background task left running, and no other session working in the same project since.
+- Anything else (no start stamp, a subagent or background task live, a change inside a grace window, a ctime in the
+  future, as a network file system's clock may give) is given to nobody: an `edit_seen` event records it as
+  `agent_shell`, `agent_tool` or `unexplained` with the reason, and the model is told nothing.
 
 Blind spots, said plainly: a process the agent started in the background that writes after its turn ended is taken for
-the person when the Stop hook reported no background task; a change made while the model writes its final answer (after
-its last tool call, before Stop) is given to nobody; a file the agent never wrote through a tool Athos can read is not
-watched; a hand edit followed by the agent's own edit tool on the same file before any other tool call is folded into
-the agent's write; an agent whose hooks carry no `duration_ms` (Codex, Muse Code, OpenCode) only gets the after-the-turn evidence.
+the person when the Stop hook reported no background task and the grace window has passed; a change made while the
+model writes its final answer (after its last tool call, before Stop) is given to nobody; a file the agent never wrote
+through a tool Athos can read is not watched; a hand edit followed by the agent's own edit tool on the same file before
+any other tool call is folded into the agent's write; an agent with no PreToolUse hook (Codex, OpenCode) only gets the
+after-the-turn evidence.
 
 Who the change is credited to (F6): the step the agent was on when it wrote the file; else the best-ranked piece of the
 task's route decision; else no piece. Finding the person's edits (`check`) and telling the model about them
@@ -50,7 +56,9 @@ SESSION_CAP = 2_000_000    # all snapshots of one session; the oldest go first
 KEEP_TASKS = 3             # snapshots of older tasks are dropped
 DIFF_LINES = 60
 PER_PROMPT = 2             # files offered with one request; the rest wait for the next one
-MARGIN_S = 1.0             # a change this close to a tool call's estimated start may still be that call's
+MARGIN_S = 1.0             # a change this close to a tool call's start may still be that call's
+GRACE_S = 15.0             # a change this soon after a tool call or a turn ended may be a hook's (a formatter's)
+SUBAGENT_TOOLS = {"Agent", "Task"}
 SHELL_NAMED_MAX = 10       # files a shell command names that are snapshotted with it
 # The tools that write a file, in each agent's names (capture.EDIT_TOOLS, without notebooks).
 WRITE_TOOLS = {"Edit", "Write", "MultiEdit", "apply_patch", "write_file", "edit_file", "write", "edit", "patch",
@@ -199,24 +207,38 @@ def _tool_label(event: dict) -> str:
     return re.sub(r"[^A-Za-z0-9_.:-]", "_", str(event.get("tool_name") or "tool"))[:60]
 
 
-def _started(event: dict, now: float) -> float | None:
-    """When the tool call began, from the hook's time and the call's `duration_ms` (Claude Code sends it); None when
-    the agent does not say. The estimate is late by the hook's own start-up, which MARGIN_S covers."""
-    ms = event.get("duration_ms")
-    if isinstance(ms, (int, float)) and not isinstance(ms, bool) and ms >= 0:
-        return now - ms / 1000
-    return None
+def call_id(event: dict) -> str | None:
+    found = event.get("tool_use_id")
+    return str(found) if found else None
 
 
-# ------------------------------------------------------------------------------------------------ the tool hook
-def on_tool(event: dict, session_id: str, failed: bool = False) -> None:
+def on_tool_start(event: dict, session_id: str, extra: dict | None = None) -> None:
+    """PreToolUse: stamp the call's start, whether a subagent makes it, and whether it runs in the background (then
+    the session has a task the Stop hook must report finished before a change can be anyone's)."""
+    cid = call_id(event)
+    tin = event.get("tool_input") if isinstance(event.get("tool_input"), dict) else {}
+    background = bool(tin.get("run_in_background"))
+    if cid:
+        session.live_start(session_id, cid, {"at": round(time.time(), 3), "tool": _tool_label(event),
+                                             "agent": bool(event.get("agent_id")), "background": background,
+                                             **(extra or {})})
+    # Kept in the session's state (not with the snapshots, which may not exist yet): a task left running and a
+    # subagent's work are what makes a later change nobody's.
+    if background:
+        session.update(session_id, background_since=round(time.time(), 3))
+    if event.get("agent_id") or (event.get("tool_name") or "") in SUBAGENT_TOOLS:
+        session.update(session_id, subagent_at=round(time.time(), 3))
+
+
+def on_tool(event: dict, session_id: str, failed: bool = False, started: dict | None = None) -> None:
     """PostToolUse (and PostToolUseFailure): look at the kept files for changes, then keep each file this call wrote
-    (or a shell command named), as it left it, when the task follows a piece."""
+    (or a shell command named), as it left it, when the task follows a piece. `started` is the call's PreToolUse
+    stamp (`session.live_end`), None when the agent has no such hook."""
     now = time.time()
     entries = _index(session_id)
     written = written_paths(event)
     if entries:
-        entries = _look(event, session_id, entries, {str(p) for p in written}, now, failed)
+        entries = _look(event, session_id, entries, {str(p) for p in written}, now, failed, started)
     state = session.load(session_id)
     pieces, step = _following(state)
     files = [(p, "agent_tool") for p in written]
@@ -255,11 +277,39 @@ def _keep(event: dict, session_id: str, state: dict, entries: list[dict], files:
     return entries
 
 
+def _between_calls(changed_at: float, entry: dict, start: float | None, others: dict, clock: dict, now: float,
+                   event: dict) -> tuple[bool, str]:
+    """Whether a change found after a tool call happened between two calls, by the person: (True, "") or (False, why
+    not). In doubt, not."""
+    if start is None:
+        return False, "no_start_stamp"
+    if changed_at > now + MARGIN_S:
+        return False, "ctime_in_the_future"
+    if changed_at <= entry.get("checked", 0) or changed_at >= start - MARGIN_S:
+        return False, "changed_during"
+    if clock.get("background"):
+        return False, "background_task_running"
+    if event.get("agent_id") or any(o.get("agent") or o.get("tool") in SUBAGENT_TOOLS for o in others.values()) \
+            or (clock.get("subagent_at") or 0) >= changed_at - GRACE_S:
+        return False, "subagent_running"
+    if any(float(o.get("at") or 0) <= changed_at + MARGIN_S for o in others.values()):
+        return False, "another_call_running"
+    if changed_at <= max(clock.get("tool_end") or 0, clock.get("turn_end") or 0) + GRACE_S:
+        return False, "within_grace_after_a_call"
+    return True, ""
+
+
 def _look(event: dict, session_id: str, entries: list[dict], written: set[str], now: float,
-          failed: bool) -> list[dict]:
-    """Each kept file against what was last seen of it: unchanged, changed during this call (the agent's), or
-    changed between the previous look and this call's start (the person's, kept as `pending` for the next request)."""
-    start = _started(event, now)
+          failed: bool, started: dict | None = None) -> list[dict]:
+    """Each kept file against what was last seen of it: unchanged, changed during this call (the agent's), changed
+    between the previous look and this call's start with nothing else running (the person's, kept as `pending` for
+    the next request), or changed when that cannot be told (nobody's)."""
+    start = float(started["at"]) if started and started.get("at") else None
+    others = session.live(session_id)
+    state = session.load(session_id)
+    clock = {**_clock(session_id)}
+    clock["background"] = bool(clock.get("background") or state.get("background_since"))
+    clock["subagent_at"] = state.get("subagent_at") or 0
     tool = _tool_label(event)
     source = "agent_shell" if is_shell(event) else "agent_tool"
     task_id = session.load(session_id).get("task_id")
@@ -283,8 +333,9 @@ def _look(event: dict, session_id: str, entries: list[dict], written: set[str], 
             out.append(e)
             continue
         changed_at = st[2] / 1e9
-        if start is not None and e.get("checked", 0) < changed_at < start - MARGIN_S:
-            basis = ["changed_between_tool_calls", f"ctime_before_start:{tool}", "duration_ms"]
+        person, why = _between_calls(changed_at, e, start, others, clock, now, event)
+        if person:
+            basis = ["changed_between_tool_calls", f"ctime_before_start:{tool}", "start_stamped"]
             pend = dict(e.get("pending") or {})
             pend.setdefault("diffs", []).append(diff(before, after, os.path.basename(e["path"])))
             pend["basis"] = basis
@@ -292,10 +343,11 @@ def _look(event: dict, session_id: str, entries: list[dict], written: set[str], 
             e["pending"] = pend
             _seen(session_id, task_id, e["hash"], "pending", "outside", basis, "person",
                   detector="between_tool_calls")
-        else:
-            why = (f"changed_during:{tool}" if start is not None else f"no_timing:{tool}")
-            basis = [why] + (["tool_failed"] if failed else [])
+        elif why == "changed_during":
+            basis = [f"changed_during:{tool}"] + (["tool_failed"] if failed else [])
             _seen(session_id, task_id, e["hash"], "rebased", source, basis, "agent")
+        else:
+            _seen(session_id, task_id, e["hash"], "unattributed", "unexplained", [f"{why}:{tool}"], None)
         _write_snapshot(session_id, e, after)
         e.update(stat=st, checked=now, size=len(after))
         out.append(e)
@@ -314,11 +366,16 @@ def _write_snapshot(session_id: str, entry: dict, text: str) -> None:
 
 
 def on_stop(event: dict, session_id: str) -> None:
-    """Stop: the agent's turn ended. A change after this, with no tool call since, is the person's; a background
-    task the agent left running (Claude Code's `background_tasks`) takes that evidence away."""
+    """Stop: the agent's turn ended. A change after this (and a grace window), with no tool call since, is the
+    person's; a background task the agent left running (Claude Code's `background_tasks`) takes that evidence away.
+    No foreground call of the turn is running any more."""
+    session.live_clear(session_id)
+    running = bool(event.get("background_tasks"))
+    if not running and session.load(session_id).get("background_since"):
+        session.update(session_id, background_since=None)       # the tasks it started have all ended
     if not (_dir(session_id) / "index.json").exists():
         return
-    _save_clock(session_id, turn_end=time.time(), background=bool(event.get("background_tasks")))
+    _save_clock(session_id, turn_end=time.time(), background=running)
 
 
 def _seen(session_id: str, task_id, file_hash: str, decision: str, source: str, basis: list[str],
@@ -372,18 +429,43 @@ def _same(a: str, b: str) -> bool:
 
 
 # ------------------------------------------------------------------------------------------------ the next request
-def _after_turn(changed_at: float, entry: dict, clock: dict) -> tuple[list[str], str | None]:
+def _after_turn(changed_at: float, entry: dict, clock: dict, session_id: str = "",
+                project: str | None = None) -> tuple[list[str], str | None]:
     """The evidence that a change found at the person's next request is theirs, or why there is none."""
     turn_end, tool_end = clock.get("turn_end"), clock.get("tool_end") or 0
     if not turn_end:
         return [], "no_turn_end"
     if turn_end < tool_end:
         return [], "tool_after_turn_end"
-    if clock.get("background"):
+    if clock.get("background") or (session_id and session.peek(session_id).get("background_since")):
         return [], "background_task_running"
+    if session_id and session.live(session_id):
+        return [], "tool_call_running"
+    if changed_at > time.time() + MARGIN_S:
+        return [], "ctime_in_the_future"
     if changed_at <= turn_end or changed_at <= entry.get("checked", 0):
         return [], "changed_before_turn_end"
+    if changed_at <= turn_end + GRACE_S:
+        return [], "within_grace_after_turn_end"
+    if session_id and _other_session_since(session_id, project, turn_end):
+        return [], "another_session_active"
     return ["changed_after_turn_end", "no_tool_call_since"], None
+
+
+def _other_session_since(session_id: str, project: str | None, since: float) -> bool:
+    """Whether another agent session working in the same project (any, when this one's project is not known) moved
+    since `since`: a change made then could be its agent's."""
+    from athos import paths
+    own = session._file(session_id).name
+    try:
+        files = [f for f in paths.sessions().glob("*.json") if f.name != own and f.stat().st_mtime > since]
+    except OSError:
+        return True
+    for f in files:
+        other = session.peek(f.stem)
+        if other.get("task_id") and (not project or other.get("project") == project):
+            return True
+    return False
 
 
 def _target(entry: dict) -> tuple[str | None, str | None, str]:
@@ -419,7 +501,8 @@ def check(session_id: str) -> list[dict]:
         diffs, basis, detector = list(pending.get("diffs") or []), list(pending.get("basis") or []), \
             pending.get("detector")
         if after != before:
-            evidence, missing = _after_turn((_stat(e["path"]) or [0, 0, 0])[2] / 1e9, e, clock)
+            evidence, missing = _after_turn((_stat(e["path"]) or [0, 0, 0])[2] / 1e9, e, clock, session_id,
+                                            project)
             if evidence:
                 diffs.append(diff(before, after, os.path.basename(e["path"])))
                 basis, detector = basis + evidence, detector or "after_turn_end"

@@ -228,7 +228,9 @@ class EvidenceGatheringTest(TempHome):
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
         subprocess.run(["git", "-c", "user.email=a@example.com", "-c", "user.name=a", "commit", "-q", "--allow-empty",
                         "-m", "x"], cwd=repo, check=True)
-        _bash("s1", "git commit -m 'x'", repo)
+        # A commit counts only when HEAD moved since the call's start (the PreToolUse stamp keeps it).
+        evidence.on_tool({"session_id": "s1", "cwd": repo, "tool_name": "Bash", "tool_input": {"command": "git commit -m x"},
+                          "tool_response": {"stdout": ""}}, "s1", started={"head": "0" * 40})
         _bash("s1", "git reset --hard HEAD~1", repo)
         items = evidence.of_task("t1")
         self.assertEqual([i["type"] for i in items], ["commit", "revert"])

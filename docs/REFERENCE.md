@@ -558,18 +558,24 @@ you then change that file by hand, your change is usually a rule of how you work
 the agent left it (`~/.athos/snapshots/<session>/`, text files up to 200 KB, only the last three tasks of the session),
 also of the files a shell command of the agent names inside the project.
 
-A change counts as yours only on evidence that no tool call of the agent made it. The agent changes files in many
-ways besides its edit tools (a script, `sed -i`, a formatter, `git checkout`, a build step); until 0.1.111 each of
-them was taken for your edit. Now:
+A change counts as yours only on evidence that no tool call of the agent made it, and in doubt it is given to nobody.
+The agent changes files in many ways besides its edit tools (a script, `sed -i`, a formatter, `git checkout`, a build
+step, another plugin's hook, a subagent, a task it left running in the background); until 0.1.111 each of them was
+taken for your edit. Now:
 
-- after every tool call of the agent (in Claude Code also a failed one, `PostToolUseFailure`) each kept file is checked,
-  with a `stat` first and its content only when that moved. A change that could have happened during the call is the
-  agent's, and the copy moves to it. A change whose time (the file's ctime, which no tool can set back) falls before
-  the call started, by Claude Code's `duration_ms` and a one-second margin, happened between two tool calls: yours;
-- on your next request, a change made after the agent's turn ended, with no tool call since and no background task
-  left running, is yours;
-- anything else is given to nobody: the `edit_seen` event says `agent_shell`, `agent_tool` or `unexplained`, and the
-  agent is told nothing.
+- the start of each tool call is stamped by a PreToolUse hook (the hook's own clock, not an estimate). After every tool
+  call of the agent (in Claude Code also a failed one, `PostToolUseFailure`) each kept file is checked, with a `stat`
+  first and its content only when that moved. A change that could have happened during the call is the agent's, and
+  the copy moves to it. A change is yours only when its time (the file's ctime, which no tool can set back) falls
+  before the call's stamped start by more than a second, more than 15 seconds after the previous tool call ended (a
+  formatter another plugin runs after a write), and while no other tool call, no subagent and no background task was
+  running;
+- on your next request, a change is yours only when it came more than 15 seconds after the agent's turn ended (another
+  Stop hook may still be writing), with no tool call since or still open, no background task left running, and no
+  other agent session working in the same project since;
+- anything else is given to nobody: no start stamp, a subagent's call (Claude Code's `agent_id`), a call or task still
+  running, a change inside a grace window, a ctime in the future (a network file system's clock). The `edit_seen` event
+  says `agent_shell`, `agent_tool` or `unexplained` with the reason, and the agent is told nothing.
 
 A change of yours is credited to the step the agent was on when it wrote the file, else to the best-ranked piece the
 request loaded, else to no piece (and then the agent is not told). The agent gets a short diff and is asked to propose
@@ -583,12 +589,13 @@ and the evidence (`basis`); in a repository marked public (`.athos.toml`) it kee
 and the step. It works in Claude Code, Codex (`apply_patch`), Muse Code and OpenCode, stays on your machine, and is
 off with `ATHOS_CAPTURE=off`.
 
-What it cannot see: a process the agent left running that writes after the turn, when the agent's Stop hook reports no
-background task (Claude Code's `background_tasks`), is taken for you; a change made while the agent writes its last
-answer (after its last tool call) is given to nobody; a hand edit followed by the agent's own edit tool on the same file,
-with no other tool call between, is folded into the agent's write; agents whose hooks carry no `duration_ms` (Codex,
-Muse Code, OpenCode) only have the after-the-turn evidence. Checking the kept files costs well under a millisecond per
-tool call with twenty files kept.
+What it cannot see: a process the agent left running that writes after the turn and after the grace window, when the
+agent's Stop hook reports no background task (Claude Code's `background_tasks`), is taken for you; a change made while
+the agent writes its last answer (after its last tool call) is given to nobody; a hand edit followed by the agent's own
+edit tool on the same file, with no other tool call between, is folded into the agent's write; a hand edit within 15
+seconds of a tool call or of the end of a turn is given to nobody; agents with no PreToolUse hook (Codex, OpenCode)
+only have the after-the-turn evidence. Checking the kept files costs well under a millisecond per tool call with twenty
+files kept; the PreToolUse stamp is one small file write.
 
 ### Autonomous learning: candidates, checks and a verifier
 
@@ -644,7 +651,7 @@ command's output beside it, for the verifier:
 | item | written when | strength |
 |---|---|---|
 | `verify` | a verification command ends: a test runner (pytest, `python -m unittest`, `npm test`, `npm run test:*`, `go test`, `cargo test`, `make test`/`check`, jest, vitest, …), a build (`npm run build`, `cargo build`, `go build`, `tsc`, …), a linter (`ruff check`, eslint, flake8, `black --check`, …), a type checker (mypy, pyright, `tsc --noEmit`, `go vet`, `cargo check`), or the **Check** of a piece the task uses; with `ok`, `kind`, `label` and `check_of` | strong when the hook saw that command's own exit status |
-| `commit` | `git commit` succeeded and owned the command's success (with its short hash) | strong |
+| `commit` | `git commit` succeeded, owned the command's success, and moved HEAD from where the PreToolUse hook saw it (with its hash) | strong |
 | `revert` | `git revert`, `git reset --hard`, `git checkout -- …` or `git restore` succeeded (not `git revert --abort` or `--quit`, `git reset --hard` onto `origin/…`, `upstream/…` or `@{u}`, nor `git restore --staged` alone) | strong, against the work |
 | `person_edit` | the edit detector gave a change to you (see above): a correction | strong, against the work |
 | `reaction` | your next words plainly judged the task (`ok`, `corrected`) | weak: read from words |

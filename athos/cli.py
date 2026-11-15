@@ -424,17 +424,47 @@ def _late_guide(sid: str | None) -> str:
     return capture.guide(_cmd(), auto=True, ask=autolearn.ask_mode())
 
 
+_SAVE_COMMAND = re.compile(r"(?:^|[\s/;&|(])athos\s+save\b")
+
+
+def _on_tool_start(event: dict, platform: str) -> None:
+    """A tool call is about to run (PreToolUse): stamp its start for the edit detector and the indicator, keep the
+    repository's HEAD before a `git commit` (a commit is evidence only when HEAD moved), and note an `athos save` a
+    subagent runs (its model is not the session's). Nothing is said; it must stay fast."""
+    sid = event.get("session_id", "default")
+    if not session.load(sid).get("task_id"):
+        sid = _folder_session_id(event, sid)
+    extra = {}
+    if edits.is_shell(event):
+        cmd = (event.get("tool_input") or {}).get("command")
+        cmd = " ".join(map(str, cmd)) if isinstance(cmd, list) else str(cmd or "")
+        if re.search(r"\bgit\b", cmd) and re.search(r"\bcommit\b", cmd):
+            extra["head"] = evidence.head(event.get("cwd"))
+        if _SAVE_COMMAND.search(cmd):
+            extra["athos_save"] = True
+    edits.on_tool_start(event, sid, extra)
+
+
+def _tool_ended(event: dict, platform: str, failed: bool) -> str:
+    """What a tool call's end does, whether it succeeded or failed: its start stamp comes off the live calls, the
+    edit detector looks at the kept files and the evidence notes a verification, a commit or a revert. Each part on
+    its own: one failing never costs the other. Returns the session id it worked for."""
+    sid = event.get("session_id", "default")
+    if not session.load(sid).get("task_id"):     # Muse Code: this folder's task
+        sid = _folder_session_id(event, sid)
+    started = _quietly(session.live_end, sid, edits.call_id(event))
+    if capture.enabled():
+        _quietly(edits.on_tool, event, sid, failed, started)
+        _quietly(evidence.on_tool, event, sid, failed, platform, started)
+    return sid
+
+
 def _on_tool(event: dict, platform: str) -> None:
     """A tool call ended: it is counted, drawn on the trail, and checked for files the person may edit later. A
     special path that acted before the transcript said who wrote its prompt is checked now."""
     capture.count_tool(event)
     trail.on_tool(event)
-    sid = event.get("session_id", "default")
-    if not session.load(sid).get("task_id"):     # Muse Code: this folder's task
-        sid = _folder_session_id(event, sid)
-    if capture.enabled():
-        edits.on_tool(event, sid)
-        _quietly(evidence.on_tool, event, sid, False, platform)      # a verification, a commit, a revert
+    sid = _tool_ended(event, platform, False)
     if not event.get("agent_id") and (told := _quietly(_verify_trigger, event, sid, "tool")):
         _add_context("PostToolUse", told)
 
@@ -442,12 +472,7 @@ def _on_tool(event: dict, platform: str) -> None:
 def _on_tool_failed(event: dict, platform: str) -> None:
     """A tool call failed (Claude Code's PostToolUseFailure): it may still have changed files, so the edit detector
     looks, as after any other call. Nothing is counted or drawn."""
-    sid = event.get("session_id", "default")
-    if not session.load(sid).get("task_id"):
-        sid = _folder_session_id(event, sid)
-    if capture.enabled():
-        edits.on_tool(event, sid, failed=True)
-        _quietly(evidence.on_tool, event, sid, True, platform)       # a verification that failed
+    sid = _tool_ended(event, platform, True)
     if not event.get("agent_id") and (told := _quietly(_verify_trigger, event, sid, "tool")):
         _add_context("PostToolUseFailure", told)
 
@@ -503,8 +528,8 @@ def _observe(event: dict) -> None:
         indicator.observe(sid)
 
 
-_HOOK_HANDLERS = {"session-start": _on_session_start, "prompt": _on_prompt, "tool": _on_tool,
-                  "tool-failed": _on_tool_failed, "stop": _on_stop}
+_HOOK_HANDLERS = {"session-start": _on_session_start, "prompt": _on_prompt, "tool-start": _on_tool_start,
+                  "tool": _on_tool, "tool-failed": _on_tool_failed, "stop": _on_stop}
 
 
 def hook(event_name: str, platform: str = "claude-code") -> int:
@@ -521,6 +546,9 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
         if event_name in ("session-start", "prompt"):
             _remember_session(event)
         _HOOK_NOW.update(hook=event_name, session_id=event.get("session_id"))
+        if event_name == "tool-start":           # before every tool call: a stamp, nothing more
+            _HOOK_HANDLERS[event_name](event, platform)
+            return 0
         if event.get("session_id"):
             session.update(event["session_id"], platform=platform)
         _HOOK_HANDLERS[event_name](event, platform)

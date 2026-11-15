@@ -305,6 +305,9 @@ class EditSeenTest(TempHome):
         self.run_athos("hook", "tool", stdin=json.dumps({**e, "tool_name": "Write",
                                                          "tool_input": {"file_path": str(f)}}))
         self.run_athos("hook", "stop", stdin=json.dumps(e))          # the agent's turn ends, then the person edits
+        clock = Path(self.home) / "snapshots" / "s1" / "clock.json"   # (past the grace window after the turn)
+        clock.write_text(json.dumps({k: v - 60 for k, v in json.loads(clock.read_text()).items()
+                                     if isinstance(v, (int, float)) and not isinstance(v, bool)}))
         f.write_text("Penalties:\n- 10% per week, never more than 30%\n")
         self.run_athos("hook", "prompt", stdin=json.dumps({**e, "prompt": "thanks, next one"}))
         seen = events("edit_seen")

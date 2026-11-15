@@ -370,13 +370,18 @@ def _exit_status(event: dict, failed: bool, platform: str) -> bool | None:
     return True if platform in ("claude-code", "muse-code") else None
 
 
-def _head_sha(cwd: str | None) -> str | None:
+def _head_sha(cwd: str | None, short: bool = True) -> str | None:
     try:
-        r = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=cwd or None, capture_output=True, text=True,
-                           timeout=3)
+        r = subprocess.run(["git", "rev-parse", *(["--short"] if short else []), "HEAD"], cwd=cwd or None,
+                           capture_output=True, text=True, timeout=3)
     except (OSError, subprocess.SubprocessError):
         return None
     return r.stdout.strip() or None if r.returncode == 0 else None
+
+
+def head(cwd: str | None) -> str:
+    """The repository's HEAD before a command runs (the PreToolUse hook keeps it): "" when there is none yet."""
+    return _head_sha(cwd, short=False) or ""
 
 
 def _task_checks(state: dict) -> list[tuple[str, str, str]]:
@@ -409,10 +414,12 @@ def _owns_success(cmd: str, index: int) -> bool:
     return not piped and all(s in ("&&", ";") for s in before) and all(s == "&&" for s in after)
 
 
-def on_tool(event: dict, sid: str, failed: bool = False, platform: str = "claude-code") -> list[dict]:
+def on_tool(event: dict, sid: str, failed: bool = False, platform: str = "claude-code",
+            started: dict | None = None) -> list[dict]:
     """A tool call ended (PostToolUse, or PostToolUseFailure with `failed`): a shell command that verified, committed
     or threw work away becomes an item of the open task. Subagents' calls, Athos's own commands and commands sent to
-    the background are left out."""
+    the background are left out. `started` is the call's PreToolUse stamp: a commit is recorded only when the HEAD it
+    kept differs from the HEAD now (a `git commit` with nothing to commit moves nothing)."""
     from athos import capture, edits
     if event.get("agent_id") or not edits.is_shell(event) or background(event):
         return []
@@ -457,8 +464,11 @@ def on_tool(event: dict, sid: str, failed: bool = False, platform: str = "claude
         for n, (seg, _sep) in enumerate(segments(cmd)):
             bare = _bare(seg)
             if _COMMIT.match(bare) and _owns_success(cmd, n):
-                item = {"type": "commit", "strength": "strong", "polarity": "positive",
-                        **({"sha": sha} if (sha := _head_sha(event.get("cwd"))) else {})}
+                before = (started or {}).get("head")
+                after = _head_sha(event.get("cwd"), short=False)
+                if before is None or not after or after == before:
+                    continue                  # no HEAD kept before it, or HEAD did not move: no commit to show
+                item = {"type": "commit", "strength": "strong", "polarity": "positive", "sha": after[:12]}
             elif _REVERT.match(bare):
                 item = {"type": "revert", "strength": "strong", "polarity": "negative", **shown}
             else:
