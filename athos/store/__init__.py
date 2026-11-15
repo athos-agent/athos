@@ -381,6 +381,10 @@ def revert(piece_id: str, to: int | None = None) -> Piece:
     _archive(current)
     restored = parse(source.read_text())
     restored.id = current.id
+    # Who may see the piece is decided now, not by the version brought back: a `visibility: private` or a project
+    # the person added by hand (which archives nothing) must survive a revert.
+    restored.visibility = current.visibility
+    restored.projects = list(current.projects)
     restored.version = current.version + 1
     restored.history = [f"v{restored.version} {today()}: reverted to v{target}", *current.history]
     _write(restored)

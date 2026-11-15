@@ -325,7 +325,8 @@ ignore <project>`.
   condition.
 - **One page**: its steps as a checklist, with the branches nested under the step that leads there (↳, as in the
   panel); its versions with each one's note; **Go back to this version**, which asks first and then brings that version
-  back as a new one (`athos revert <id> --to N` does the same; no version is ever deleted); and **Open in editor**,
+  back as a new one (`athos revert <id> --to N` does the same; no version is ever deleted, and the page keeps the
+  `visibility` and `projects` it has now, so a `visibility: private` added by hand survives); and **Open in editor**,
   which opens the page's markdown file with your system's default app (only files inside `~/.athos/know-how`).
 
 Nothing leaves your machine. The page's two actions are POST requests that need a random token made for each run and
