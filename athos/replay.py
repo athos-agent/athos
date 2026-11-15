@@ -367,14 +367,12 @@ def run_candidate(piece_id: str, runner=None) -> dict:
             ("answer", apply_model, ANSWER_SYSTEM.format(title=piece.title, body=piece.body)
              + "\n\n# The person's request\n\n" + case["request"]),
             ("judge", judge_model, None)):
-        allowed, why, cap = verify.allowance()
-        if not allowed:
-            verify.note_run("replay", piece, model, None, 0.0, refused=why, step=step)
-            return {"piece": piece_id, "outcome": "skipped", "error": why}
         if prompt is None:
             prompt = JUDGE_SHADOW.format(request=case["request"], approved=case["answer"], answer=texts["answer"])
-        result = runner(prompt, folder, model, float(s["verifier"].get("timeout_s") or 300), cap)
-        verify.note_run("replay", piece, model, result, cap, step=step)
+        result, why, _cap = verify.run_model("replay", piece, model, prompt, folder, runner,
+                                             float(s["verifier"].get("timeout_s") or 300), step=step)
+        if result is None:
+            return {"piece": piece_id, "outcome": "skipped", "error": why}
         if not result.get("ok"):
             return {"piece": piece_id, "outcome": "error", "error": result.get("error")}
         texts[step] = result.get("text") or ""

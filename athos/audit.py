@@ -483,7 +483,7 @@ def _promotion_without_verifier(c: _Ctx, everything: list[dict]) -> dict:
     for g in promotions:
         before = [e for e in evs if e.get("type") == "verify" and e.get("piece") == g.get("piece")
                   and e.get("outcome") == "pass" and e.get("paths_only") is not False
-                  and (e.get("at") or "") <= (g.get("at") or "")]
+                  and e.get("bundle_clean") is not False and (e.get("at") or "") <= (g.get("at") or "")]
         if not before:
             found.append({"piece": c.name(g.get("piece") or ""), "at": g.get("at"), "basis": g.get("basis")})
     return _result("promotion_without_verifier", _status(found, False), found,
@@ -505,6 +505,10 @@ def _verifier_saw_summary(c: _Ctx, everything: list[dict]) -> dict:
         if sorted(e.get("inputs") or []) != sorted(verify.INPUTS):
             problems.append("inputs other than the four files")
         bundle, prompt_file = e.get("bundle"), e.get("prompt_file")
+        if e.get("bundle_clean") is False:
+            problems.append("the bundle carried the worker's narrative (recorded)")
+        elif bundle and os.path.isdir(bundle) and not verify.bundle_clean(bundle):
+            problems.append("the bundle carries a commit message or the piece's frontmatter")
         if bundle and prompt_file and os.path.isfile(prompt_file):
             _expected, named = verify.prompt_for(Path(bundle))
             if not verify.paths_only(Path(prompt_file).read_text(errors="ignore"), named, bundle):
@@ -528,8 +532,11 @@ def _verifier_over_cap(everything: list[dict]) -> dict:
     for day, group in sorted(days.items()):
         cost, over = 0.0, None
         for n, e in enumerate(group, 1):            # each run against the caps in force when it ran
-            cost += e["cost_usd"] if isinstance(e.get("cost_usd"), (int, float)) else float(e.get("usd_estimate_per_run")
-                                                                                          or 0)
+            if isinstance(e.get("cost_counted"), (int, float)):     # what the ledger counted for it (since 0.1.156)
+                cost += e["cost_counted"]
+            else:
+                cost += e["cost_usd"] if isinstance(e.get("cost_usd"), (int, float)) else \
+                    float(e.get("usd_estimate_per_run") or 0)
             runs_cap, usd_cap = e.get("runs_per_day"), e.get("usd_per_day")
             if (isinstance(runs_cap, int) and n > runs_cap) or \
                     (isinstance(usd_cap, (int, float)) and cost > usd_cap + 1e-9):
@@ -537,7 +544,7 @@ def _verifier_over_cap(everything: list[dict]) -> dict:
         if over:
             found.append(over)
     return _result("verifier_over_cap", _status(found, False), found,
-                   "model_run events per UTC day (a run with no reported cost counts its estimate)")
+                   "model_run events per UTC day (a run with no reported cost counts the cap it reserved)")
 
 
 # ------------------------------------------------------------------------------------------------ the report

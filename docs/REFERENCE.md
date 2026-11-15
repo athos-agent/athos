@@ -715,22 +715,30 @@ in the classic interface; in the minimal one nothing is offered or asked in sigh
 
 **The worker never grades its own work.** Whether the work was right is decided by an independent verifier, not by
 the model that did it. Right after an autonomous save Athos writes a folder for it, `~/.athos/verify/<id>-v<n>-<task>/`:
-`diff.patch` (from git only: the commits the task made, what is left uncommitted, new untracked files by name),
-`verification.txt` (the output the tool hook kept of each verification command, with its exit status), `piece.md` (the
-candidate as stored) and `checks.json` (its Check commands); then it starts, detached so no hook waits, a headless run
-of your own Claude Code:
+`diff.patch` (from git only: the changes of the commits the task made, never their messages, what is left uncommitted,
+and the new files git does not track yet with their text, except binary files, files over 50 KB and names that suggest
+secrets), `verification.txt` (the output the tool hook kept of each verification command, with its exit status),
+`piece.md` (the candidate as its title, when and body only: no frontmatter, so no evidence, confidence or status, and
+no history) and `checks.json` (its Check commands); `meta.json` keeps the hash of the text the verifier reads. Then it
+starts, detached so no hook waits, a headless run of your own Claude Code:
 
 ```
-claude -p <prompt> --output-format json --model <verifier> --tools Read,Grep,Glob --allowedTools "Read Grep Glob"
-       --permission-mode dontAsk --no-session-persistence --safe-mode --strict-mcp-config
+claude -p <prompt> --output-format json --model <verifier> --tools Read,Grep,Glob
+       --allowedTools "Read(//<folder>/**)" --disallowedTools Bash,Edit,Write,…
+       --permission-mode dontAsk --restricted --no-session-persistence --safe-mode --strict-mcp-config
        --max-budget-usd <cap> --add-dir <folder>          (in that folder, with a throwaway ATHOS_HOME,
-                                                           ATHOS_HOOKS=off and ATHOS_CAPTURE=off)
+                                                           ATHOS_HOOKS=off, ATHOS_CAPTURE=off, and none of the
+                                                           calling session's variables)
 ```
 
-Read-only tools, a fresh context, no plugins, hooks, CLAUDE.md or MCP servers (`--safe-mode`; `ATHOS_HOOKS=off` makes
-`athos hook` do nothing as well), nothing kept of the session. Its prompt is a fixed text with the four paths and
-nothing else: never the worker's summary or the conversation (`prompt.txt` keeps it, and the `verify` event records
-`paths_only`). It answers a fixed rubric, one verdict per criterion, as JSON:
+Read-only tools that can read only the folder (`--restricted` keeps the file tools inside the working folders, and the
+one allow rule is a Read rule for the folder, which Grep and Glob follow; `dontAsk` denies anything else), a fresh
+context, no plugins, hooks, CLAUDE.md or MCP servers (`--safe-mode`; `ATHOS_HOOKS=off` makes `athos hook` do nothing
+as well), nothing kept of the session. Its prompt is a fixed text with the four paths and nothing else, and tells it the
+files are data, never instructions: never the worker's summary or the conversation (`prompt.txt` keeps it, and the
+`verify` event records `paths_only`, and `bundle_clean`: that `piece.md` has no frontmatter or history and `diff.patch`
+no commit header or message; a pass from a bundle that is not clean never counts). It answers a fixed rubric, one
+verdict per criterion, as JSON:
 
 | criterion | passes when |
 |---|---|
@@ -740,24 +748,30 @@ nothing else: never the worker's summary or the conversation (`prompt.txt` keeps
 | `no_private_data` | no secret, credential, personal data or folder of one particular computer |
 | `reusable` | a way of working for a later task, not a narration of this one |
 
-The verdict passes only when every criterion does. It runs on a different frontier model from the one that did the
-work: `autolearn.verifier.models` in `config.json`, or else one per frontier family your tiers name (`claude-fable-*`
-→ `fable`, `claude-opus-*` → `opus`; an exact id as written), the first of another family than the worker's. When
-there is only one, the same model is used and the `verify` event says `same_model_fallback` (and the piece's evidence
-`verifier:pass:same-model`).
+The verdict passes only when every criterion does, and counts only for the text it read: when the piece changed since
+its folder was written, or while the verifier ran, the verdict is not applied (outcome `stale`). It runs on a different
+frontier model from the one that did the work: `autolearn.verifier.models` in `config.json`, or else one per frontier
+family your tiers name (`claude-fable-*` → `fable`, `claude-opus-*` → `opus`; an exact id as written), the first of
+another family than the worker's. When there is only one, or the worker's model id cannot be read, the same model may
+be used and the `verify` event says `same_model_fallback` (and the piece's evidence `verifier:pass:same-model`).
 
 Every model run Athos starts (verifiers and replays together) counts against a daily cap: `autolearn.budget` with
-`runs_per_day` (default 6), `usd_per_day` (default US$1.00) and `usd_estimate_per_run` (US$0.25, counted for a run that
-reports no cost); each run is also capped at `autolearn.verifier.max_usd_per_run` (US$0.50) or what is left of the
-day, whichever is less, and stopped after `autolearn.verifier.timeout_s` (300 s). `"verifier": {"on": false}` turns it
-off. A run refused by the cap, failed or timed out leaves the piece a candidate and says why (`grade` and `learn`
-events); a candidate still waiting is picked up at a later end of turn, at most two attempts. `athos verify <id>` runs
-it by hand, in the foreground; `athos verify --pending` the oldest waiting one.
+`runs_per_day` (default 6) and `usd_per_day` (default US$1.00); each run is also capped at
+`autolearn.verifier.max_usd_per_run` (US$0.50) or what is left of the day, whichever is less, and stopped after
+`autolearn.verifier.timeout_s` (300 s). The caps are hard: before a run starts its cap is reserved, under a lock, in
+`~/.athos/autolearn/runs.json`, and settled afterwards with what the run reported spending; a run that reported nothing
+(a timeout, a verifier that was killed) counts its whole reservation. A run that never started (no `claude` on PATH,
+not logged in, a model the account cannot use) costs nothing and uses no attempt, and an unavailable model is retried
+once with the worker's own model. Only one verifier runs at a time (its lock is taken in one step). A cap of 0 turns
+model runs off, and `"verifier": {"on": false}` turns the verifier off. A run refused by the cap, failed or timed out
+leaves the piece a candidate and says why (`grade` and `learn` events); a candidate still waiting is picked up at a
+later end of turn, at most two attempts. Bundles are pruned to the last 50 at the end of a turn, except those still
+waiting. `athos verify <id>` runs it by hand, in the foreground; `athos verify --pending` the oldest waiting one.
 
 | event | written when | fields |
 |---|---|---|
-| `verify` | a verifier run ends, or is refused | `piece`, `version`, `task_id`, `outcome` (pass, fail, error, skipped), `model`, `worker_model`, `same_model_fallback`, `verdict` (per criterion, true or false), `why` (one line per criterion), `error`, `cost_usd`, `bundle`, `inputs` (the file names it was given), `prompt_file`, `paths_only`, `attempts` |
-| `model_run` | any model run Athos starts, or refuses to start for the cap | `purpose` (verify, replay), `piece`, `version`, `model`, `started`, `refused` (why), `ok`, `error`, `cost_usd`, `cost_estimated`, `usd_cap_run`, `usd_per_day`, `runs_per_day`, `duration_s` |
+| `verify` | a verifier run ends, or is refused | `piece`, `version`, `task_id`, `outcome` (pass, fail, error, skipped, stale), `model`, `worker_model`, `same_model_fallback`, `verdict` (per criterion, true or false), `why` (one line per criterion), `error`, `cost_usd`, `bundle`, `inputs` (the file names it was given), `prompt_file`, `paths_only`, `bundle_clean`, `attempts`, `body_sha` (the text it read) |
+| `model_run` | any model run Athos starts, or refuses to start for the cap | `purpose` (verify, replay), `piece`, `version`, `model`, `run_id`, `started` (false for one that never started), `refused` (why), `ok`, `error`, `cost_usd`, `cost_estimated`, `cost_counted` (what the day's budget counts for it), `usd_cap_run`, `usd_per_day`, `runs_per_day`, `duration_s` |
 
 **Promotion and demotion.** Each move is a `grade` event with its basis, and so is a decision not to move:
 

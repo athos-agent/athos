@@ -12,11 +12,12 @@ The settings live in `<home>/config.json` under `"autolearn"`; anything not save
     verifier.models     the models it may use (Claude Code aliases or ids); null: one per frontier family the tiers
                         name, a different one from the model that did the work when there are two
     verifier.timeout_s  a verifier run is stopped after this long
-    verifier.max_usd_per_run    the spending cap handed to each run (`claude -p --max-budget-usd`)
+    verifier.max_usd_per_run    the spending cap handed to each run (`claude -p --max-budget-usd`); 0 turns runs off
     replay.on           replaying a candidate on an apply model to promote it (off by default: it costs money)
     replay.model        the apply model it replays on
     budget.runs_per_day, budget.usd_per_day   the daily cap on every model run Athos starts (verifier and replay
-                        together); a run that reports no cost counts budget.usd_estimate_per_run
+                        together), reserved before each run; a run that reports no cost counts the whole cap it
+                        reserved; 0 turns runs off
     apply_candidates    an apply model may also get its project's candidates (off: verified and legacy only)
     age_days            a verified piece with no use and no re-verification in this many days returns to candidate
     reverify_days       a piece older than this is checked against the environment before a frontier model is

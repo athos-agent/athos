@@ -154,12 +154,13 @@ def _since(evs: list[dict]) -> str:
 
 
 def verifier_passed(p: store.Piece, evs: list[dict] | None = None) -> dict | None:
-    """The verifier's latest pass on the piece as it is now (same title, when and body), or None."""
+    """The verifier's latest pass on the piece as it is now (same title, when and body: a pass is about the text it
+    read, never about a version number), from a bundle that held paths only and no narrative, or None."""
     evs = _events(p.id) if evs is None else evs
     mine = body_sha(p)
     passes = [e for e in evs if e.get("type") == "verify" and e.get("outcome") == "pass"
-              and e.get("body_sha") in (mine, None) and e.get("paths_only") is not False]
-    passes = [e for e in passes if e.get("body_sha") == mine] or [e for e in passes if e.get("version") == p.version]
+              and e.get("body_sha") == mine and e.get("paths_only") is not False
+              and e.get("bundle_clean") is not False]
     return passes[-1] if passes else None
 
 

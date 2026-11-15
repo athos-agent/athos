@@ -598,12 +598,15 @@ class VerifierTest(TempHome):
         out = verify.run(self.piece.id, self.bundle, runner)
         self.assertEqual((out["outcome"], runner.calls), ("skipped", []))
         self.assertIn("daily cap of 1 runs", out["error"])
-        start.config_file().write_text(json.dumps({"autolearn": {"budget": {"runs_per_day": 9, "usd_per_day": 0.3}}}))
+        # The failed run reported no cost, so it counts the whole cap it reserved (US$0.50): a day of US$0.80 has
+        # US$0.30 left, and the next run's cap is cut to that.
+        start.config_file().write_text(json.dumps({"autolearn": {"budget": {"runs_per_day": 9, "usd_per_day": 0.8}}}))
         runner = StubRunner(cost=0.1)
         verify.run(self.piece.id, self.bundle, runner)
-        self.assertEqual(runner.calls[0]["max_usd"], 0.05)          # what was left of the day: 0.3 - 0.25 estimated
+        self.assertEqual(runner.calls[0]["max_usd"], 0.3)
+        start.config_file().write_text(json.dumps({"autolearn": {"budget": {"runs_per_day": 9, "usd_per_day": 0.6}}}))
         out = verify.run(self.piece.id, self.bundle, StubRunner())
-        self.assertIn("US$0.3", out["error"])
+        self.assertIn("US$0.6", out["error"])
         self.assertEqual(self.events("model_run")[-1]["refused"], out["error"])
 
     def test_the_verifier_can_be_turned_off(self):

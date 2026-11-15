@@ -465,6 +465,7 @@ def _on_stop(event: dict, platform: str) -> None:
     _quietly(evidence.prune)                  # only the last few hundred tasks' evidence stays
     _quietly(replay.maybe_spawn, ME)          # background shadowing, when the person turned it on
     from athos import verify
+    _quietly(verify.prune)                    # old verifier bundles go; a waiting candidate's stays
     if _quietly(verify.maybe_spawn_pending, ME) and event.get("session_id"):    # a candidate waiting for its verdict
         session.update(event["session_id"], verifying_since=time.time())
     sid = event.get("session_id")
