@@ -39,6 +39,7 @@ Everyday commands (`athos <command> --help` has the details of each):
     athos bench <case|all> --agents claude,meta [--runs 5] [--without] [--max-usd 5]   the same task on each agent,
                                        checked by what it left behind; `athos bench --list`, `athos bench report`
     athos bench route [--router lexical,hybrid] [--scale 300] [--from-store]   how well the router picks the know-how
+    athos bench route --replay FILE [--show]   a session's requests again, through the scope the hooks apply
     athos embed [on|off] [--model M]   also load know-how by meaning (local embeddings, Ollama); off by default
     athos test <id> [--backend meta]   re-check a piece against the corrections you made on it before
     athos shadow [--limit N] | on|off  compare a cheaper model with the answers you approved (Ollama by default)
@@ -843,6 +844,22 @@ def _bench_route(args) -> int:
             print(f"hybrid needs {model} in Ollama at {_ollama_host()} ({e}): `ollama pull {model}`",
                   file=sys.stderr)
             return 1
+    if args.replay:
+        try:
+            case = route.load_replay(args.replay)
+        except (OSError, ValueError) as e:
+            print(f"--replay: {e}", file=sys.stderr)
+            return 1
+        out = {}
+        for r in routers:
+            meaning = False
+            if r == "hybrid":                    # the index in memory: nothing is written to the person's home
+                idx = embed.refresh(store.all_pieces(), model=model, write=False)
+                meaning = lambda p, ps, idx=idx: embed.scores(p, ps, model=model, index=idx, spawn=False)
+            out[r] = route.replay(case, meaning, show=args.show)
+        print(json.dumps(out, indent=1) if args.json else
+              "\n\n".join(f"[{r}] {route.render_replay(x)}" for r, x in out.items()))
+        return 0
     if args.from_store:
         out = {}
         for r in routers:
@@ -1464,6 +1481,11 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--embed-model", help="with route: the Ollama embedding model for hybrid (default your setting)")
     s.add_argument("--from-store", action="store_true",
                    help="with route: your tasks marked good against your store (read-only, counts only)")
+    s.add_argument("--replay", metavar="FILE",
+                   help="with route: a session's requests (a JSON replay case) through the scope the hooks apply, "
+                        "against your store (read-only, counts only)")
+    s.add_argument("--show", action="store_true",
+                   help="with route --replay: also list, per request that loaded something, the ids loaded")
     s = sub.add_parser("embed", help="also load know-how by meaning, with a local embedding model (Ollama); on|off")
     s.add_argument("action", nargs="?", choices=["on", "off"])
     s.add_argument("--model", help="the Ollama embedding model (default embeddinggemma)")

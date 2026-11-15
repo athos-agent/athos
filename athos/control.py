@@ -134,17 +134,43 @@ def _in_project(pieces: list[store.Piece], project: str | None) -> list[store.Pi
     return [piece for piece in pieces if not piece.projects or project in piece.projects]
 
 
-def filter_pieces(pieces: list[store.Piece], cwd: str | None = None, prompt: str = "") -> list[store.Piece]:
-    """Apply the saved selection to the store's pieces for a session in `cwd` answering `prompt`."""
+def filter_pieces(pieces: list[store.Piece], cwd: str | None = None, prompt: str = "",
+                  project: str | None = None) -> list[store.Piece]:
+    """Apply the saved selection to the store's pieces for a session in `cwd` answering `prompt`. `project` names the
+    session's project directly (a replay that has no folder on this machine); otherwise it is read from `cwd`."""
+    return select(pieces, cwd, prompt, project)[0]
+
+
+def select(pieces: list[store.Piece], cwd: str | None = None, prompt: str = "",
+           project: str | None = None) -> tuple[list[store.Piece], dict]:
+    """`filter_pieces`, plus why that scope applied, for the audit log (`route` events): the mode, the project, a
+    reason and the other projects the request named. The reasons:
+
+        none / all / pieces / project       the saved mode decided
+        auto:no-folder                      no folder (Claude Desktop's chat): every piece
+        auto:project-without-pieces         a folder no piece belongs to: every piece
+        auto:project                        this project's pieces and the untagged ones
+        auto:project+named                  ...and those of the other projects the request names
+    """
     selection = get()
     mode = selection["mode"]
+    here = project or (paths.project_of(cwd) if cwd else None)
+    why = {"mode": mode, "project": here, "reason": mode, "named": []}
     if mode == "auto":
-        return scope(pieces, cwd, prompt)
+        if not here:
+            return list(pieces), {**why, "reason": "auto:no-folder"}
+        known = {q for p in pieces for q in p.projects}
+        if here not in known:
+            return list(pieces), {**why, "reason": "auto:project-without-pieces"}
+        named = sorted(q for q in known if q != here and _named(q, prompt))
+        return scope_project(pieces, here, prompt), {**why, "reason": "auto:project+named" if named else
+                                                     "auto:project", "named": named}
     if mode == "none":
-        return []
+        return [], why
     if mode == "project":
-        return _in_project(pieces, selection.get("project") or paths.project_of(cwd))
+        chosen = selection.get("project") or here or paths.project_of(cwd)
+        return _in_project(pieces, chosen), {**why, "project": here or chosen}
     if mode == "pieces":
         wanted = set(selection.get("pieces", []))
-        return [piece for piece in pieces if piece.id in wanted]
-    return list(pieces)                                          # "all": nothing is held back
+        return [piece for piece in pieces if piece.id in wanted], why
+    return list(pieces), why                                     # "all": nothing is held back

@@ -297,6 +297,78 @@ def from_store(meaning=None, scoped: bool = False) -> dict:
     return out
 
 
+def load_replay(path: str | Path) -> dict:
+    """A replay case: the requests of one real session, to run again against a store as the hooks would.
+
+        {"name": "...", "project": "<the session's project>", "cwd": "<optional: its folder>",
+         "cases": [{"request": "...", "expect": []}, ...]}
+
+    `expect` lists the piece ids the request should load ([] or absent: none). The case stays wherever its owner
+    keeps it (it holds real requests): it is never part of the repository."""
+    data = json.loads(Path(path).expanduser().read_text())
+    if not isinstance(data, dict) or not isinstance(data.get("cases"), list):
+        raise ValueError("a replay case is a JSON object with a list under \"cases\"")
+    return data
+
+
+def replay(case: dict, meaning=False, show: bool = False) -> dict:
+    """Each request of a replay case through the scope the hooks apply (the saved loading mode, with the case's
+    project) and `load.relevant`, against the store in ATHOS_HOME, read-only. Counts only, unless `show`: then each
+    loaded request also lists its number, its length and the ids loaded (never the request's text)."""
+    from athos import control, load
+    everything = store.all_pieces()
+    project = case.get("project") or None
+    cwd = case.get("cwd") or None
+    byid = {p.id: p for p in everything}
+    out = {"prompts": 0, "loaded": 0, "other_project": 0, "general": 0, "as_expected": 0, "injected_max": 0,
+           "injected_mean": 0.0, "pieces": len(everything), "project": project, "scope": {}, "ms": [], "rows": []}
+    sizes = []
+    for n, c in enumerate(case["cases"], 1):
+        request = str(c.get("request") or "")
+        t0 = time.perf_counter()
+        pool, why = control.select(everything, cwd, request, project=project)
+        found = load.relevant(request, pool, meaning=meaning)
+        out["ms"].append((time.perf_counter() - t0) * 1000)
+        here = why.get("project")
+        ids = [p.id for p in found]
+        size = len(load.inject_text(found)) if found else 0
+        sizes.append(size)
+        out["prompts"] += 1
+        out["scope"][why["reason"]] = out["scope"].get(why["reason"], 0) + 1
+        out["loaded"] += bool(ids)
+        foreign = [i for i in ids if i in byid and byid[i].projects and here not in byid[i].projects]
+        out["other_project"] += bool(foreign)
+        out["general"] += any(i in byid and not byid[i].projects for i in ids)
+        out["as_expected"] += set(ids) == set(c.get("expect") or [])
+        if show and ids:
+            out["rows"].append({"n": n, "request_chars": len(request), "loaded": ids, "other_project": foreign,
+                                "injected_chars": size})
+    ms = out.pop("ms")
+    out["ms_mean"] = round(statistics.mean(ms), 2) if ms else 0.0
+    out["injected_max"] = max(sizes, default=0)
+    out["injected_mean"] = round(statistics.mean(sizes), 1) if sizes else 0.0
+    if not show:
+        out.pop("rows")
+    return out
+
+
+def render_replay(r: dict) -> str:
+    scope = ", ".join(f"{k} {v}" for k, v in sorted(r["scope"].items()))
+    lines = [f"Replay against your store ({r['pieces']} pieces), project {r['project'] or '(none)'}: "
+             f"{r['prompts']} requests",
+             f"  something loaded for {r['loaded']} · a piece of another project for {r['other_project']} · "
+             f"a general piece for {r['general']} · as expected {r['as_expected']}/{r['prompts']}",
+             f"  characters added: max {r['injected_max']}, mean {r['injected_mean']:.0f} · {r['ms_mean']:.1f} ms "
+             f"per request",
+             f"  scope: {scope}",
+             "  Read-only: no request is printed or written."]
+    for row in r.get("rows", []):
+        other = f" (another project: {', '.join(row['other_project'])})" if row["other_project"] else ""
+        lines.append(f"  #{row['n']} ({row['request_chars']} chars): {', '.join(row['loaded'])}{other}"
+                     f" · {row['injected_chars']} chars")
+    return "\n".join(lines)
+
+
 def _pct(a: int, b: int) -> str:
     return f"{a}/{b} {a / b:4.0%}" if b else "—"
 
