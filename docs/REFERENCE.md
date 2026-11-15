@@ -231,6 +231,16 @@ name = "my-app"      # the project's name, whatever the folder is called (defaul
 public = true        # a public repository
 ```
 
+Athos looks for it in the folder a session runs in and in every folder above it, without relying on git, and fails
+closed: any marker on the way up that says `public = true` makes the folder public, so a subfolder, a repository
+nested in a public one, and a folder where git cannot run (not installed, timed out, refused by `safe.directory`) are
+public too. In a `git worktree` with no marker of its own, the main worktree's marker applies (found from the
+worktree's `.git` file, so this needs no git either). A marker that is there but cannot be read (not valid TOML, not
+text, or a `public` that is not `true` or `false`, such as `public = "true"`) is read as public. What still escapes it:
+a marker in a folder that is neither the session's folder nor above it (a sibling checkout, a submodule's
+superproject reached only through git, a repository whose `.git` lives elsewhere through `GIT_DIR`), and a public
+repository with no marker at all, which Athos cannot know about (below).
+
 **In a public repository, everything else is private.** In a repository whose marker says `public = true`, only that
 project's own pages load (and none of them marked private). Every other page is treated as private there, whatever its
 `visibility`: it never loads and is never named, not in the session's index, a frontier request's index, `log.md`,

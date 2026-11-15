@@ -77,10 +77,84 @@ def profile_file() -> Path:
     return _under_home("profile.json")
 
 
+def _dot_git(folder: Path) -> tuple[Path | None, Path | None]:
+    """Without running git: the nearest folder at or above `folder` that holds a `.git` (a folder, or the file a
+    worktree or a submodule has instead), and, for a worktree, the main worktree it belongs to (read from the
+    `gitdir:` line of its `.git` file: `<main>/.git/worktrees/<name>`)."""
+    for d in (folder, *folder.parents):
+        dot = d / ".git"
+        if dot.is_dir():
+            return d, None
+        if dot.is_file():
+            return d, _main_worktree(dot)
+    return None, None
+
+
+def _main_worktree(dot_git_file: Path) -> Path | None:
+    try:
+        line = dot_git_file.read_text(errors="ignore").strip()
+    except OSError:
+        return None
+    if not line.startswith("gitdir:"):
+        return None
+    gitdir = Path(line[len("gitdir:"):].strip())
+    if not gitdir.is_absolute():
+        gitdir = dot_git_file.parent / gitdir
+    gitdir = Path(os.path.normpath(gitdir))
+    if gitdir.parent.name == "worktrees" and gitdir.parent.parent.name == ".git":
+        return gitdir.parent.parent.parent
+    return None                                          # a submodule, or a bare repository's worktree
+
+
+def _top(folder: Path) -> tuple[Path | None, Path | None]:
+    """The repository's top folder (git's answer, or, when git cannot run, the nearest `.git` above) and, in a
+    worktree, its main worktree."""
+    found = _git_toplevel(folder)
+    if found:
+        top = Path(found)
+        dot = top / ".git"
+        return top, (_main_worktree(dot) if dot.is_file() else None)
+    return _dot_git(folder)
+
+
 def _root(folder: Path) -> Path:
     """The repository a folder is part of (its git top folder), or the folder itself outside any repository."""
-    top = _git_toplevel(folder)
-    return Path(top) if top else folder
+    return _scan(folder)["root"]
+
+
+def _scan(folder: Path) -> dict:
+    """Where a folder's project stands, failing closed: `root` (the folder that names the project), `mark` (the marker
+    that speaks for it) and `public`.
+
+    The marker is looked for in the folder and every folder above it, without relying on git. The one that names the
+    project is at the repository's top; in a worktree that has none of its own, the main worktree's; outside any
+    repository, the nearest one (its folder is then the project's). Any marker on the way up that says public (or
+    cannot be read) makes the folder public: declaring a repository public can only restrict, so an outer public
+    repository's nested folders and repositories are public too."""
+    folder = Path(os.path.realpath(folder))          # git answers with real paths (/private/var, not /var)
+    top, main = _top(folder)
+    top = Path(os.path.realpath(top)) if top is not None else None
+    main = Path(os.path.realpath(main)) if main is not None else None
+    found = [(d, _read_marker(d)) for d in (folder, *folder.parents) if (d / MARKER).is_file()]
+    if main is not None and (main / MARKER).is_file() and all(d != main for d, _ in found):
+        found.append((main, _read_marker(main)))
+    if top is not None:
+        root = top
+        own = next(((d, m) for d, m in found if d == top), None) or \
+            next(((d, m) for d, m in found if main is not None and d == main), None)
+    else:
+        own = found[0] if found else None
+        root = own[0] if own else folder
+    mark = dict(own[1]) if own else {}
+    if own:
+        mark["at"] = str(own[0])
+    loud = next(((d, m) for d, m in found if m.get("public") is True), None)
+    if loud is not None:
+        mark["public"] = True
+        if not own or loud[0] != own[0]:
+            mark["public_from"] = str(loud[0] / MARKER)
+            mark.setdefault("file", str(loud[0] / MARKER))
+    return {"root": root, "mark": mark, "named_at": own[0] if own else None}
 
 
 class _MarkerSyntax(ValueError):
@@ -133,39 +207,50 @@ def _loads_marker(text: str) -> dict:
 
 
 def _read_marker(root: Path) -> dict:
-    """`.athos.toml` at a repository's root, as written: `name = "<project>"` and `public = true|false`. Anything
-    missing, unreadable or of the wrong type is left out, so a broken marker never stops a hook."""
+    """`.athos.toml` in a folder, as written: `name = "<project>"` and `public = true|false`. A marker that is there
+    but cannot be read (not valid TOML, not text, unreadable), or whose `public` is not true or false, reads as
+    public, with `unreadable`: a repository someone tried to declare is taken at its most restrictive. A hook never
+    stops on it."""
+    target = root / MARKER
+    out: dict = {"file": str(target)}
     try:
-        data = _loads_marker((root / MARKER).read_text())
-    except (OSError, UnicodeDecodeError, _MarkerSyntax):
+        data = _loads_marker(target.read_text())
+    except FileNotFoundError:
         return {}
-    out: dict = {"file": str(root / MARKER)}
+    except (OSError, UnicodeDecodeError, _MarkerSyntax):
+        return {**out, "public": True, "unreadable": True}
     name = data.get("name")
     if isinstance(name, str) and name.strip():
         out["name"] = name.strip()
-    if isinstance(data.get("public"), bool):
-        out["public"] = data["public"]
+    if "public" in data:
+        if isinstance(data["public"], bool):
+            out["public"] = data["public"]
+        else:
+            out.update(public=True, unreadable=True)
     return out
 
 
+def _named(scan: dict) -> str:
+    """The project's name: the marker's `name`, else the root folder's name."""
+    return scan["mark"].get("name") or scan["root"].name
+
+
 def marker(cwd: str | Path | None = None) -> dict:
-    """The project marker of the repository a folder is part of: `{"file", "name"?, "public"?}`, or {} when there is
-    none. It gives the project a stable name (a clone in a folder of another name is still the same project) and
-    says whether the repository is public: then no private piece loads or is named there, and nothing taken from a
-    request is stored."""
-    folder = Path(cwd) if cwd else Path(os.getcwd())
-    return _read_marker(_root(folder))
+    """The project marker of the repository a folder is part of: `{"file", "name"?, "public"?, "unreadable"?,
+    "public_from"?}`, or {} when there is none (`_scan` says which marker speaks for a folder). It gives the project a
+    stable name (a clone in a folder of another name is still the same project) and says whether the repository is
+    public: then no private piece loads or is named there, and nothing taken from a request is stored."""
+    return _scan(Path(cwd) if cwd else Path(os.getcwd()))["mark"]
 
 
 def locate(cwd: str | Path) -> tuple[str, dict]:
     """`project_of` and `marker` together, with one look for the repository."""
-    root = _root(Path(cwd))
-    mark = _read_marker(root)
-    return mark.get("name") or root.name, mark
+    scan = _scan(Path(cwd))
+    return _named(scan), scan["mark"]
 
 
 def is_public(cwd: str | Path | None) -> bool:
-    """Whether a folder belongs to a repository whose marker says `public = true`. No folder: False."""
+    """Whether a folder belongs to a repository declared public (`marker`). No folder: False."""
     return bool(cwd) and marker(cwd).get("public") is True
 
 
@@ -173,11 +258,9 @@ def project_of(cwd: str | Path | None = None) -> str:
     """Name used for the project a folder is part of.
 
     The `name` of the repository's `.athos.toml` when it has one; else, inside a git work tree, the name of the
-    repository's top folder; anywhere else, the folder's own name. With no argument the folder the process runs in
-    is used."""
-    folder = Path(cwd) if cwd else Path(os.getcwd())
-    root = _root(folder)
-    return _read_marker(root).get("name") or root.name
+    repository's top folder; anywhere else, the folder holding the nearest marker, or the folder's own name. With no
+    argument the folder the process runs in is used."""
+    return _named(_scan(Path(cwd) if cwd else Path(os.getcwd())))
 
 
 # Sites that host code: a repository with a remote on one of them may be public, and only the person can say.

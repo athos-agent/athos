@@ -115,8 +115,8 @@ class MarkerTest(Folders):
         self.assertEqual(paths.project_of(root), "beta")
         self.assertTrue(paths.is_public(root))
         (root / paths.MARKER).write_text("this is = not toml [\n")
-        self.assertEqual(paths.project_of(root), "gamma")                        # a broken marker is ignored
-        self.assertFalse(paths.is_public(root))
+        self.assertEqual(paths.project_of(root), "gamma")                        # a broken marker names nothing
+        self.assertTrue(paths.is_public(root))                                   # and is read as public
 
     def test_a_public_repository_keeps_no_request_text_and_never_loads_a_private_piece(self):
         piece("clinic-intake", "Triage the clinic intake form", "triaging the clinic intake form", ["beta"],
