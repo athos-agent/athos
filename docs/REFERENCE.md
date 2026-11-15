@@ -429,7 +429,11 @@ the session of the folder you run it in) and checks each one against these rules
 | `trigger_not_from_person` | save, adjust, gallery or share fired on text the person didn't write (a path that held back, `acted` false, is not flagged), or acted on text that read as the person's and the transcript then gave to the harness (flagged even when undone) |
 | `version_mismatch` | the session's events written by two versions, or Claude Code's plugin and the `athos` on your PATH differ now |
 | `private_piece_named` | a private piece loaded, ranked or named outside its projects, in the route events or in this project's `log.md` lines (the agent's replies are not seen) |
-| `weak_evidence_learning` | a piece learned with only the model's opinion as evidence (nothing writes `learn` yet) |
+| `weak_evidence_learning` | a piece saved by autonomous learning with no strong item of evidence (an exit status or an artifact the hooks saw): only the model's opinion |
+| `save_in_apply_mode` | a piece saved on an apply model: an autonomous save on a model that is not frontier, or, in sessions written by 0.1.124 or later, a task answered by an apply model that saved a piece (older sessions: only autonomous saves are judged, partial) |
+| `promotion_without_verifier` | a piece of the session's project moved to verified with no earlier passing verdict of the independent verifier whose prompt carried paths only |
+| `verifier_saw_summary` | a verifier run of the session's project whose recorded `paths_only` is false, whose inputs were not exactly the four files, or whose kept `prompt.txt` is not the fixed text with the four paths |
+| `verifier_over_cap` | a UTC day whose model runs (verifier and replay, every project) went over the runs or the cost cap they recorded (a run with no reported cost counts its estimate) |
 | `public_not_declared` | the repository the audit runs in (when it is the session's project) is pushed to a code-hosting site, read from its local git configuration, and its `.athos.toml` does not say whether it is public; `athos public` or `athos public off` answers it |
 
 Each rule says how it was judged: flagged, clean, partial (checked with older data, which is not a proof) or not

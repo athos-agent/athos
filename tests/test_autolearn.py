@@ -981,3 +981,77 @@ class RepairTest(TempHome):
         self.assertIn("a piece of another project", done.stdout)
         self.assertNotIn("other-a", done.stdout)
         self.assertIn("3 correction event(s) written", cli.run_athos("repair", "--session", "sess-1234", "--apply").stdout)
+
+
+class AutonomousAuditTest(TempHome):
+    def rule(self, name, sid="a1"):
+        from athos import audit, eval as ev
+        evs = [e for e in ev.events() if e.get("session_id") == sid]
+        report = audit.check(sid, evs, transcripts=False)
+        return next(r for r in report["rules"] if r["rule"] == name)
+
+    def start(self, sid="a1", model="claude-opus-5-5"):
+        from athos import eval as ev
+        ev.append({"type": "task_start", "task_id": "x1", "session_id": sid, "project": "demo", "model": model,
+                   "at": "2026-11-15T10:00:00"})
+        ev.audit({"type": "route", "session_id": sid, "task_id": "x1", "project": "demo"})
+
+    def test_weak_evidence_learning_reads_the_strong_count(self):
+        from athos import eval as ev
+        self.start()
+        ev.audit({"type": "learn", "session_id": "a1", "decision": "saved", "piece": "p", "strong": 0,
+                  "evidence": ["task:x1"], "project": "demo"})
+        ev.audit({"type": "learn", "session_id": "a1", "decision": "saved", "piece": "q", "strong": 2,
+                  "evidence": ["verify:pytest:ok"], "project": "demo"})
+        rule = self.rule("weak_evidence_learning")
+        self.assertEqual((rule["status"], rule["count"]), ("flagged", 1))
+
+    def test_a_save_in_apply_mode_is_flagged(self):
+        from athos import eval as ev
+        self.start(model="claude-haiku-5-5")
+        self.assertEqual(self.rule("save_in_apply_mode")["status"], "clean")
+        ev.append({"type": "task_end", "task_id": "x1", "session_id": "a1", "model": "claude-haiku-5-5",
+                   "pieces": [], "saved": ["mine"], "at": "2026-11-15T10:01:00"})
+        rule = self.rule("save_in_apply_mode")
+        self.assertEqual((rule["status"], rule["found"][0]["how"]), ("flagged", "task_end"))
+
+    def test_the_real_paths_never_flag(self):
+        """A full loop through the code: autonomous save refused on an apply model, verified with a stub."""
+        from athos import verify
+        self.start()
+        p = candidate()
+        folder = verify.build_bundle(p, "t1", None)
+        verify.run(p.id, folder, StubRunner())
+        reuse(p.id)
+        reuse(p.id)
+        self.assertEqual(store.get(p.id).status, "verified")
+        for name in ("promotion_without_verifier", "verifier_saw_summary", "verifier_over_cap"):
+            self.assertEqual(self.rule(name)["status"], "clean", name)
+
+    def test_a_promotion_without_a_verdict_is_flagged(self):
+        from athos import grade
+        self.start()
+        p = candidate()
+        store.set_status(p.id, "verified", "by hand")
+        grade.note(p.id, "candidate", "verified", "two clean reuses")
+        self.assertEqual(self.rule("promotion_without_verifier")["status"], "flagged")
+
+    def test_a_verifier_that_got_more_than_paths_is_flagged(self):
+        from athos import verify
+        self.start()
+        p = candidate()
+        folder = verify.build_bundle(p, "t1", None)
+        verify.run(p.id, folder, StubRunner())
+        Path(folder, "prompt.txt").write_text(Path(folder, "prompt.txt").read_text() + "\nSummary: I fixed it.")
+        rule = self.rule("verifier_saw_summary")
+        self.assertEqual(rule["status"], "flagged")
+        self.assertIn("the kept prompt is not the fixed text with the four paths", rule["found"][0]["problems"])
+
+    def test_spend_above_the_cap_is_flagged(self):
+        from athos import eval as ev
+        self.start()
+        for cost in (0.6, 0.6):
+            ev.audit({"type": "model_run", "purpose": "verify", "started": True, "cost_usd": cost,
+                      "usd_per_day": 1.0, "runs_per_day": 6, "project": "demo"})
+        rule = self.rule("verifier_over_cap")
+        self.assertEqual((rule["status"], rule["found"][0]["usd"]), ("flagged", 1.2))

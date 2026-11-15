@@ -3,7 +3,9 @@
 It folds `<home>/events.jsonl` by session and checks each session against a fixed list of rules, one per way Athos
 has been seen to misbehave: loading another project's piece, loading in a project that has none of its own, giving
 the agent's edits to the person, recording the wrong model, injecting too much, firing a special path on text the
-person did not write, running two versions at once, and learning on weak evidence.
+person did not write, running two versions at once, and, for autonomous learning, learning on weak evidence, saving on
+an apply model, verifying without the independent verifier, a verifier given more than paths, and spending past the
+daily cap. Those last rules read the whole log, since the verifier and the grading run outside any session.
 
 Sessions recorded before the audit events existed (`route`, `edit_seen`, `model`, `trigger`, `hook_error`) are checked
 as far as their `task_start` / `task_end` / `learned_from_edit` lines allow. Every rule says how it was judged:
@@ -36,11 +38,17 @@ RULES = (
     ("version_mismatch", "two versions of Athos at work: the hooks' and the command line's, or two in one session"),
     ("private_piece_named", "a private piece named in any output"),
     ("weak_evidence_learning", "a piece saved by autonomous learning with only the model's opinion as evidence"),
+    ("save_in_apply_mode", "a piece saved on an apply model (it must never happen)"),
+    ("promotion_without_verifier", "a piece verified without a passing verdict of the independent verifier"),
+    ("verifier_saw_summary", "a verifier given anything but the paths of its four input files (the worker's summary, "
+                             "the conversation, other text)"),
+    ("verifier_over_cap", "model runs Athos started in one day above the daily cap of runs or of cost"),
     ("public_not_declared", "the repository the audit runs in is pushed to a code-hosting site and its .athos.toml "
                             "does not say whether it is public"),
 )
 WEAK_EVIDENCE = {"", "model", "model_opinion", "self_report"}
-AUDIT_TYPES = {"route", "edit_seen", "model", "trigger", "hook_error", "learn", "grade", "ui", "context", "piece_opened"}
+AUDIT_TYPES = {"route", "edit_seen", "model", "trigger", "hook_error", "learn", "grade", "ui", "context", "piece_opened",
+               "verify", "model_run", "reuse", "reverify", "correction"}
 
 
 # ------------------------------------------------------------------------------------------------ gathering
@@ -384,11 +392,113 @@ def _log_lines(project: str) -> list[str]:
 def _weak_evidence_learning(c: _Ctx) -> dict:
     learns = [e for e in c.of("learn") if e.get("decision") == "saved"]
     if not learns:
-        return _result("weak_evidence_learning", "not_evaluated", [], "no learn events (autonomous learning is not "
-                                                                      "written yet)")
-    found = [{"task_id": e.get("task_id"), "piece": c.name(e.get("piece") or ""), "evidence": e.get("evidence")}
-             for e in learns if set(e.get("evidence") or [""]) <= WEAK_EVIDENCE]
-    return _result("weak_evidence_learning", _status(found, False), found, "learn events")
+        return _result("weak_evidence_learning", "not_evaluated", [], "no autonomous save in this session")
+    found = [{"task_id": e.get("task_id"), "piece": c.name(e.get("piece") or ""), "evidence": e.get("evidence"),
+              "strong": e.get("strong")}
+             for e in learns if (not e.get("strong") if "strong" in e
+                                 else set(e.get("evidence") or [""]) <= WEAK_EVIDENCE)]
+    return _result("weak_evidence_learning", _status(found, False), found,
+                   "learn events (saved): the count of strong items, an exit status or an artifact the hooks saw")
+
+
+def _version_at_least(evs: list[dict], wanted: tuple) -> bool:
+    for e in evs:
+        try:
+            if tuple(int(x) for x in str(e.get("v") or "").split(".")) >= wanted:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _save_in_apply_mode(c: _Ctx) -> dict:
+    """An autonomous save on a model that is not frontier, or (since 0.1.124, when apply models stopped saving) any
+    task of an apply model that saved a piece."""
+    from athos import tiers
+    found = [{"task_id": e.get("task_id"), "piece": c.name(e.get("piece") or ""), "model": e.get("model"),
+              "how": "autonomous"} for e in c.of("learn")
+             if e.get("decision") == "saved" and (e.get("mode") != "learn" or e.get("tier") != tiers.FRONTIER)]
+    if not _version_at_least(c.evs, (0, 1, 124)):
+        status = _status(found, True) if found or c.of("learn") else "not_evaluated"
+        return _result("save_in_apply_mode", status, found,
+                       "recorded before 0.1.124, when an apply model could still save: only autonomous saves judged")
+    for e in c.ends:
+        model = e.get("model")
+        if e.get("saved") and model and model != "unknown" and tiers.tier_of(model) != tiers.FRONTIER:
+            found.append({"task_id": e.get("task_id"), "piece": ", ".join(c.name(p) for p in e["saved"]),
+                          "model": model, "how": "task_end"})
+    return _result("save_in_apply_mode", _status(found, False), found,
+                   "learn events and the pieces each task saved, with the model that answered it")
+
+
+def _project_events(c: _Ctx, everything: list[dict], kinds: set[str]) -> list[dict]:
+    """Events of these kinds about the session's project (the verifier and the grading run outside any session)."""
+    return [e for e in everything if e.get("type") in kinds and (not c.project or e.get("project") in (c.project,
+                                                                                                         None))]
+
+
+def _promotion_without_verifier(c: _Ctx, everything: list[dict]) -> dict:
+    evs = _project_events(c, everything, {"grade", "verify"})
+    promotions = [e for e in evs if e.get("type") == "grade" and e.get("to") == "verified"
+                  and e.get("from") != "verified"]
+    if not promotions:
+        return _result("promotion_without_verifier", "not_evaluated", [], "no piece of this project was verified")
+    found = []
+    for g in promotions:
+        before = [e for e in evs if e.get("type") == "verify" and e.get("piece") == g.get("piece")
+                  and e.get("outcome") == "pass" and e.get("paths_only") is not False
+                  and (e.get("at") or "") <= (g.get("at") or "")]
+        if not before:
+            found.append({"piece": c.name(g.get("piece") or ""), "at": g.get("at"), "basis": g.get("basis")})
+    return _result("promotion_without_verifier", _status(found, False), found,
+                   "grade events to verified, each against an earlier passing verify event of the piece")
+
+
+def _verifier_saw_summary(c: _Ctx, everything: list[dict]) -> dict:
+    """Structurally: the prompt the verifier got (kept in its bundle) must be the fixed text with the four input paths
+    and nothing else, and its inputs must be exactly those four files."""
+    from athos import verify
+    runs = [e for e in _project_events(c, everything, {"verify"}) if e.get("prompt_file") or e.get("inputs")]
+    if not runs:
+        return _result("verifier_saw_summary", "not_evaluated", [], "no verifier ran for this project")
+    found = []
+    for e in runs:
+        problems = []
+        if e.get("paths_only") is False:
+            problems.append("prompt not paths only (recorded)")
+        if sorted(e.get("inputs") or []) != sorted(verify.INPUTS):
+            problems.append("inputs other than the four files")
+        bundle, prompt_file = e.get("bundle"), e.get("prompt_file")
+        if bundle and prompt_file and os.path.isfile(prompt_file):
+            _expected, named = verify.prompt_for(Path(bundle))
+            if not verify.paths_only(Path(prompt_file).read_text(errors="ignore"), named, bundle):
+                problems.append("the kept prompt is not the fixed text with the four paths")
+        if problems:
+            found.append({"piece": c.name(e.get("piece") or ""), "at": e.get("at"), "problems": problems})
+    return _result("verifier_saw_summary", _status(found, False), found,
+                   "verify events, and the prompt each run kept, checked against the fixed text and the four paths")
+
+
+def _verifier_over_cap(everything: list[dict]) -> dict:
+    """Per UTC day, the model runs Athos started against the caps each run recorded."""
+    runs = [e for e in everything if e.get("type") == "model_run" and e.get("started", True)]
+    if not runs:
+        return _result("verifier_over_cap", "not_evaluated", [], "Athos started no model run")
+    days: dict[str, list[dict]] = {}
+    for e in runs:
+        days.setdefault(str(e.get("at", ""))[:10], []).append(e)
+    found = []
+    for day, group in sorted(days.items()):
+        cost = sum(e["cost_usd"] if isinstance(e.get("cost_usd"), (int, float))
+                   else float(e.get("usd_estimate_per_run") or 0) for e in group)
+        max_runs = min((e.get("runs_per_day") for e in group if isinstance(e.get("runs_per_day"), int)), default=None)
+        max_usd = min((e.get("usd_per_day") for e in group if isinstance(e.get("usd_per_day"), (int, float))),
+                      default=None)
+        if (max_runs is not None and len(group) > max_runs) or (max_usd is not None and cost > max_usd + 1e-9):
+            found.append({"day": day, "runs": len(group), "runs_per_day": max_runs, "usd": round(cost, 4),
+                          "usd_per_day": max_usd})
+    return _result("verifier_over_cap", _status(found, False), found,
+                   "model_run events per UTC day (a run with no reported cost counts its estimate)")
 
 
 # ------------------------------------------------------------------------------------------------ the report
@@ -432,14 +542,18 @@ def _public_not_declared(c: _Ctx, cwd: str | None) -> dict:
 
 
 def check(sid: str, evs: list[dict], pieces: list[store.Piece] | None = None, versions: dict | None = None,
-          show: bool = False, transcripts: bool = True, cwd: str | None = None) -> dict:
+          show: bool = False, transcripts: bool = True, cwd: str | None = None,
+          everything: list[dict] | None = None) -> dict:
     """One session: its summary and every rule's result. `cwd`: the folder the audit runs in, for the rules that look
-    at the repository itself."""
+    at the repository itself. `everything`: the whole log, for the rules about the verifier and the grading, which run
+    outside any session (read from the log when not given)."""
     c = _Ctx(sid, evs, store.all_pieces() if pieces is None else pieces, show)
+    everything = ev.events() if everything is None else everything
     rules = [_other_project_load(c), _load_without_own_pieces(c), _edit_without_basis(c),
              _model_inconsistent(c, transcripts), _injected_over_cap(c), _trigger_not_from_person(c),
              _version_mismatch(c, versions), _private_piece_named(c), _weak_evidence_learning(c),
-             _public_not_declared(c, cwd)]
+             _public_not_declared(c, cwd), _save_in_apply_mode(c), _promotion_without_verifier(c, everything),
+             _verifier_saw_summary(c, everything), _verifier_over_cap(everything)]
     return {"summary": _summary(c), "rules": rules,
             "anomalies": sum(r["count"] for r in rules if r["status"] == "flagged")}
 
@@ -449,7 +563,7 @@ def run(session: str | None = None, project: str | None = None, last: int | None
     events = ev.events()
     chosen = pick(events, session, project, last)
     pieces = store.all_pieces()
-    return {"sessions": [check(s, evs, pieces, versions, show, transcripts, cwd) for s, evs in chosen.items()],
+    return {"sessions": [check(s, evs, pieces, versions, show, transcripts, cwd, events) for s, evs in chosen.items()],
             "rules": [{"rule": r, "means": m} for r, m in RULES]}
 
 

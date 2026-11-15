@@ -240,7 +240,9 @@ def note_run(purpose: str, piece: store.Piece | None, model: str, result: dict |
              "error": (result or {}).get("error"), "cost_usd": cost if isinstance(cost, (int, float)) else None,
              "cost_estimated": not isinstance(cost, (int, float)) and not refused,
              "usd_cap_run": cap, "usd_per_day": s["budget"].get("usd_per_day"),
-             "runs_per_day": s["budget"].get("runs_per_day"), "duration_s": (result or {}).get("duration_s"), **more}
+             "runs_per_day": s["budget"].get("runs_per_day"), "duration_s": (result or {}).get("duration_s"),
+             "usd_estimate_per_run": s["budget"].get("usd_estimate_per_run"),
+             "project": piece.projects[0] if piece and piece.projects else None, **more}
     ev.audit(event)
     return event
 
