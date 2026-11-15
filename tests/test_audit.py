@@ -113,6 +113,35 @@ class RouteEventTest(HookCase):
         self.assertEqual((t["trigger"], t["from_person"]), ("save", True))
         self.assertEqual(events("route"), [])          # a button's request is not a request to route
 
+    def transcript(self, *rows):
+        path = Path(self.home) / f"t{len(list(Path(self.home).glob('t*.jsonl')))}.jsonl"
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        return str(path)
+
+    def test_the_transcript_decides_with_the_text_and_a_missing_entry_means_no(self):
+        save = "Athos · save: keep this task as a way of working"
+        base = {"session_id": "s5", "cwd": str(self.alpha), "prompt": save, "prompt_id": "p2"}
+        older = {"type": "user", "promptId": "p1", "origin": {"kind": "human"}, "message": {"content": "earlier"}}
+        cases = [
+            (self.transcript(older), "missing", None, False),                  # Claude Code writes it after the hook
+            (self.transcript(older, {"type": "user", "promptId": "p2", "origin": {"kind": "plugin", "name": "athos",
+                                                                                 "asUser": True},
+                                     "message": {"content": save}}), "both", "person", True),
+            (self.transcript(older, {"type": "user", "promptId": "p2", "isMeta": True, "origin": {"body": "x"},
+                                     "message": {"content": save}}), "disagree", "harness", False),
+        ]
+        for path, signal, seen, acted in cases:
+            self.hook("prompt", {**base, "transcript_path": path})
+            t = events("trigger")[-1]
+            self.assertEqual((t["origin_signal"], t["transcript_origin"], t["acted"]), (signal, seen, acted), signal)
+        self.hook("prompt", {**base})                                          # no transcript: the text alone
+        self.assertEqual((events("trigger")[-1]["origin_signal"], events("trigger")[-1]["acted"]), ("heuristic", True))
+        (Path(self.home) / "config.json").write_text(json.dumps({"origin_check": "heuristic"}))
+        self.hook("prompt", {**base, "transcript_path": cases[0][0]})          # the way back
+        self.assertEqual((events("trigger")[-1]["origin_signal"], events("trigger")[-1]["acted"]),
+                         ("missing:heuristic", True))
+        self.assertIn("save · unclear (missing) · ignored", log_text())
+
     def test_a_project_without_pieces_says_so_in_the_scope(self):
         gamma = Path(self.home) / "gamma"
         gamma.mkdir()
@@ -189,18 +218,41 @@ class EditSeenTest(TempHome):
         f.write_text("Penalties:\n- ten percent\n")
         self.run_athos("hook", "tool", stdin=json.dumps({**e, "tool_name": "Write",
                                                          "tool_input": {"file_path": str(f)}}))
+        self.run_athos("hook", "stop", stdin=json.dumps(e))          # the agent's turn ends, then the person edits
         f.write_text("Penalties:\n- 10% per week, never more than 30%\n")
         self.run_athos("hook", "prompt", stdin=json.dumps({**e, "prompt": "thanks, next one"}))
         seen = events("edit_seen")
         self.assertEqual([(s["decision"], s["source"], s["attributed_to"]) for s in seen],
                          [("snapshot", "agent_tool", "agent"), ("attributed", "outside", "person")])
-        self.assertEqual(seen[1]["basis"], [])
-        self.assertEqual(seen[1]["piece_basis"], "first_task_piece")
+        self.assertEqual(seen[1]["basis"], ["changed_after_turn_end", "no_tool_call_since"])
+        self.assertEqual(seen[1]["piece_basis"], "route_best")
         self.assertEqual(seen[0]["file_sha"], seen[1]["file_sha"])
         for s in seen:
             self.assertNotIn("secret-client", json.dumps(s))
         self.assertNotIn("secret-client", log_text())
-        self.assertIn("edit_seen | work | a file change given to the person (basis: none", log_text())
+        self.assertIn("edit_seen | work | a file change given to the person (changed_after_turn_end", log_text())
+        rule = next(r for r in audit.check("s1", ev.events(), transcripts=False)["rules"]
+                    if r["rule"] == "edit_without_basis")
+        self.assertEqual(rule["status"], "clean")
+
+    def test_a_change_with_no_turn_end_is_given_to_nobody(self):
+        work = Path(self.home) / "work"
+        work.mkdir()
+        self.run_athos("save", stdin="---\ntitle: Review a services contract\nwhen: review a services contract\n"
+                                     "---\n## #penalties\n**When:** reading.\n**Do:** list each penalty.\n",
+                       cwd=str(work))
+        e = {"session_id": "s1", "cwd": str(work)}
+        self.run_athos("hook", "prompt", stdin=json.dumps({**e, "prompt": "review a services contract"}))
+        f = work / "report.md"
+        f.write_text("Penalties:\n- ten percent\n")
+        self.run_athos("hook", "tool", stdin=json.dumps({**e, "tool_name": "Write", "tool_input": {"file_path": str(f)}}))
+        f.write_text("Penalties:\n- 10% per week\n")               # no Stop came: the agent may still be at work
+        out = self.run_athos("hook", "prompt", stdin=json.dumps({**e, "prompt": "thanks, next one"}))
+        self.assertNotIn("edited", out.stdout)
+        seen = events("edit_seen")
+        self.assertEqual([(s["decision"], s["source"], s["attributed_to"], s["basis"]) for s in seen[1:]],
+                         [("unattributed", "unexplained", None, ["no_turn_end"])])
+        self.assertEqual(events("learned_from_edit"), [])
 
 
 class LogFileTest(TempHome):
@@ -329,6 +381,11 @@ class RulesTest(TempHome):
         self.assertEqual((r["status"], r["count"]), ("flagged", 1))
         r = self.rule([start("t1"), routed("t1"), {**trig, "from_person": True}], "trigger_not_from_person")
         self.assertEqual(r["status"], "clean")
+        held = {**trig, "from_person": None, "acted": False, "origin_signal": "missing"}       # it held back
+        r = self.rule([start("t1"), routed("t1"), held], "trigger_not_from_person")
+        self.assertEqual(r["status"], "clean")
+        r = self.rule([start("t1"), routed("t1"), {**held, "acted": True}], "trigger_not_from_person")
+        self.assertEqual((r["status"], r["count"]), ("flagged", 1))
         r = self.rule([start("t1"), end("t1")], "trigger_not_from_person")
         self.assertEqual(r["status"], "not_evaluated")
 

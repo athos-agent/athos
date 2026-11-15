@@ -165,7 +165,7 @@ def _load_without_own_pieces(c: _Ctx) -> dict:
 
 
 def _edit_without_basis(c: _Ctx) -> dict:
-    seen = [e for e in c.of("edit_seen") if e.get("attributed_to") == "person"]
+    seen = [e for e in c.of("edit_seen") if e.get("attributed_to") == "person" and e.get("decision") != "pending"]
     old = c.of("learned_from_edit")
     found = [{"task_id": e.get("task_id"), "piece": c.name(e.get("piece") or ""), "detector": e.get("detector"),
               "piece_basis": e.get("piece_basis")} for e in seen if not e.get("basis")]
@@ -261,10 +261,13 @@ def _trigger_not_from_person(c: _Ctx) -> dict:
         if c.routes:
             return _result("trigger_not_from_person", "clean", [], "trigger events: none fired")
         return _result("trigger_not_from_person", "not_evaluated", [], "no trigger events (written since 0.1.110)")
+    # Since 0.1.111 a trigger event says whether the path acted; one that held back (`acted` false) did not fire.
     found = [{"task_id": t.get("task_id"), "trigger": t.get("trigger"), "wrapper": t.get("wrapper"),
-              "from_person": t.get("from_person")} for t in triggers if t.get("from_person") is not True]
+              "from_person": t.get("from_person"), "signal": t.get("origin_signal")}
+             for t in triggers if t.get("from_person") is not True and t.get("acted", True)]
     return _result("trigger_not_from_person", _status(found, False), found,
-                   "trigger events (from_person false, or unclear when the text opens with an unknown tag)")
+                   "trigger events that acted (from_person false, or unclear: an unknown leading tag, or no transcript "
+                   "entry for the prompt)")
 
 
 def _version_mismatch(c: _Ctx, versions: dict | None) -> dict:
@@ -342,8 +345,9 @@ def _summary(c: _Ctx) -> dict:
             "tasks_with_loads": len({tid for tid, _, _ in loads}),
             "loads_other_project": len({tid for tid, pid, _ in loads if c.foreign(pid)}),
             "injected_max": max((r.get("injected_chars") or 0 for r in routes), default=None),
-            "edits_to_person": len([e for e in c.of("edit_seen") if e.get("attributed_to") == "person"])
-            + len(c.of("learned_from_edit")),
+            "edits_to_person": (len([e for e in c.of("edit_seen") if e.get("decision") == "attributed"
+                                     and e.get("attributed_to") == "person"])
+                                or len(c.of("learned_from_edit"))),
             "models": sorted({e.get("model") for e in c.starts if e.get("model")}),
             "triggers": len(c.of("trigger")), "hook_errors": len(c.of("hook_error")),
             "own_pieces": len(c.own), "audit_events": bool(set(e.get("type") for e in c.evs) & AUDIT_TYPES)}

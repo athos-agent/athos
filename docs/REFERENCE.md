@@ -326,9 +326,9 @@ of it keeps a request's words: only its length and a 12-character fingerprint (`
 | event | written when | fields |
 |---|---|---|
 | `route` | every request the prompt hook sees, loaded or not | `task_id`, `mode`, `project`, `scope_reason`, `named_projects`, `marker` (a `.athos.toml` applied), `public`, `private_held` (private pieces kept out, counted), `store_pieces`, `in_scope`, `request_chars`, `request_sha` (not in a public repository), `request_kind` (person, harness, empty), `wrapper`, `candidates` (up to 5: `piece`, `score`, `shared` (how many words it shares with the request, never which), `head_share`, `request_share`, `projects`, `kept`, `reason`), `scored`, `chosen`, `handed_over`, `meaning`, `thresholds`, `cut` (pages cut to fit), `left_out` (pages with no room), `injected_chars`, `ms` |
-| `edit_seen` | the edit detector keeps a file the agent wrote, or gives a change to the person | `task_id`, `file_sha` (a hash of the path), `decision` (snapshot, attributed), `source` (agent_tool, outside), `basis` (the evidence that the person made the change), `attributed_to`, and for an attribution `detector`, `piece`, `piece_basis` (current_step, first_task_piece) |
+| `edit_seen` | the edit detector keeps a file the agent wrote, sees the agent change it again, or finds a change on the next request | `task_id`, `file_sha` (a hash of the path), `decision` (snapshot, rebased (the agent changed it: the copy moves on), pending (the person changed it between two tool calls; told on the next request), attributed, unattributed (a change with no evidence: given to nobody)), `source` (agent_tool, agent_shell, outside, unexplained), `basis` (the evidence for the decision: `changed_during:<tool>`, `no_timing:<tool>`, `tool_failed`, `changed_between_tool_calls`, `changed_after_turn_end`, `no_tool_call_since`, or why there is none: `no_turn_end`, `changed_before_turn_end`, `tool_after_turn_end`, `background_task_running`), `attributed_to` (agent, person, or null), and for a change given to the person `detector` (between_tool_calls, after_turn_end), `piece` (not in a public repository), `piece_basis` (current_step, route_best, none) |
 | `model` | a session starts, and every request | `task_id`, `model`, `source` (event, session, transcript, unknown), `seen_in_transcript` (the model of the transcript's latest reply), `tier` |
-| `trigger` | a special path matches: save, adjust, gallery, share | `task_id`, `trigger`, `from_person` (true; false for a harness wrapper such as a subagent's message, also one that opens with another wrapper; null when the text opens with another tag), `acted` (it acts only when `from_person` is true), `wrapper`, `project`, `request_chars`, `request_sha` |
+| `trigger` | a special path matches: save, adjust, gallery, share | `task_id`, `trigger`, `from_person` (true; false for a harness wrapper such as a subagent's message, also one that opens with another wrapper, or when the transcript says the harness sent it; null when the text opens with another tag or the transcript has no entry for it yet), `acted` (it acts only when `from_person` is true), `wrapper`, `origin_signal` (which signal decided: `heuristic`, `both`, `disagree`, `missing`, `missing:heuristic`), `transcript_origin` (person, harness, or null), `project`, `request_chars`, `request_sha` |
 | `hook_error` | a hook swallows an exception so your session carries on | `hook`, `where`, `error` (the exception's kind), `line` (file and line inside Athos), never its message |
 | `learn`, `grade`, `ui` | reserved for autonomous learning, a piece's grade and the panel's state | not written yet |
 
@@ -339,13 +339,22 @@ saved mode (`all`, `project`, `pieces`, `none`) or, in `auto`, `auto:project`, `
 `auto:no-own-pieces` (a project with no pages of its own: the profile only), `auto:no-own-pieces+named` or
 `auto:no-folder`. Events written by 0.1.110 may say `auto:project-without-pieces`: such a folder then saw every page.
 
+**Who wrote a request.** Save, adjust, gallery and share act only on text the person wrote. Two signals decide: the
+wrappers the harness puts around its own text (a subagent's report, a notification), and, when the hook gives a
+transcript path, the transcript's entry for that prompt (`promptId`; `origin.kind` human, or Athos's own button pressed
+by the person, is the person). They must agree; when they disagree, or the transcript has no entry for the prompt, the
+path does not act. Claude Code 2.1 writes that entry only after the prompt hook has run, so in Claude Code these paths
+do not act by default (the [Save] button and a typed `Athos · adjust` included) until you add `"origin_check":
+"heuristic"` to `~/.athos/config.json`, which lets a missing entry fall back to the wrappers alone. Agents that give no
+transcript path (Codex, Muse Code, OpenCode) are judged by the wrappers, as before.
+
 `~/.athos/log.md` says the same in one line per operation, for a person or an agent to read with grep and tail:
 
 ```
 grep '^## \[' ~/.athos/log.md | tail
 ## [2026-11-15 09:21] route | my-app | loaded release-checklist · 1853 chars · scope auto:project
 ## [2026-11-15 09:24] route | my-app | none · scope auto:project
-## [2026-11-15 09:30] trigger | my-app | share · harness text <agent-message>
+## [2026-11-15 09:30] trigger | my-app | share · harness text <agent-message> (heuristic) · ignored
 ```
 
 Times are UTC. It names a piece only when the piece belongs to that project, or to none and is not private (another
@@ -362,7 +371,7 @@ the session of the folder you run it in) and checks each one against these rules
 | `edit_without_basis` | an edit given to the person with no evidence that the person made it |
 | `model_inconsistent` | the model recorded for the session disagrees with itself or with Claude Code's transcript |
 | `injected_over_cap` | more characters added to one request than the router's cap (since 0.1.111 a page that doesn't fit is cut, so only older events show here) |
-| `trigger_not_from_person` | save, adjust, gallery or share fired on text the person didn't write |
+| `trigger_not_from_person` | save, adjust, gallery or share fired on text the person didn't write (a path that held back, `acted` false, is not flagged) |
 | `version_mismatch` | the session's events written by two versions, or Claude Code's plugin and the `athos` on your PATH differ now |
 | `private_piece_named` | a private piece loaded, ranked or named outside its projects, in the route events or in this project's `log.md` lines (the agent's replies are not seen) |
 | `weak_evidence_learning` | a piece learned with only the model's opinion as evidence (nothing writes `learn` yet) |
@@ -377,15 +386,40 @@ shown, and another project's pieces are named only with `--show`.
 
 When the agent writes or edits a text file while following one of your pieces (a contract review, a report, code) and
 you then change that file by hand, your change is usually a rule of how you work. Athos keeps a copy of each file as
-the agent left it (`~/.athos/snapshots/<session>/`, text files up to 200 KB, only the last three tasks of the session).
-On your next request in that session it compares the copy with the file: if you changed it, the agent gets a short diff
-and is asked to propose the rule in one line, in your language, naming the step it belongs to, and to ask you before
-adding it. Say yes and it improves the piece the same way [Adjust] does; a typo or spacing change is not mentioned.
-Each edit is offered once and its copy is deleted right after; `athos status --json` shows it as `learned_from_edit`
-(file, piece, step and the `Athos · adjust <piece>#<step>:` text a panel can prefill). The panels offer it as a
-button, **Keep this rule** (Claude Code's pane, the Desktop panel, OpenCode's palette: *Athos: keep the rule from my
-edit*); in Codex and Muse Code, `athos watch --trail` shows the edit and a plain "yes" to the agent keeps it. It works in Claude Code, Codex
-(`apply_patch`), Muse Code and OpenCode, stays on your machine, and is off with `ATHOS_CAPTURE=off`.
+the agent left it (`~/.athos/snapshots/<session>/`, text files up to 200 KB, only the last three tasks of the session),
+also of the files a shell command of the agent names inside the project.
+
+A change counts as yours only on evidence that no tool call of the agent made it. The agent changes files in many
+ways besides its edit tools (a script, `sed -i`, a formatter, `git checkout`, a build step); until 0.1.111 each of
+them was taken for your edit. Now:
+
+- after every tool call of the agent (in Claude Code also a failed one, `PostToolUseFailure`) each kept file is checked,
+  with a `stat` first and its content only when that moved. A change that could have happened during the call is the
+  agent's, and the copy moves to it. A change whose time (the file's ctime, which no tool can set back) falls before
+  the call started, by Claude Code's `duration_ms` and a one-second margin, happened between two tool calls: yours;
+- on your next request, a change made after the agent's turn ended, with no tool call since and no background task
+  left running, is yours;
+- anything else is given to nobody: the `edit_seen` event says `agent_shell`, `agent_tool` or `unexplained`, and the
+  agent is told nothing.
+
+A change of yours is credited to the step the agent was on when it wrote the file, else to the best-ranked piece the
+request loaded, else to no piece (and then the agent is not told). The agent gets a short diff and is asked to propose
+the rule in one line, in your language, and to ask you before adding it. Say yes and it improves the piece the same way
+[Adjust] does; a typo or spacing change is not mentioned. Each edit is offered once and its copy is deleted right after;
+`athos status --json` shows it as `learned_from_edit` (file, piece, step and the `Athos · adjust <piece>#<step>:` text a
+panel can prefill). The panels offer it as a button, **Keep this rule** (Claude Code's pane, the Desktop panel,
+OpenCode's palette: *Athos: keep the rule from my edit*); in Codex and Muse Code, `athos watch --trail` shows the edit
+and a plain "yes" to the agent keeps it. The `learned_from_edit` event keeps the file's path, the piece and its title,
+and the evidence (`basis`); in a repository marked public (`.athos.toml`) it keeps only hashes of the path, the piece
+and the step. It works in Claude Code, Codex (`apply_patch`), Muse Code and OpenCode, stays on your machine, and is
+off with `ATHOS_CAPTURE=off`.
+
+What it cannot see: a process the agent left running that writes after the turn, when the agent's Stop hook reports no
+background task (Claude Code's `background_tasks`), is taken for you; a change made while the agent writes its last
+answer (after its last tool call) is given to nobody; a hand edit followed by the agent's own edit tool on the same file,
+with no other tool call between, is folded into the agent's write; agents whose hooks carry no `duration_ms` (Codex,
+Muse Code, OpenCode) only have the after-the-turn evidence. Checking the kept files costs well under a millisecond per
+tool call with twenty files kept.
 
 ### Per-step models
 

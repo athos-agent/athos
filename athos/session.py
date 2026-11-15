@@ -111,3 +111,51 @@ def _last_lines(path: str) -> list[str]:
             return fh.readlines()[-_TRANSCRIPT_TAIL:]
     except _UNREADABLE:
         return []
+
+
+def _tail_rows(transcript_path: str | None, max_bytes: int = 512_000) -> list[dict]:
+    """The JSON objects in a transcript's last `max_bytes`, oldest first ([] when it cannot be read)."""
+    if not transcript_path:
+        return []
+    try:
+        with open(transcript_path, "rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - max_bytes))
+            lines = fh.read().decode("utf-8", "ignore").splitlines()
+    except _UNREADABLE:
+        return []
+    if size > max_bytes and lines:
+        lines = lines[1:]                        # the first line of a cut tail is a fragment
+    rows = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def prompt_origin(transcript_path: str | None, prompt_id: str | None) -> str | None:
+    """Who wrote a prompt, as Claude Code's transcript records it on the prompt's entry (`promptId`): "person" for an
+    entry whose `origin.kind` is `human` (typed, queued, a suggestion accepted), or Athos's own button pressed by the
+    person (`origin.kind` `plugin`, `name` athos, `asUser`); "harness" for anything else the harness sent (a subagent's
+    report, a task notification, a meta entry). None when there is no such entry: Claude Code 2.1 writes it only after
+    the prompt hook has run, so at prompt time it is usually missing."""
+    if not (transcript_path and prompt_id):
+        return None
+    for row in _tail_rows(transcript_path):
+        if row.get("type") != "user" or row.get("promptId") != prompt_id or row.get("toolUseResult") is not None:
+            continue
+        origin = row.get("origin") if isinstance(row.get("origin"), dict) else {}
+        kind = origin.get("kind")
+        if row.get("isMeta"):
+            return "harness"
+        if kind == "human" or (kind is None and row.get("turnOrigin") == "human"):
+            return "person"
+        if kind == "plugin" and origin.get("name") == "athos" and origin.get("asUser"):
+            return "person"
+        return "harness"
+    return None

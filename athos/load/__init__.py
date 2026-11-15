@@ -128,6 +128,34 @@ def from_person(text: str) -> bool:
     return origin_of(text)[0] is True
 
 
+def trigger_origin(event: dict) -> dict:
+    """Whether a special path (save, adjust, gallery, share) may act on a prompt, from two signals: the wrappers the
+    text carries (`origin_of`) and, when the hook gives a transcript path, the transcript's entry for the prompt
+    (`session.prompt_origin`). It acts only when the text reads as the person's and the transcript agrees; when they
+    disagree, or the transcript has no entry for the prompt yet, it does not act. `signal` says which one decided:
+    `heuristic` (no transcript path: Codex, Muse Code, OpenCode), `both`, `disagree` or `missing`. The config key
+    `"origin_check": "heuristic"` in `<home>/config.json` lets a missing entry fall back to the text alone."""
+    prompt = event.get("prompt", "") or ""
+    person, wrapper = origin_of(prompt)
+    out = {"from_person": person, "wrapper": wrapper, "transcript": None, "signal": "heuristic"}
+    path = event.get("transcript_path")
+    if not path:
+        return out
+    seen = session.prompt_origin(path, event.get("prompt_id"))
+    out["transcript"] = seen
+    if seen is None:
+        from athos import start
+        if start.config().get("origin_check") == "heuristic":
+            out["signal"] = "missing:heuristic"
+            return out
+        out.update(signal="missing", from_person=None if person else person)
+    elif (seen == "person") == (person is True):
+        out["signal"] = "both"
+    else:
+        out.update(signal="disagree", from_person=False if person else person)
+    return out
+
+
 def not_a_request(text: str) -> bool:
     """The router loads nothing for text the harness wrote (a notification, a subagent's report)."""
     return bool(NOT_A_REQUEST.match(text or "")) or origin_of(text)[0] is False
@@ -563,6 +591,8 @@ def on_prompt(event: dict, cmd: str = "athos") -> str:
     if shown:
         # In a public repository nothing taken from a request is kept, not even the words that loaded a page.
         session.update(sid, task_why={p.id: [] if scope.get("public") else why(prompt, p) for p in shown})
+    if shown:
+        session.update(sid, task_route=[p.id for p in shown])     # best first: the edit detector credits the first
     mark_loaded(sid, [piece.id for piece in shown])
     text = body + extra if body else ""
     trace = {**trace, "cut": cut, "left_out": left}

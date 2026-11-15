@@ -302,7 +302,7 @@ def _fresh_task_state(task_id: TaskId, started: str, prompt: str) -> dict:
     """The per-request part of a session's state. Capture works per request, so its counters start again here."""
     return {
         "task_id": task_id, "task_started": started,
-        "task_loaded": [], "task_saved": [], "task_why": {}, "trail": [],
+        "task_loaded": [], "task_route": [], "task_saved": [], "task_why": {}, "trail": [],
         "tools_since_capture": 0, "work_since_capture": 0, "edits_since_capture": 0,
         "task_request": prompt[:200],
         # The full request stays here (this session only, overwritten by the next request) until the task is

@@ -180,31 +180,34 @@ def _quietly(fn, *args):
 
 def _trigger(event: dict, which: str) -> bool:
     """The `trigger` audit event: a special request path matched (save, adjust, gallery, share), whether the text
-    read as the person's own or as the harness's (a subagent's report, a notification), and whether it acted. It acts
-    only on the person's own text: a subagent's report once fired the gallery's share path (2026-11-14). Returns
-    whether to act."""
+    read as the person's own or as the harness's (a subagent's report, a notification), which signal decided (the
+    text's wrappers, the transcript's entry for the prompt, or both), and whether it acted. It acts only on the
+    person's own text: a subagent's report once fired the gallery's share path (2026-11-14). Returns whether to act."""
     prompt = event.get("prompt", "") or ""
-    person, wrapper = load.origin_of(prompt)
+    origin = load.trigger_origin(event)
+    person, wrapper = origin["from_person"], origin["wrapper"]
     acted = person is True
     sid = event.get("session_id")
     project = session.load(sid).get("project") if sid else None
     if not project and event.get("cwd"):
         project = paths.project_of(event["cwd"])
-    said = {True: "the person's text", False: f"harness text <{wrapper}>", None: f"unclear, opens with <{wrapper}>"}
+    said = {True: "the person's text", False: f"harness text <{wrapper}>",
+            None: f"unclear, opens with <{wrapper}>" if wrapper else "unclear"}
     printed = ev.request_print(prompt)
     if paths.is_public(event.get("cwd")):
         printed.pop("request_sha")
     ev.audit({"type": "trigger", "session_id": sid, "task_id": session.load(sid).get("task_id") if sid else None,
               "trigger": which, "from_person": person, "acted": acted, "wrapper": wrapper, "project": project,
-              **printed}, line=f"{which} · {said[person]}" + ("" if acted else " · ignored"), project=project)
+              "origin_signal": origin["signal"], "transcript_origin": origin["transcript"], **printed},
+             line=f"{which} · {said[person]} ({origin['signal']})" + ("" if acted else " · ignored"), project=project)
     return acted
 
 
 def _act_on(event: dict, which: str) -> bool:
     """Whether a special path that matched may act: only on the person's own text. The audit event is written
-    either way; if writing it fails, the path still acts only on the person's text."""
+    either way; if writing it fails, the same two signals decide."""
     acted = _quietly(_trigger, event, which)
-    return acted if acted is not None else load.from_person(event.get("prompt", "") or "")
+    return acted if acted is not None else load.trigger_origin(event)["from_person"] is True
 
 
 def _add_context(hook_event: str, text: str) -> None:
@@ -293,6 +296,16 @@ def _on_tool(event: dict, platform: str) -> None:
         edits.on_tool(event, sid)
 
 
+def _on_tool_failed(event: dict, platform: str) -> None:
+    """A tool call failed (Claude Code's PostToolUseFailure): it may still have changed files, so the edit detector
+    looks, as after any other call. Nothing is counted or drawn."""
+    sid = event.get("session_id", "default")
+    if not session.load(sid).get("task_id"):
+        sid = _folder_session_id(event, sid)
+    if capture.enabled():
+        edits.on_tool(event, sid, failed=True)
+
+
 def _on_stop(event: dict, platform: str) -> None:
     """The agent finished its turn: close the task, then offer (or ask the model) to save what it learned."""
     rec = ev.task_end(event)
@@ -302,6 +315,7 @@ def _on_stop(event: dict, platform: str) -> None:
     if sid and not session.load(sid).get("trail"):
         sid = _folder_session_id(event, sid)
     if sid:
+        _quietly(edits.on_stop, event, sid)        # the turn is over: a later change may be the person's
         trail.finish(sid)
         st = session.load(sid)                     # the panel shows the receipt: steps, branches, what was learned
         session.update(sid, task_end={"task_id": st.get("task_id"), "outcome": ""})
@@ -318,7 +332,8 @@ def _on_stop(event: dict, platform: str) -> None:
         print(json.dumps(decision))
 
 
-_HOOK_HANDLERS = {"session-start": _on_session_start, "prompt": _on_prompt, "tool": _on_tool, "stop": _on_stop}
+_HOOK_HANDLERS = {"session-start": _on_session_start, "prompt": _on_prompt, "tool": _on_tool,
+                  "tool-failed": _on_tool_failed, "stop": _on_stop}
 
 
 def hook(event_name: str, platform: str = "claude-code") -> int:
