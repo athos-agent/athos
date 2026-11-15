@@ -46,6 +46,8 @@ Everyday commands (`athos <command> --help` has the details of each):
     athos profile allow-public|deny-public <id>...   whether a profile piece may also load in a repository marked
                                        public (by default none does)
     athos privacy [--json]             which pieces look private, for you to review (read-only)
+    athos public [on|off|status]       say that this repository is public (its .athos.toml): then only its own
+                                       pieces load or are named there
     athos tiers [add|remove frontier|apply <pattern>... | reset | which <model>] [--json]   which models learn
                                        (frontier) and which apply what was learned; unknown models apply
     athos embed [on|off] [--model M]   also load know-how by meaning (local embeddings, Ollama); off by default
@@ -1172,7 +1174,7 @@ def cmd_audit(args) -> int:
         versions = connect.versions(ask_muse=False)
     except Exception:  # noqa: BLE001 — another agent's config never stops the audit
         versions = None
-    report = audit.run(session_id, args.project, args.last, show=args.show, versions=versions)
+    report = audit.run(session_id, args.project, args.last, show=args.show, versions=versions, cwd=os.getcwd())
     print(json.dumps(report, indent=1, ensure_ascii=False) if args.json else audit.render(report))
     return 0
 
@@ -1211,6 +1213,39 @@ def cmd_profile(args) -> int | None:
              if ids else f" (none yet; `{_cmd()} profile add <id>`)"))
     if ids and not public:
         print(f"In a repository marked public none of them loads; `{_cmd()} profile allow-public <id>` allows one.")
+    return 0
+
+
+def cmd_public(args) -> int:
+    """`athos public [on|off|status]`: say in one step that this repository is public (or that it is not), in the
+    `.athos.toml` at its root. Athos cannot know a repository's visibility: that lives on the hosting site, behind
+    the person's account, and Athos makes no network call; the local git configuration only says where the code is
+    pushed."""
+    action = args.action or "on"
+    cwd = os.getcwd()
+    if action == "status":
+        here, mark = paths.locate(cwd)
+        hosts = paths.code_remotes(cwd)
+        state = ("public" if mark.get("public") else "not public") if "public" in mark else "not declared"
+        info = {"project": here, "root": str(paths.repo_root(cwd)), "marker": mark.get("file"), "declared": state,
+                "code_remotes": hosts}
+        if args.json:
+            print(json.dumps(info, indent=1))
+            return 0
+        print(f"{here}: {state}" + (f" ({mark['file']})" if mark.get("file") else "")
+              + (f" · pushed to {', '.join(hosts)}" if hosts else ""))
+        if state == "not declared" and hosts:
+            print(f"Athos cannot see whether that copy is public. If it is, run `{_cmd()} public`; if not, "
+                  f"`{_cmd()} public off`.")
+        return 0
+    target, mark = paths.write_marker(cwd, action == "on")
+    if action == "on":
+        print(f"{mark.get('name')} is marked public in {target}: here Athos loads and names only this project's own "
+              f"ways of working (and the profile pieces you allow with `{_cmd()} profile allow-public <id>`), and "
+              f"keeps nothing of your requests. Commit the file or leave it untracked; Athos reads it either way.")
+    else:
+        print(f"{mark.get('name')} is marked not public in {target}: the usual rules apply (another project's pieces "
+              f"load when a request names it).")
     return 0
 
 
@@ -1774,6 +1809,10 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--as", dest="owner", metavar="NAME", help="the name to credit (anonymous if left out)")
     s.add_argument("--profession", default="other", choices=["law", "finance", "journalism", "science", "ops", "other"])
     s.add_argument("--lang", choices=["es", "en"], help="the language it is written in (guessed if left out)")
+    s = sub.add_parser("public", help="say that this repository is public (or, with off, that it is not), in its "
+                                      ".athos.toml; status shows what is declared and where the code is pushed")
+    s.add_argument("action", nargs="?", choices=["on", "off", "status"], help="on (default), off or status")
+    s.add_argument("--json", action="store_true", help="with status: as JSON")
     s = sub.add_parser("tiers", help="which models learn (frontier) and which apply what was learned")
     s.add_argument("action", nargs="?", choices=["add", "remove", "reset", "which"], help="change the tiers, or ask "
                    "which tier a model is in; bare, it prints them")
@@ -1795,7 +1834,7 @@ _HANDLERS = {
     "watch": cmd_watch, "connector": cmd_connector, "desktop": cmd_desktop, "step": cmd_step, "test": cmd_test,
     "shadow": cmd_shadow, "status": cmd_status, "doctor": cmd_doctor, "gallery": cmd_gallery, "add": cmd_add, "share": cmd_share,
     "hook": cmd_hook, "audit": cmd_audit, "profile": cmd_profile, "privacy": cmd_privacy,
-    "tiers": cmd_tiers,
+    "tiers": cmd_tiers, "public": cmd_public,
 }
 
 

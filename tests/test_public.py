@@ -81,3 +81,53 @@ class PublicRepositoryTest(Folders):
         self.assertEqual(session.load("pub1").get("task_loaded"), [])
         self.assertEqual(events("piece_opened"), [])
         self.assertNotIn("beta-report", self.everything_written())
+
+
+class DeclareTest(Folders):
+    """`athos public` writes the marker in one step; the audit asks for it when a repository is pushed to a
+    code-hosting site and says nothing about its visibility (from the local git configuration only)."""
+
+    def setUp(self):
+        super().setUp()
+        import subprocess
+        self.root = Path(self.folder("gamma"))
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        subprocess.run(["git", "-C", str(self.root), "remote", "add", "origin", "git@github.com:example/demo.git"],
+                       check=True)
+
+    def run_cli(self, *argv):
+        out = io.StringIO()
+        with contextlib.chdir(self.root), contextlib.redirect_stdout(out):
+            code = cli.main(list(argv))
+        return code, out.getvalue()
+
+    def audit_rule(self):
+        from athos import audit
+        evs = [{"type": "route", "session_id": "d1", "task_id": "t1", "project": "gamma", "chosen": []}]
+        return next(r for r in audit.check("d1", evs, [], cwd=str(self.root))["rules"]
+                    if r["rule"] == "public_not_declared")
+
+    def test_the_audit_asks_and_one_command_answers(self):
+        self.assertEqual(paths.code_remotes(self.root), ["github.com"])
+        r = self.audit_rule()
+        self.assertEqual((r["status"], r["found"][0]["pushed_to"]), ("flagged", "github.com"))
+        code, out = self.run_cli("public", "status")
+        self.assertIn("not declared", out)
+        self.assertIn("pushed to github.com", out)
+        code, out = self.run_cli("public")
+        self.assertEqual(code, 0)
+        mark = paths.marker(self.root)
+        self.assertEqual((mark["name"], mark["public"], Path(mark["file"]).name), ("gamma", True, paths.MARKER))
+        self.assertEqual(self.audit_rule()["status"], "clean")
+        # The reverse keeps the name and any other line the person wrote.
+        (self.root / paths.MARKER).write_text('name = "gamma-app"\n# mine\npublic = true\n')
+        self.run_cli("public", "off")
+        self.assertEqual((self.root / paths.MARKER).read_text(), 'name = "gamma-app"\n# mine\npublic = false\n')
+        self.assertEqual(self.audit_rule()["status"], "not_evaluated")    # the project is now called gamma-app
+        self.assertFalse(paths.is_public(self.root))
+
+    def test_a_repository_with_no_hosted_remote_is_not_asked_about(self):
+        import subprocess
+        subprocess.run(["git", "-C", str(self.root), "remote", "set-url", "origin", "/srv/git/demo.git"], check=True)
+        self.assertEqual(paths.code_remotes(self.root), [])
+        self.assertEqual(self.audit_rule()["status"], "clean")

@@ -203,6 +203,15 @@ Profile pages are included in this: one loads in a public repository only once y
 allow-public <id>`; by default none does. You do not need to mark pages one by one: the per-page `visibility` field
 stays available, and in a repository that is not marked public the usual rule holds.
 
+**Declaring a repository public.** `athos public` writes `public = true` into the `.athos.toml` at the root of the
+repository you run it in (creating it with the project's name when there is none, and keeping any other line); `athos
+public off` writes `public = false`; `athos public status [--json]` says what is declared and which code-hosting sites
+the repository is pushed to. Athos asks because it cannot know: whether a repository is public lives on the hosting
+site, behind your account, and Athos makes no network call. Your local git configuration only says where the code is
+pushed, not who can read it there. So `athos audit`, run in a repository that has a remote on a code-hosting site
+(GitHub, GitLab, Bitbucket, Codeberg and the like) and no `public` line in its marker, reports `public_not_declared`
+until you answer either way. Until then the repository is treated as not public.
+
 In a public repository nothing taken from a request is kept either: the task log keeps the request's length but not
 its first 120 characters, the audit events no fingerprint, the session no copy, and [Didn't apply] no words. The
 `route` event says when a marker applied (`marker`, `public`).
@@ -415,6 +424,7 @@ the session of the folder you run it in) and checks each one against these rules
 | `version_mismatch` | the session's events written by two versions, or Claude Code's plugin and the `athos` on your PATH differ now |
 | `private_piece_named` | a private piece loaded, ranked or named outside its projects, in the route events or in this project's `log.md` lines (the agent's replies are not seen) |
 | `weak_evidence_learning` | a piece learned with only the model's opinion as evidence (nothing writes `learn` yet) |
+| `public_not_declared` | the repository the audit runs in (when it is the session's project) is pushed to a code-hosting site, read from its local git configuration, and its `.athos.toml` does not say whether it is public; `athos public` or `athos public off` answers it |
 
 Each rule says how it was judged: flagged, clean, partial (checked with older data, which is not a proof) or not
 evaluated (with what is missing). Sessions recorded before these events are checked as far as their task lines allow:

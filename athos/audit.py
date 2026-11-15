@@ -36,6 +36,8 @@ RULES = (
     ("version_mismatch", "two versions of Athos at work: the hooks' and the command line's, or two in one session"),
     ("private_piece_named", "a private piece named in any output"),
     ("weak_evidence_learning", "a piece saved by autonomous learning with only the model's opinion as evidence"),
+    ("public_not_declared", "the repository the audit runs in is pushed to a code-hosting site and its .athos.toml "
+                            "does not say whether it is public"),
 )
 WEAK_EVIDENCE = {"", "model", "model_opinion", "self_report"}
 AUDIT_TYPES = {"route", "edit_seen", "model", "trigger", "hook_error", "learn", "grade", "ui", "context", "piece_opened"}
@@ -399,23 +401,45 @@ def _summary(c: _Ctx) -> dict:
             "own_pieces": len(c.own), "audit_events": bool(set(e.get("type") for e in c.evs) & AUDIT_TYPES)}
 
 
+def _public_not_declared(c: _Ctx, cwd: str | None) -> dict:
+    """The folder the audit runs in, when it is this session's project: a remote on a code-hosting site (from the
+    repository's own git configuration; no network call) and no `public` in its `.athos.toml`. Athos cannot know
+    whether that copy is public, and without the marker it treats the repository as private: another project's
+    pieces load there when a request names it."""
+    from athos import paths
+    if not cwd:
+        return _result("public_not_declared", "not_evaluated", [], "no folder to look at")
+    here, mark = paths.locate(cwd)
+    if c.project and here != c.project:
+        return _result("public_not_declared", "not_evaluated", [],
+                       "the session's project is not the folder the audit runs in")
+    hosts = paths.code_remotes(cwd)
+    found = [{"project": here, "pushed_to": h, "fix": "athos public (or athos public off)"} for h in hosts[:1]] \
+        if hosts and "public" not in mark else []
+    return _result("public_not_declared", _status(found, False), found,
+                   "the local git configuration's remotes and the repository's .athos.toml (no network call: Athos "
+                   "cannot know whether a repository is public)")
+
+
 def check(sid: str, evs: list[dict], pieces: list[store.Piece] | None = None, versions: dict | None = None,
-          show: bool = False, transcripts: bool = True) -> dict:
-    """One session: its summary and every rule's result."""
+          show: bool = False, transcripts: bool = True, cwd: str | None = None) -> dict:
+    """One session: its summary and every rule's result. `cwd`: the folder the audit runs in, for the rules that look
+    at the repository itself."""
     c = _Ctx(sid, evs, store.all_pieces() if pieces is None else pieces, show)
     rules = [_other_project_load(c), _load_without_own_pieces(c), _edit_without_basis(c),
              _model_inconsistent(c, transcripts), _injected_over_cap(c), _trigger_not_from_person(c),
-             _version_mismatch(c, versions), _private_piece_named(c), _weak_evidence_learning(c)]
+             _version_mismatch(c, versions), _private_piece_named(c), _weak_evidence_learning(c),
+             _public_not_declared(c, cwd)]
     return {"summary": _summary(c), "rules": rules,
             "anomalies": sum(r["count"] for r in rules if r["status"] == "flagged")}
 
 
 def run(session: str | None = None, project: str | None = None, last: int | None = None, show: bool = False,
-        versions: dict | None = None, transcripts: bool = True) -> dict:
+        versions: dict | None = None, transcripts: bool = True, cwd: str | None = None) -> dict:
     events = ev.events()
     chosen = pick(events, session, project, last)
     pieces = store.all_pieces()
-    return {"sessions": [check(s, evs, pieces, versions, show, transcripts) for s, evs in chosen.items()],
+    return {"sessions": [check(s, evs, pieces, versions, show, transcripts, cwd) for s, evs in chosen.items()],
             "rules": [{"rule": r, "means": m} for r, m in RULES]}
 
 

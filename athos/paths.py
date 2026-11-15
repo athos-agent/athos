@@ -130,3 +130,71 @@ def project_of(cwd: str | Path | None = None) -> str:
     folder = Path(cwd) if cwd else Path(os.getcwd())
     root = _root(folder)
     return _read_marker(root).get("name") or root.name
+
+
+# Sites that host code: a repository with a remote on one of them may be public, and only the person can say.
+CODE_HOSTS = ("github.com", "gitlab.com", "bitbucket.org", "codeberg.org", "git.sr.ht", "gitea.com", "dev.azure.com",
+              "ssh.dev.azure.com", "vs-ssh.visualstudio.com", "sourceforge.net", "huggingface.co")
+
+
+def repo_root(cwd: str | Path | None = None) -> Path:
+    """The root of the repository a folder is part of (its git top folder), or the folder itself outside any."""
+    return _root(Path(cwd) if cwd else Path(os.getcwd()))
+
+
+def _host_of(url: str) -> str:
+    """The host of a git remote URL: https://host/…, ssh://user@host:port/…, user@host:path."""
+    import re
+    if "://" in url:
+        m = re.match(r"^[a-z][a-z0-9+.-]*://(?:[^@/]*@)?([^/:]+)", url, re.I)
+    else:
+        m = re.match(r"^(?:[^@/]+@)?([^/:]{2,}):", url)      # scp-like; "C:" on Windows is a drive, not a host
+    return m.group(1).lower() if m else ""
+
+
+def code_remotes(cwd: str | Path | None = None) -> list[str]:
+    """The code-hosting sites (CODE_HOSTS, or a host named like one) the repository's remotes point at, read from the
+    repository's own git configuration only: no network call, so it says where the code is pushed, never whether
+    that copy is public."""
+    folder = repo_root(cwd)
+    cmd = ["git", "-C", str(folder), "config", "--get-regexp", r"^remote\..*\.(url|pushurl)$"]
+    try:
+        done = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+    except _GIT_FAILURES:
+        return []
+    hosts = []
+    for line in done.stdout.splitlines():
+        host = _host_of(line.split(None, 1)[1].strip()) if " " in line else ""
+        known = host in CODE_HOSTS or host.startswith(("github.", "gitlab.", "bitbucket.", "gitea.", "forgejo."))
+        if known and host not in hosts:
+            hosts.append(host)
+    return hosts
+
+
+def write_marker(cwd: str | Path | None, public: bool) -> tuple[Path, dict]:
+    """Write `public = true|false` into the `.athos.toml` at the repository's root, creating it with the project's
+    name when there is none, and keeping every other line of one that exists. Returns the file and the marker as it
+    now reads."""
+    import json
+    root = repo_root(cwd)
+    target = root / MARKER
+    value = "true" if public else "false"
+    try:
+        lines = target.read_text().splitlines()
+    except OSError:
+        lines = []
+    if not lines:
+        lines = ["# Athos: this project's name, and whether the repository is public. In a public repository Athos",
+                 "# loads and names only this project's own ways of working.",
+                 f"name = {json.dumps(project_of(root), ensure_ascii=False)}", f"public = {value}"]
+    else:
+        import re
+        at = [i for i, line in enumerate(lines) if re.match(r"^\s*public\s*=", line)]
+        if at:
+            lines[at[0]] = f"public = {value}"
+        else:
+            lines.append(f"public = {value}")
+        if not any(re.match(r"^\s*name\s*=", line) for line in lines):
+            lines.insert(0, f"name = {json.dumps(project_of(root), ensure_ascii=False)}")
+    target.write_text("\n".join(lines) + "\n")
+    return target, _read_marker(root)
