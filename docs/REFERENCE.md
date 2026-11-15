@@ -260,7 +260,10 @@ stays available, and in a repository that is not marked public the usual rule ho
 **Declaring a repository public.** `athos public` writes `public = true` into the `.athos.toml` at the root of the
 repository you run it in (creating it with the project's name when there is none, and keeping any other line); `athos
 public off` writes `public = false`; `athos public status [--json]` says what is declared and which code-hosting sites
-the repository is pushed to; `athos public name` accepts the name its marker gives it. Athos asks because it cannot know: whether a repository is public lives on the hosting
+the repository is pushed to; `athos public name` accepts the name its marker gives it. The line goes among the
+marker's top-level keys, before any `[table]`, and the file is read back: the command fails, and leaves the file as it
+was, unless it now says what was asked. A marker that cannot be read is not touched: the command says that Athos
+treats the repository as public until the file is fixed. Athos asks because it cannot know: whether a repository is public lives on the hosting
 site, behind your account, and Athos makes no network call. Your local git configuration only says where the code is
 pushed, not who can read it there. So `athos audit`, run in a repository that has a remote on a code-hosting site
 (GitHub, GitLab, Bitbucket, Codeberg and the like) and no `public` line in its marker, reports `public_not_declared`

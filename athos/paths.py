@@ -210,6 +210,10 @@ def _loads_marker(text: str) -> dict:
     return out
 
 
+UNREADABLE_SYNTAX = "not valid TOML, or not readable"
+UNREADABLE_VALUE = "public is not true or false"
+
+
 def _read_marker(root: Path) -> dict:
     """`.athos.toml` in a folder, as written: `name = "<project>"` and `public = true|false`. A marker that is there
     but cannot be read (not valid TOML, not text, unreadable), or whose `public` is not true or false, reads as
@@ -222,7 +226,7 @@ def _read_marker(root: Path) -> dict:
     except FileNotFoundError:
         return {}
     except (OSError, UnicodeDecodeError, _MarkerSyntax):
-        return {**out, "public": True, "unreadable": True}
+        return {**out, "public": True, "unreadable": UNREADABLE_SYNTAX}
     name = data.get("name")
     if isinstance(name, str) and name.strip():
         out["name"] = name.strip()
@@ -230,7 +234,7 @@ def _read_marker(root: Path) -> dict:
         if isinstance(data["public"], bool):
             out["public"] = data["public"]
         else:
-            out.update(public=True, unreadable=True)
+            out.update(public=True, unreadable=UNREADABLE_VALUE)
     return out
 
 
@@ -362,30 +366,56 @@ def code_remotes(cwd: str | Path | None = None) -> list[str]:
     return hosts
 
 
+class MarkerError(ValueError):
+    """`athos public` could not leave the marker saying what was asked."""
+
+
 def write_marker(cwd: str | Path | None, public: bool) -> tuple[Path, dict]:
     """Write `public = true|false` into the `.athos.toml` at the repository's root, creating it with the project's
-    name when there is none, and keeping every other line of one that exists. Returns the file and the marker as it
-    now reads."""
+    name when there is none, and keeping every other line of one that exists. The keys go among the top-level ones,
+    before the first `[table]` (a line after it would belong to the table). The file is read back: MarkerError, and
+    the file as it was, unless it now says what was asked. A marker that cannot be read is not touched (MarkerError):
+    Athos already treats that repository as public. Returns the file and the marker as it now reads."""
     import json
+    import re
     root = repo_root(cwd)
     target = root / MARKER
     value = "true" if public else "false"
     try:
-        lines = target.read_text().splitlines()
-    except OSError:
-        lines = []
-    if not lines:
+        before = target.read_text()
+    except FileNotFoundError:
+        before = None
+    except (OSError, UnicodeDecodeError) as bad:
+        raise MarkerError(f"{target} cannot be read ({type(bad).__name__}); until it can, Athos treats this repository "
+                          "as public") from bad
+    if before is not None and _read_marker(root).get("unreadable") == UNREADABLE_SYNTAX:
+        raise MarkerError(f"{target} cannot be read (not valid TOML); until it is fixed, Athos treats this "
+                          "repository as public. Fix it or remove it, then run this again")
+    lines = (before or "").splitlines()
+    name_line = f"name = {json.dumps(project_of(root), ensure_ascii=False)}"
+    if not any(line.strip() for line in lines):
         lines = ["# Athos: this project's name, and whether the repository is public. In a public repository Athos",
-                 "# loads and names only this project's own ways of working.",
-                 f"name = {json.dumps(project_of(root), ensure_ascii=False)}", f"public = {value}"]
+                 "# loads and names only this project's own ways of working.", name_line, f"public = {value}"]
     else:
-        import re
-        at = [i for i, line in enumerate(lines) if re.match(r"^\s*public\s*=", line)]
+        first_table = next((i for i, line in enumerate(lines) if re.match(r"^\s*\[", line)), len(lines))
+        at = [i for i in range(first_table) if re.match(r"^\s*public\s*=", lines[i])]
         if at:
             lines[at[0]] = f"public = {value}"
         else:
-            lines.append(f"public = {value}")
-        if not any(re.match(r"^\s*name\s*=", line) for line in lines):
-            lines.insert(0, f"name = {json.dumps(project_of(root), ensure_ascii=False)}")
-    target.write_text("\n".join(lines) + "\n")
-    return target, _read_marker(root)
+            end = first_table
+            while end > 0 and not lines[end - 1].strip():
+                end -= 1                                  # keep the blank line before the table
+            lines.insert(end, f"public = {value}")
+            first_table += 1
+        if not any(re.match(r"^\s*name\s*=", lines[i]) for i in range(first_table)):
+            lines.insert(0, name_line)
+    write_atomic(target, "\n".join(lines) + "\n")
+    after = _read_marker(root)
+    if after.get("public") is not public or after.get("unreadable"):
+        if before is None:
+            target.unlink(missing_ok=True)
+        else:
+            write_atomic(target, before)
+        raise MarkerError(f"writing public = {value} into {target} did not take effect (it reads back as "
+                          f"{after.get('public')!r}); the file was left as it was")
+    return target, after

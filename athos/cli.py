@@ -1436,20 +1436,32 @@ def cmd_public(args) -> int:
             return 0
         print(f"{here}: {state}" + (f" ({mark['file']})" if mark.get("file") else "")
               + (f" · pushed to {', '.join(hosts)}" if hosts else ""))
+        if mark.get("unreadable"):
+            print(f"Its marker cannot be read ({mark['unreadable']}): Athos treats this repository as public until "
+                  f"it is fixed.")
         if mark.get("name_ignored"):
             print(_name_ignored_line(mark["name_ignored"], here))
         if state == "not declared" and hosts:
             print(f"Athos cannot see whether that copy is public. If it is, run `{_cmd()} public`; if not, "
                   f"`{_cmd()} public off`.")
         return 0
-    target, mark = paths.write_marker(cwd, action == "on")
+    try:
+        target, _mark = paths.write_marker(cwd, action == "on")
+    except (paths.MarkerError, OSError) as refused:
+        return _fail(f"athos public: {refused}")
+    here, mark = paths.locate(cwd)
     if action == "on":
-        print(f"{mark.get('name')} is marked public in {target}: here Athos loads and names only this project's own "
+        print(f"{here} is marked public in {target}: here Athos loads and names only this project's own "
               f"ways of working (and the profile pieces you allow with `{_cmd()} profile allow-public <id>`), and "
               f"keeps nothing of your requests. Commit the file or leave it untracked; Athos reads it either way.")
+    elif mark.get("public"):
+        print(f"{here} is marked not public in {target}, but {mark.get('public_from') or 'a marker above it'} says "
+              f"public, and that holds: declaring a repository public can only restrict.")
     else:
-        print(f"{mark.get('name')} is marked not public in {target}: the usual rules apply (another project's pieces "
+        print(f"{here} is marked not public in {target}: the usual rules apply (another project's pieces "
               f"load when a request names it).")
+    if mark.get("name_ignored"):
+        print(_name_ignored_line(mark["name_ignored"], here))
     return 0
 
 

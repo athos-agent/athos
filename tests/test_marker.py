@@ -150,6 +150,67 @@ class NameTest(TempHome):
         self.assertIn("public name", r["found"][0]["fix"])
 
 
+class DeclareWritesTest(TempHome):
+    """`athos public` reports success only when the marker it wrote reads back as it said."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = Path(self.home) / "alpha"
+        self.root.mkdir()
+        git("init", "-q", str(self.root))
+
+    def run_cli(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.chdir(self.root), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = cli.main(list(argv))
+        return code, out.getvalue(), err.getvalue()
+
+    def test_keys_go_before_the_first_table(self):
+        (self.root / paths.MARKER).write_text('name = "alpha"\n\n[tool]\nkey = 1\n')
+        code, out, err = self.run_cli("public")
+        self.assertEqual(code, 0, err)
+        self.assertIs(paths.marker(self.root).get("public"), True)
+        text = (self.root / paths.MARKER).read_text()
+        self.assertLess(text.index("public = true"), text.index("[tool]"))
+        self.assertIn("key = 1", text)
+        code, out, err = self.run_cli("public", "off")
+        self.assertEqual(code, 0, err)
+        self.assertIs(paths.marker(self.root).get("public"), False)
+
+    def test_a_public_inside_a_table_is_not_the_markers(self):
+        (self.root / paths.MARKER).write_text('[tool]\npublic = false\n')
+        code, out, err = self.run_cli("public")
+        self.assertEqual(code, 0, err)
+        self.assertIs(paths.marker(self.root).get("public"), True)
+        self.assertIn("[tool]\npublic = false", (self.root / paths.MARKER).read_text())
+
+    def test_a_string_is_replaced_by_a_boolean(self):
+        (self.root / paths.MARKER).write_text('name = "alpha"\npublic = "true"\n')
+        code, out, err = self.run_cli("public")
+        self.assertEqual(code, 0, err)
+        self.assertEqual((self.root / paths.MARKER).read_text(), 'name = "alpha"\npublic = true\n')
+        self.assertNotIn("unreadable", paths.marker(self.root))
+
+    def test_a_marker_that_cannot_be_read_is_left_alone_and_said_to_be_public(self):
+        broken = "this is = not toml [\n"
+        (self.root / paths.MARKER).write_text(broken)
+        for action in ([], ["off"]):
+            code, out, err = self.run_cli("public", *action)
+            self.assertEqual(code, 1)
+            self.assertIn("cannot be read", err)
+            self.assertIn("treats this repository as public", err)
+            self.assertEqual((self.root / paths.MARKER).read_text(), broken)
+        code, out, err = self.run_cli("public", "status")
+        self.assertIn("cannot be read", out)
+
+    def test_it_fails_loudly_when_the_file_does_not_read_back(self):
+        with mock.patch.object(paths, "_loads_marker", return_value={}):
+            code, out, err = self.run_cli("public")
+        self.assertEqual(code, 1)
+        self.assertIn("did not take effect", err)
+        self.assertEqual(out, "")
+
+
 class OlderPythonTest(TempHome):
     """The hooks run under whatever `python3` the agent finds, which may be older than 3.11 (no tomllib)."""
 
