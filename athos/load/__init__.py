@@ -205,7 +205,7 @@ def project_note(project: str, pieces: list[store.Piece]) -> str:
         own = ""
     if own:
         return own
-    top = sorted(pieces, key=lambda p: p.last_used, reverse=True)[:3]
+    top = sorted(pieces, key=store.last_used, reverse=True)[:3]
     return "e.g. " + "; ".join(f"«{p.title}»" for p in top)
 
 
@@ -224,7 +224,7 @@ def other_projects(here: list[store.Piece], public: bool = False) -> list[str]:
 
 
 def _most_recent_first(pieces: list[store.Piece]) -> list[store.Piece]:
-    return sorted(pieces, key=lambda piece: piece.last_used, reverse=True)
+    return sorted(pieces, key=store.last_used, reverse=True)
 
 
 def _catalogue(pieces: list[store.Piece], budget: int, cmd: str) -> list[str]:

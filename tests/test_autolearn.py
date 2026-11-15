@@ -758,13 +758,16 @@ class PromotionTest(TempHome):
         self.assertTrue((store.paths.history() / p.id).is_dir())             # superseded, not deleted
         self.assertEqual(store.revert(p.id).status, "candidate")
 
-    def test_a_legacy_piece_is_demoted_only_on_strong_evidence(self):
+    def test_a_legacy_piece_is_never_demoted_only_marked_for_review(self):
         from athos import grade
         legacy = store.create("Legacy", "legacy", BODY, projects=["demo"])
+        before = legacy.path.read_bytes()
         self.assertFalse(grade.demote(legacy.id, "corrected (reaction_corrected)", strong=False))
-        self.assertEqual(store.render(store.get(legacy.id)), store.render(legacy))   # untouched
-        self.assertTrue(grade.demote(legacy.id, "failed (check_failed)", strong=True))
-        self.assertEqual(store.get(legacy.id).status, "candidate")
+        self.assertEqual(legacy.path.read_bytes(), before)                            # untouched
+        self.assertFalse(grade.demote(legacy.id, "failed (check_failed)", strong=True))
+        self.assertEqual(legacy.path.read_bytes(), before)                            # still untouched
+        self.assertEqual(store.status(store.get(legacy.id)), store.LEGACY)
+        self.assertIn(legacy.id, grade.reviews())                                      # the person decides
 
     def test_ageing_without_a_model(self):
         import datetime as dt

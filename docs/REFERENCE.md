@@ -606,8 +606,12 @@ On a frontier model Athos can learn on its own, and only a piece proven by objec
 | `evidence` | a short inline list of `kind:detail` items, e.g. `[verify:unittest:ok, commit, task:3f9a1c2b7d10, verifier:pass]` |
 
 A page with no `status` (every page written before 0.1.122, and any page you write yourself) is **legacy**: it loads,
-is offered and is delivered exactly as a verified one. Such a file is written back unchanged: the new lines appear only
-once a field is set. A status change is a new version, the outgoing one archived in `.history` as for any improvement,
+is offered and is delivered exactly as a verified one. Its file is yours: Athos never rewrites it unless you ask for
+a change to that page (`athos save` with its `id:`, `athos revert`, a curate or merge you apply). Using it, grading it,
+ageing it and bookkeeping (confidence, evidence) leave it byte for byte as it is, comments and keys Athos does not know
+included; what they would have recorded goes to the audit log (a `grade` event, from legacy to legacy, with what was
+seen), the review marks (the next frontier model's index says it needs review) and, for its last use,
+`~/.athos/last-used.json`. A status change is a new version, the outgoing one archived in `.history` as for any improvement,
 so `athos revert <id>` brings it back; retiring supersedes a page and deletes nothing.
 
 **Check lines.** A statement may say how to tell that its step went right, next to When, Do, Because and Links:
@@ -744,10 +748,11 @@ it by hand, in the foreground; `athos verify --pending` the oldest waiting one.
   reuses on a frontier model** or **one pass on an apply model** (a replay, below, or a real use whose Checks the hooks
   saw pass). A `risk: high` piece needs the verifier and at least one clean reuse; a replay alone does not verify it.
   Reuses alone, without the verifier, never verify anything.
-- **verified → candidate** after a reuse that was corrected or failed. A legacy piece moves only on strong evidence (a
-  change you made credited to it, a revert, one of its own Checks failing), never on a reaction read from your words.
-- **→ retired** when 3 of its last 5 judged reuses were corrected or failed (for a legacy piece, on strong evidence
-  only). Retiring supersedes it as a new version; `athos revert` restores it.
+- **verified → candidate** after a reuse that was corrected or failed. A legacy piece never moves: on strong evidence
+  (a change you made credited to it, a revert, one of its own Checks failing) it is marked for review instead, and a
+  `grade` event says what was seen; a reaction read from your words only records an event.
+- **→ retired** when 3 of its last 5 judged reuses were corrected or failed (a legacy piece is marked for review
+  instead). Retiring supersedes it as a new version; `athos revert` restores it.
 - **ageing, without a model**: a verified piece with no use and no re-verification in `autolearn.age_days` (90) days
   goes back to candidate, checked when a session starts. Using a piece moves its last-used date, so use slows ageing.
   Legacy pieces do not age.

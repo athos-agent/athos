@@ -547,7 +547,7 @@ def _here() -> tuple[str, dict]:
 def cmd_list(args: argparse.Namespace) -> int | None:
     """Every piece, most recently used first; ● marks the pieces allowed to load in this folder, ○ the others."""
     from athos import start
-    everything = sorted(store.all_pieces(), key=lambda p: p.last_used, reverse=True)
+    everything = sorted(store.all_pieces(), key=store.last_used, reverse=True)
     enabled = {p.id for p in load.enabled(os.getcwd())}
     pieces = control.here().pieces(everything)      # a public repository names only what may load in it
     hidden = len(everything) - len(pieces)
@@ -559,7 +559,7 @@ def cmd_list(args: argparse.Namespace) -> int | None:
     for p in pieces:
         dot = "●" if p.id in enabled else "○"
         print(f"{dot} {p.id}  v{p.version}  {p.title}")
-        print(f"    when: {p.when}  · last used {p.last_used}")
+        print(f"    when: {p.when}  · last used {store.last_used(p)}")
     if hidden:
         print(f"({hidden} piece(s) of other projects not listed: this repository is marked public; "
               f"`{_cmd()} list` from a folder outside it lists them)")

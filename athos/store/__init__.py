@@ -390,13 +390,23 @@ def revert(piece_id: str, to: int | None = None) -> Piece:
     return restored
 
 
-def set_status(piece_id: str, new: str, note: str) -> Piece:
+def legacy(p: Piece) -> bool:
+    """A piece with no status: the person's file (or one from before autonomous learning). Athos never rewrites it
+    unless the person asks for a change to that piece (`update`, `revert`): using, grading, ageing and bookkeeping
+    leave its file byte for byte as it is, and are recorded in events instead. A rewrite drops hand-written
+    frontmatter keys and comments, and once demoted the person's pieces could never come back."""
+    return status(p) == LEGACY
+
+
+def set_status(piece_id: str, new: str, note: str, asked: bool = False) -> Piece | None:
     """Move a piece to another status as a new version: the outgoing file is archived first (so `athos revert` brings
     it back) and `note` says why in its history. Nothing is deleted: retiring a piece supersedes it. The last-used
-    date is not moved; a status change is not a use."""
+    date is not moved; a status change is not a use. A legacy piece is left alone (None) unless the person `asked`."""
     if new not in STATUSES:
         raise ValueError(f"unknown status {new!r}")
     current = _require(piece_id)
+    if legacy(current) and not asked:
+        return None
     _archive(current)
     was = status(current)
     current.version += 1
@@ -411,8 +421,8 @@ def set_meta(piece_id: str, **fields) -> Piece | None:
     """Change bookkeeping fields in place, like `touch` (confidence, last_verified, evidence, risk): not a new
     version. None for an unknown piece."""
     piece = get(piece_id)
-    if piece is None:
-        return None
+    if piece is None or legacy(piece):
+        return piece                          # a legacy piece's file is never rewritten for bookkeeping
     changed = False
     for key, value in fields.items():
         if key in (*_LEARNING_KEYS, "evidence") and key != "status" and getattr(piece, key) != value:
@@ -423,10 +433,38 @@ def set_meta(piece_id: str, **fields) -> Piece | None:
     return piece
 
 
+def _used_file() -> Path:
+    return paths.home() / "last-used.json"
+
+
+def _used() -> dict:
+    try:
+        data = paths.read_state(_used_file(), retries=2)
+    except paths.StateUnreadable:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def last_used(p: Piece) -> str:
+    """When a piece was last used: its file's `last_used`, or, for a legacy piece (whose file is not rewritten on
+    use), the later date recorded for it in `<home>/last-used.json`."""
+    other = _used().get(p.id)
+    return max(p.last_used or "", other) if isinstance(other, str) else (p.last_used or "")
+
+
 def touch(piece_id: str) -> None:
-    """Mark a piece as used today. This only moves `last_used`; it is not a new version."""
+    """Mark a piece as used today. This only moves `last_used`; it is not a new version. A legacy piece's file is
+    not rewritten: the date goes to `<home>/last-used.json` instead."""
     piece = get(piece_id)
     if piece is None or piece.last_used == today():
+        return
+    if legacy(piece):
+        import json
+        with paths.locked(_used_file()):
+            used = _used()
+            if used.get(piece_id) != today():
+                used[piece_id] = today()
+                paths.write_atomic(_used_file(), json.dumps(used, indent=1, sort_keys=True))
         return
     piece.last_used = today()
     _write(piece)

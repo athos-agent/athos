@@ -215,8 +215,19 @@ def _retire_due(p: store.Piece, s: dict) -> bool:
     return bool(p.status) or s["strong_negatives"] >= RETIRE_NEGATIVES      # legacy: strong evidence only
 
 
+def _legacy_noted(p: store.Piece, would: str, basis: str) -> bool:
+    """Grading would move a legacy piece: its file stays as it is; a `grade` event and a review mark say what was
+    seen, for the person to decide. Always False (nothing moved)."""
+    note(p.id, store.LEGACY, store.LEGACY, f"not moved to {would}: {basis} (a legacy piece is never rewritten by "
+                                           f"grading; marked for review)")
+    mark_review(p.id, f"would have moved to {would}: {basis}")
+    return False
+
+
 def _move(p: store.Piece, new: str, basis: str, trigger: str, s: dict) -> bool:
     was = store.status(p)
+    if store.legacy(p):
+        return _legacy_noted(p, new, basis)
     moved = store.set_status(p.id, new, basis)
     if new == "verified":
         store.set_meta(p.id, last_verified=store.today(), confidence=_confidence(moved, 0.0, VERIFIED_FLOOR) or None)
@@ -236,10 +247,12 @@ def demote(piece_id: str, basis: str, strong: bool) -> bool:
     p = store.get(piece_id)
     if p is None or store.status(p) not in ("verified", store.LEGACY):
         return False
-    if store.status(p) == store.LEGACY and not strong:
-        note(piece_id, store.LEGACY, store.LEGACY, f"not demoted: {basis} (a legacy piece moves only on strong "
-                                                   f"evidence)")
-        return False
+    if store.status(p) == store.LEGACY:
+        if not strong:
+            note(piece_id, store.LEGACY, store.LEGACY, f"not demoted: {basis} (a legacy piece moves only on strong "
+                                                       f"evidence)")
+            return False
+        return _legacy_noted(p, "candidate", basis)
     was = store.status(p)
     store.set_status(piece_id, "candidate", basis)
     note(piece_id, was, "candidate", basis)
