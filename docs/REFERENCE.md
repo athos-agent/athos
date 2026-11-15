@@ -279,9 +279,15 @@ pushed, not who can read it there. So `athos audit`, run in a repository that ha
 (GitHub, GitLab, Bitbucket, Codeberg and the like) and no `public` line in its marker, reports `public_not_declared`
 until you answer either way. Until then the repository is treated as not public.
 
-In a public repository nothing taken from a request is kept either: the task log keeps the request's length but not
-its first 120 characters, the audit events no fingerprint, the session no copy, and [Didn't apply] no words. The
-`route` event says when a marker applied (`marker`, `public`).
+In a public repository no words of a request and no hash of a request are stored: the task log keeps the request's
+length but not its first 120 characters, the audit events and the session no fingerprint (`request_sha`,
+`prompt_sha`), the session no copy, and [Didn't apply] no words. Without a fingerprint, a special path (save, adjust)
+that acted on text reading as the person's before Claude Code wrote its transcript entry can be checked against the
+transcript only when the hook gives the prompt's id; otherwise it stays unverified. What is still stored there are
+flags derived from a request, never its words: a mark inferred from the person's reaction and `reaction_corrected`,
+`+named` in a scope reason in `log.md` and `named_count` (how many other projects it named, never which), whether it
+mentioned a checklist, the language it was written in (`lang_seen`), and its length. The `route` event says when a
+marker applied (`marker`, `public`).
 
 Measured on one person's store (71 pages over ten projects, 252 tasks marked good; `athos bench route --from-store`):
 a page of another project loaded for 14 tasks with one pool and for none with `auto`. Measured again on 2026-11-15

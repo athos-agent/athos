@@ -258,3 +258,28 @@ class ElsewhereTest(Folders):
         for row in [*r["candidates"], *events("piece_opened")]:
             self.assertFalse({"beta", "gamma"} & set(row.get("projects") or []), row)
         self.assertNotIn("gamma", log_text())
+
+
+class NoFingerprintTest(Folders):
+    """In a repository marked public no request words and no hash of the request are stored."""
+
+    def test_a_held_trigger_keeps_no_hash_of_the_request(self):
+        from athos import eval as ev
+        piece("alpha-release", "Ship the alpha release", "shipping the alpha release", ["alpha"])
+        root = Path(self.folder("alpha"))
+        (root / paths.MARKER).write_text('name = "alpha"\npublic = true\n')
+        transcript = Path(self.home) / "t.jsonl"
+        transcript.write_text("")
+        prompt = f"Athos · save: keep this task as a way of working {SECRET}"
+        e = {"session_id": "fp1", "cwd": str(root), "transcript_path": str(transcript)}
+        self.hook("prompt", {**e, "prompt": prompt})
+        held = session.load("fp1").get("trigger_pending") or {}
+        self.assertTrue(held)                              # acted on the text, to check later
+        self.assertNotIn("prompt_sha", held)
+        stored = "".join(f.read_text(errors="ignore") for f in Path(self.home).rglob("*") if f.is_file()
+                         and f != transcript)
+        self.assertNotIn(ev.request_sha(prompt), stored)
+        self.assertNotIn("zebra", stored)
+        self.hook("stop", {**e})                           # no fingerprint: it stays unverified, nothing breaks
+        (v,) = [t for t in events("trigger") if t.get("stage") == "verify"]
+        self.assertIsNone(v["verified"])

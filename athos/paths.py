@@ -303,7 +303,7 @@ def marker(cwd: str | Path | None = None) -> dict:
     """The project marker of the repository a folder is part of: `{"file", "name"?, "public"?, "unreadable"?,
     "public_from"?}`, or {} when there is none (`_scan` says which marker speaks for a folder). It gives the project a
     stable name (a clone in a folder of another name is still the same project) and says whether the repository is
-    public: then no private piece loads or is named there, and nothing taken from a request is stored."""
+    public: then no private piece loads or is named there, and no words or hash of a request are stored."""
     return _scan(Path(cwd) if cwd else Path(os.getcwd()))["mark"]
 
 

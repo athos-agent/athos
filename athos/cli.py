@@ -240,7 +240,9 @@ def _hold_for_verification(event: dict, which: str, sid: str, project: str | Non
     held = {"trigger": which, "prompt_id": event.get("prompt_id"), "transcript_path": event.get("transcript_path"),
             "task_id": state.get("task_id"), "at": ev._iso(ev.now()), "saved_before": list(state.get("saved") or []),
             "project": project}
-    if not event.get("prompt_id"):
+    if not event.get("prompt_id") and not paths.is_public(event.get("cwd")):
+        # Without the prompt's id the transcript entry is found by a fingerprint of the text; in a repository marked
+        # public no hash of a request is stored, so there the check finds nothing and the trigger stays unverified.
         sha = ev.request_sha(event.get("prompt", ""))
         held.update(prompt_sha=sha, skip=session.prompt_entries(event.get("transcript_path"), sha))
     if which == "save":
@@ -1519,7 +1521,7 @@ def cmd_public(args) -> int:
     if action == "on":
         print(f"{here} is marked public in {target}: here Athos loads and names only this project's own "
               f"ways of working (and the profile pieces you allow with `{_cmd()} profile allow-public <id>`), and "
-              f"keeps nothing of your requests. Commit the file or leave it untracked; Athos reads it either way.")
+              f"stores no words or hash of your requests. Commit the file or leave it untracked; Athos reads it either way.")
     elif mark.get("public"):
         print(f"{here} is marked not public in {target}, but {mark.get('public_from') or 'a marker above it'} says "
               f"public, and that holds: declaring a repository public can only restrict.")
