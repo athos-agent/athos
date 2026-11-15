@@ -1055,3 +1055,11 @@ class AutonomousAuditTest(TempHome):
                       "usd_per_day": 1.0, "runs_per_day": 6, "project": "demo"})
         rule = self.rule("verifier_over_cap")
         self.assertEqual((rule["status"], rule["found"][0]["usd"]), ("flagged", 1.2))
+
+    def test_a_cap_raised_during_the_day_applies_to_the_runs_after_it(self):
+        from athos import eval as ev
+        self.start()
+        for cap in (1, 3, 3):
+            ev.audit({"type": "model_run", "purpose": "verify", "started": True, "cost_usd": 0.01,
+                      "usd_per_day": 1.0, "runs_per_day": cap, "project": "demo"})
+        self.assertEqual(self.rule("verifier_over_cap")["status"], "clean")

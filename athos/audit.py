@@ -480,7 +480,8 @@ def _verifier_saw_summary(c: _Ctx, everything: list[dict]) -> dict:
 
 
 def _verifier_over_cap(everything: list[dict]) -> dict:
-    """Per UTC day, the model runs Athos started against the caps each run recorded."""
+    """Per UTC day, each model run Athos started against the caps it recorded (a cap raised during the day applies to
+    the runs after it)."""
     runs = [e for e in everything if e.get("type") == "model_run" and e.get("started", True)]
     if not runs:
         return _result("verifier_over_cap", "not_evaluated", [], "Athos started no model run")
@@ -489,14 +490,16 @@ def _verifier_over_cap(everything: list[dict]) -> dict:
         days.setdefault(str(e.get("at", ""))[:10], []).append(e)
     found = []
     for day, group in sorted(days.items()):
-        cost = sum(e["cost_usd"] if isinstance(e.get("cost_usd"), (int, float))
-                   else float(e.get("usd_estimate_per_run") or 0) for e in group)
-        max_runs = min((e.get("runs_per_day") for e in group if isinstance(e.get("runs_per_day"), int)), default=None)
-        max_usd = min((e.get("usd_per_day") for e in group if isinstance(e.get("usd_per_day"), (int, float))),
-                      default=None)
-        if (max_runs is not None and len(group) > max_runs) or (max_usd is not None and cost > max_usd + 1e-9):
-            found.append({"day": day, "runs": len(group), "runs_per_day": max_runs, "usd": round(cost, 4),
-                          "usd_per_day": max_usd})
+        cost, over = 0.0, None
+        for n, e in enumerate(group, 1):            # each run against the caps in force when it ran
+            cost += e["cost_usd"] if isinstance(e.get("cost_usd"), (int, float)) else float(e.get("usd_estimate_per_run")
+                                                                                          or 0)
+            runs_cap, usd_cap = e.get("runs_per_day"), e.get("usd_per_day")
+            if (isinstance(runs_cap, int) and n > runs_cap) or \
+                    (isinstance(usd_cap, (int, float)) and cost > usd_cap + 1e-9):
+                over = {"day": day, "runs": n, "runs_per_day": runs_cap, "usd": round(cost, 4), "usd_per_day": usd_cap}
+        if over:
+            found.append(over)
     return _result("verifier_over_cap", _status(found, False), found,
                    "model_run events per UTC day (a run with no reported cost counts its estimate)")
 
