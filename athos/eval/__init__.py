@@ -214,13 +214,16 @@ _USAGE_FIELDS = (("input", "input_tokens"), ("output", "output_tokens"),
 
 
 def _replies_in_window(handle, since: Moment | None, until: Moment | None):
-    """The (key, usage) of each transcript line that carries a model reply's usage inside the window."""
+    """The (key, usage, model, sidechain) of each transcript line that carries a model reply's usage inside the
+    window."""
     for row in _decoded(handle):
         message = row.get("message") if isinstance(row, dict) else None
         when = _parse(row.get("timestamp", "")) if isinstance(message, dict) else None
         has_usage = when is not None and isinstance(message.get("usage"), dict)
         if has_usage and not (since and when < since) and not (until and when > until):
-            yield message.get("id") or row.get("uuid"), message["usage"]
+            model = message.get("model")
+            model = model if isinstance(model, str) and model and not model.startswith("<") else None
+            yield message.get("id") or row.get("uuid"), message["usage"], model, bool(row.get("isSidechain"))
 
 
 def _open_quietly(path: str | None):
@@ -238,30 +241,41 @@ def tokens_between(transcript_path: str | None, start: str, end: str) -> Tokens 
 
     The transcript is the platform's private format, so this is a best effort that answers None when it finds
     nothing. A single reply is written over several lines that share its id: it is added only once."""
+    return replies_between(transcript_path, start, end)[0]
+
+
+def replies_between(transcript_path: str | None, start: str, end: str) -> tuple[Tokens | None, list[str]]:
+    """`tokens_between`, plus the models that wrote the session's own replies in the window (subagents' left out),
+    in the order they first answered: one pass over the transcript for both."""
     handle = _open_quietly(transcript_path)
     if handle is None:
-        return
+        return None, []
     totals = {name: 0 for name, _ in _USAGE_FIELDS}
     counted: set = set()
+    models: list[str] = []
     with handle:
-        for key, usage in _replies_in_window(handle, _parse(start), _parse(end)):
+        for key, usage, model, sidechain in _replies_in_window(handle, _parse(start), _parse(end)):
+            if model and not sidechain and model not in models:
+                models.append(model)
             if key not in counted:
                 counted.add(key)
                 for name, field in _USAGE_FIELDS:
                     totals[name] += int(usage.get(field) or 0)
-    return {**totals, "total": sum(totals.values())} if counted else None
+    return ({**totals, "total": sum(totals.values())} if counted else None), models
 
 
-def _tokens(platform: str, transcript_path: str | None, since: str, until: str, sid: str = "") -> Tokens | None:
-    """Token usage for a task, read from wherever its platform keeps it."""
+def _tokens(platform: str, transcript_path: str | None, since: str, until: str,
+            sid: str = "") -> tuple[Tokens | None, list[str]]:
+    """Token usage for a task, read from wherever its platform keeps it, and the models that answered when the
+    platform's log says (Claude Code's transcript; [] elsewhere)."""
     if platform == "muse-code":
         # Muse's hooks carry no transcript path; its own session log has the usage instead.
         from athos.adapters import muse
-        return muse.tokens_between(sid, since, until)
+        return muse.tokens_between(sid, since, until), []
     if platform != "codex":
-        return tokens_between(transcript_path, since, until)
+        return replies_between(transcript_path, since, until)
     from athos.adapters import codex
-    return codex.tokens_between(transcript_path, since, until)
+    return codex.tokens_between(transcript_path, since, until), []
 
 
 # ================================================================================================ recording tasks
@@ -313,6 +327,8 @@ def _fresh_task_state(task_id: TaskId, started: str, prompt: str) -> dict:
 
 def _sent_model(event: Event) -> str | None:
     model = event.get("model")
+    if isinstance(model, dict):                  # an object with an id or a display name (session start)
+        model = model.get("id") or model.get("display_name")
     return model if isinstance(model, str) and model else None
 
 
@@ -324,53 +340,108 @@ def _is_scratch(cwd) -> bool:
     return str(cwd or "").startswith(SCRATCH_PREFIXES)
 
 
+def _newer(a: str | None, b: str | None) -> bool:
+    """Whether time `a` is later than time `b` (a missing time is never later; anything is later than none)."""
+    ta, tb = _parse(a or ""), _parse(b or "")
+    if ta is None:
+        return False
+    if tb is None:
+        return True
+    try:
+        return ta > tb
+    except TypeError:                            # one of them without a time zone
+        return ta.replace(tzinfo=None) > tb.replace(tzinfo=None)
+
+
+def resolve_model(event: Event, state: dict) -> tuple[str, str, dict]:
+    """The model that will answer this request, where it was read, and what the transcript's tail said.
+
+    1. The hook event's own field (Codex sends it on every event): `event`.
+    2. The transcript, which at prompt time does not hold this request's reply yet: a `/model` switch newer than the
+       latest reply means the switched-to model answers (`transcript_switch`); else the latest reply's model keeps
+       answering (`transcript_reply`). The model the session reported at its start wins over either when it was
+       reported later (a resumed session on another model): `session`.
+    3. The session's last known model, then `unknown`. A switch whose name can't be read to an id leaves the model
+       `unknown` until the task's replies settle it."""
+    sent = _sent_model(event)
+    tail = session.models_in_tail(event.get("transcript_path"))
+    if sent:
+        return sent, "event", tail
+    reported, reported_at = state.get("model_reported"), state.get("model_reported_at")
+    if tail["newest"] == "switch":
+        candidate, at, source = tail["switch"], tail["switch_at"], "transcript_switch"
+    elif tail["newest"] == "reply":
+        candidate, at, source = tail["reply"], tail["reply_at"], "transcript_reply"
+    else:
+        candidate = at = source = None
+    if source and reported and _newer(reported_at, at):
+        return reported, "session", tail
+    if source == "transcript_switch" and not candidate:
+        return session.UNKNOWN_MODEL, source, tail
+    if candidate:
+        return candidate, source, tail
+    if state.get("model") and state["model"] != session.UNKNOWN_MODEL:
+        return state["model"], "session", tail
+    return session.UNKNOWN_MODEL, "unknown", tail
+
+
 def task_start(event: Event, platform: str = "claude-code") -> TaskId:
-    """Open a task for a new request: reset the session's per-task state and log a task_start. Returns its id."""
+    """Open a task for a new request: reset the session's per-task state and log a task_start, with the model resolved
+    for this request (`resolve_model`). Returns its id."""
     sid, state = _hook_session(event)
-    source = "event" if _sent_model(event) else "session" if state.get("model") else "transcript"
-    if _sent_model(event):
-        state["model"] = _sent_model(event)      # Codex repeats the model on every hook event
+    model, source, tail = resolve_model(event, state)
     new_id, opened_at = _new_id(), _iso(now())
-    model = state.get("model") or _transcript_model(event)
     prompt = str(event.get("prompt") or "")
     project = paths.project_of(event.get("cwd"))
     public = paths.is_public(event.get("cwd"))
-    seen = session.latest_model(event.get("transcript_path"))
-    told = [model, seen]
+    before = state.get("model")
     session.save(sid, {**state, "platform": platform, **_fresh_task_state(new_id, opened_at, "" if public else prompt),
-                       "audit_model": told, "public": public})
+                       "model": model, "model_source": source, "public": public})
     opened = _start_event(new_id, sid, platform, model, project, opened_at, event.get("prompt"), public)
     if _is_scratch(event.get("cwd")):
         opened["scratch"] = True                 # a test or rehearsal: curating ignores it
     append(opened)
-    note_model(sid, new_id, model, source if model != session.UNKNOWN_MODEL else "unknown", seen, project,
-               changed=state.get("audit_model") != told)
+    extra = {"switch_name": tail["switch_name"]} if source == "transcript_switch" and model == session.UNKNOWN_MODEL \
+        else {}
+    note_model(sid, new_id, model, source, tail["reply"], project, changed=before != model, stage="prompt", **extra)
     return new_id
 
 
 def note_model(sid: str, task_id: TaskId | None, model: str | None, source: str, seen: str | None,
-               project: str | None, changed: bool = True) -> None:
-    """The `model` audit event: the model Athos records, where it read it (`event`: the hook said so; `session`: kept
-    from an earlier hook; `transcript`: the transcript's last reply; `unknown`), and the model of the transcript's
-    latest reply when it could be read. The log.md line is written only when either one changes."""
+               project: str | None, changed: bool = True, stage: str = "prompt", **more) -> None:
+    """The `model` audit event: the model Athos records, where it read it (`event`: the hook said so;
+    `transcript_switch` / `transcript_reply`: the transcript's latest `/model` switch or reply; `session`: what the
+    session reported or last knew; `replies`: the replies that answered the task; `unknown`), the model of the
+    transcript's latest reply when it could be read, the model's tier and mode, and the moment (`stage`:
+    session_start, prompt, end). The log.md line is written only when the model changes."""
+    from athos import tiers
     differs = bool(seen and model and seen != model)
     line = None
     if changed:
-        line = f"{model or 'unknown'} (from {source})" + (f"; the transcript's last reply is {seen}" if differs else "")
+        line = f"{model or 'unknown'} (from {source}, {stage})" + (
+            f"; the transcript's last reply is {seen}" if differs and stage == "prompt" else "")
     audit({"type": "model", "session_id": sid, "task_id": task_id, "model": model, "source": source,
-           "seen_in_transcript": seen, "tier": None}, line=line, project=project)
+           "seen_in_transcript": seen, "stage": stage, "changed": changed, **tiers.describe(model), **more},
+          line=line, project=project)
 
 
-def _settle_model(sid: str, state: dict, event: Event) -> None:
-    """Fill in the session's model at the end of a task when the start could not tell which one it was."""
-    if state.get("model") in (None, "", "unknown"):
-        state["model"] = _sent_model(event) or _transcript_model(event)
+def _settle_model(sid: str, state: dict, event: Event, answered: list[str]) -> str:
+    """The model to record for the task that ends: the last of the models whose replies answered it, when the
+    transcript says; else the hook's field; else the one resolved at the start (filled from the transcript when that
+    was unknown). The session keeps it for the next request."""
+    model = (answered[-1] if answered else None) or _sent_model(event) or state.get("model")
+    if model in (None, "", session.UNKNOWN_MODEL):
+        model = _transcript_model(event)
+    if model != state.get("model"):
+        state["model"] = model
         session.save(sid, state)
+    return model
 
 
 def task_end(event: Event) -> Event | None:
-    """Close the session's open task: log a task_end with its duration, tokens and pieces, and return it.
-    None when the session has no task open."""
+    """Close the session's open task: log a task_end with its duration, tokens, pieces and the model that answered
+    (and the model recorded at its start, `model_at_start`, when they differ), and return it. None when the session
+    has no task open."""
     sid, state = _hook_session(event)
     open_id = state.get("task_id")
     if not open_id:
@@ -378,16 +449,21 @@ def task_end(event: Event) -> Event | None:
     finished = now()
     opened_at = state.get("task_started", "")
     began = _parse(opened_at) or finished
-    _settle_model(sid, state, event)
     if isinstance(event.get("tokens"), dict):
-        used = event["tokens"]                   # OpenCode counts its own tokens and sends them
+        used, answered = event["tokens"], []     # OpenCode counts its own tokens and sends them
     else:
-        used = _tokens(state.get("platform", "claude-code"), event.get("transcript_path"),
-                       opened_at, _iso(finished), sid)
+        used, answered = _tokens(state.get("platform", "claude-code"), event.get("transcript_path"),
+                                 opened_at, _iso(finished), sid)
+    at_start = state.get("model", session.UNKNOWN_MODEL)
+    model = _settle_model(sid, state, event, answered)
     closed = _end_event(open_id, _iso(finished), (finished - began).total_seconds(), used,
-                        state.get("model", "unknown"), state.get("task_loaded", []), state.get("task_saved", []),
-                        sid=sid)
+                        model, state.get("task_loaded", []), state.get("task_saved", []), sid=sid)
+    if model != at_start:
+        closed["model_at_start"] = at_start
     append(closed)
+    if answered:
+        note_model(sid, open_id, model, "replies", None, state.get("project"), changed=model != at_start,
+                   stage="end", answered=answered, at_start=at_start)
     return closed
 
 

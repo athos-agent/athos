@@ -325,9 +325,9 @@ of it keeps a request's words: only its length and a 12-character fingerprint (`
 
 | event | written when | fields |
 |---|---|---|
-| `route` | every request the prompt hook sees, loaded or not | `task_id`, `mode`, `project`, `scope_reason`, `named_projects`, `marker` (a `.athos.toml` applied), `public`, `private_held` (private pieces kept out, counted), `store_pieces`, `in_scope`, `request_chars`, `request_sha` (not in a public repository), `request_kind` (person, harness, empty), `wrapper`, `candidates` (up to 5: `piece`, `score`, `shared` (how many words it shares with the request, never which), `head_share`, `request_share`, `projects`, `kept`, `reason`), `scored`, `chosen`, `handed_over`, `meaning`, `thresholds`, `cut` (pages cut to fit), `left_out` (pages with no room), `injected_chars`, `ms` |
+| `route` | every request the prompt hook sees, loaded or not | `task_id`, `model`, `tier`, `work_mode`, `collaborates` (an apply model always; a frontier one when a piece loaded), `mode` (the loading mode), `project`, `scope_reason`, `named_projects`, `marker` (a `.athos.toml` applied), `public`, `private_held` (private pieces kept out, counted), `store_pieces`, `in_scope`, `request_chars`, `request_sha` (not in a public repository), `request_kind` (person, harness, empty), `wrapper`, `candidates` (up to 5: `piece`, `score`, `shared` (how many words it shares with the request, never which), `head_share`, `request_share`, `projects`, `kept`, `reason`), `scored`, `chosen`, `handed_over`, `meaning`, `thresholds`, `cut` (pages cut to fit), `left_out` (pages with no room), `injected_chars`, `ms` |
 | `edit_seen` | the edit detector keeps a file the agent wrote, sees the agent change it again, or finds a change on the next request | `task_id`, `file_sha` (a hash of the path), `decision` (snapshot, rebased (the agent changed it: the copy moves on), pending (the person changed it between two tool calls; told on the next request), attributed, unattributed (a change with no evidence: given to nobody)), `source` (agent_tool, agent_shell, outside, unexplained), `basis` (the evidence for the decision: `changed_during:<tool>`, `no_timing:<tool>`, `tool_failed`, `changed_between_tool_calls`, `changed_after_turn_end`, `no_tool_call_since`, or why there is none: `no_turn_end`, `changed_before_turn_end`, `tool_after_turn_end`, `background_task_running`), `attributed_to` (agent, person, or null), and for a change given to the person `detector` (between_tool_calls, after_turn_end), `piece` (not in a public repository), `piece_basis` (current_step, route_best, none) |
-| `model` | a session starts, and every request | `task_id`, `model`, `source` (event, session, transcript, unknown), `seen_in_transcript` (the model of the transcript's latest reply), `tier` |
+| `model` | a session starts, every request, and the end of a task whose replies could be read | `task_id`, `model`, `source` (event: the hook said so; transcript_switch: a `/model` switch newer than the latest reply; transcript_reply: the latest reply, since this request's own reply does not exist yet; session: what the session reported, when reported later than both, or last knew; replies: the replies that answered the task; unknown), `seen_in_transcript` (the model of the transcript's latest reply), `stage` (session_start, prompt, end), `changed`, `tier` (frontier, apply), `work_mode` (learn, collaborate), and at the end `answered` (the models whose replies answered the task) and `at_start` |
 | `trigger` | a special path matches: save, adjust, gallery, share | `task_id`, `trigger`, `from_person` (true; false for a harness wrapper such as a subagent's message, also one that opens with another wrapper, or when the transcript says the harness sent it; null when the text opens with another tag or the transcript has no entry for it yet), `acted` (it acts only when `from_person` is true), `wrapper`, `origin_signal` (which signal decided: `heuristic`, `both`, `disagree`, `missing`, `missing:heuristic`), `transcript_origin` (person, harness, or null), `project`, `request_chars`, `request_sha` |
 | `hook_error` | a hook swallows an exception so your session carries on | `hook`, `where`, `error` (the exception's kind), `line` (file and line inside Athos), never its message |
 | `learn`, `grade`, `ui` | reserved for autonomous learning, a piece's grade and the panel's state | not written yet |
@@ -369,7 +369,7 @@ the session of the folder you run it in) and checks each one against these rules
 | `other_project_load` | a piece of another project loaded without the request naming that project |
 | `load_without_own_pieces` | a piece loaded in a project that has no pieces of its own (since 0.1.111 such a project sees the profile, so only a piece of another project it didn't name is flagged) |
 | `edit_without_basis` | an edit given to the person with no evidence that the person made it |
-| `model_inconsistent` | the model recorded for the session disagrees with itself or with Claude Code's transcript |
+| `model_inconsistent` | a request recorded under a model other than the one whose replies answered it (a `/model` switch recorded on the requests after it is not flagged); for sessions before 0.1.113, the session's models disagree with themselves or with Claude Code's transcript |
 | `injected_over_cap` | more characters added to one request than the router's cap (since 0.1.111 a page that doesn't fit is cut, so only older events show here) |
 | `trigger_not_from_person` | save, adjust, gallery or share fired on text the person didn't write (a path that held back, `acted` false, is not flagged) |
 | `version_mismatch` | the session's events written by two versions, or Claude Code's plugin and the `athos` on your PATH differ now |
@@ -381,6 +381,33 @@ evaluated (with what is missing). Sessions recorded before these events are chec
 the pieces each task used and the first 120 characters of its request, the pieces as they are tagged today, and, for
 the model, the replies in Claude Code's transcript when it is still on your machine. It only reads; requests are never
 shown, and another project's pieces are named only with `--show`.
+
+### Which model answered, and model tiers
+
+The model is resolved for every request, not once per session: the hook's own field when the agent sends one (Codex);
+else Claude Code's transcript, where a `/model` switch newer than the latest reply means the new model answers, and
+otherwise the latest reply's model keeps answering (the request's own reply is not written yet); the model the session
+reported at its start wins when it was reported later than both (a session resumed on another model). When the task
+ends, the replies that answered it settle the model: the `task_end` records it, with `model_at_start` when the two
+differ, and the next request starts from it. `athos status --json` has `model` (`id`, `source`, `tier`, `work_mode`,
+`collaborates`).
+
+Each model has a tier. **frontier** models may learn new ways of working (mode `learn`); **apply** models use what is
+already known (mode `collaborate`), and a frontier session also collaborates when a piece loaded for the request. A
+model no pattern matches counts as apply. The tiers are only recorded for now (`model` and `route` events, status);
+they do not change what loads or what is saved.
+
+```
+athos tiers [--json]                              the patterns of each tier
+athos tiers add frontier|apply <pattern>...       e.g. 'local-big-*', or an exact id, which wins over any pattern
+athos tiers remove frontier|apply <pattern>...
+athos tiers reset                                 back to the defaults
+athos tiers which <model>...                      the tier and mode of a model id
+```
+
+Defaults: frontier `claude-fable-*`, `claude-mythos-*`, `claude-opus-*`; apply `claude-sonnet-*`, `claude-haiku-*`.
+They are kept in `~/.athos/config.json` under `tiers`, matched without regard to case and to a context-size suffix
+such as `[1m]`.
 
 ### Learning from your own edits
 

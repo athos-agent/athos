@@ -175,15 +175,19 @@ class RouteEventTest(HookCase):
 
     def test_model_event_reads_the_transcripts_latest_reply(self):
         transcript = Path(self.home) / "t.jsonl"
-        transcript.write_text(json.dumps({"type": "assistant", "message": {"model": "model-b"}}) + "\n")
         self.hook("session-start", {"session_id": "s7", "cwd": str(self.alpha), "model": "model-a"})
+        later = ev._iso(ev.now() + __import__("datetime").timedelta(seconds=1))
+        transcript.write_text(json.dumps({"type": "assistant", "timestamp": later, "message": {"model": "model-b"}})
+                              + "\n")
         self.hook("prompt", {"session_id": "s7", "cwd": str(self.alpha), "prompt": "ship the release",
                              "transcript_path": str(transcript)})
         last = events("model")[-1]
-        self.assertEqual((last["model"], last["seen_in_transcript"]), ("model-a", "model-b"))
+        self.assertEqual((last["model"], last["source"], last["seen_in_transcript"], last["stage"]),
+                         ("model-b", "transcript_reply", "model-b", "prompt"))
+        self.assertEqual(events("task_start")[-1]["model"], "model-b")
         report = audit.check("s7", ev.events(), transcripts=False)
         rule = next(r for r in report["rules"] if r["rule"] == "model_inconsistent")
-        self.assertEqual(rule["status"], "flagged")
+        self.assertEqual(rule["status"], "clean")
 
     def test_session_start_names_the_log_and_the_audit_command_in_one_line(self):
         out = self.hook("session-start", {"session_id": "s8", "cwd": str(self.alpha)})

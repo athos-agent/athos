@@ -159,3 +159,51 @@ def prompt_origin(transcript_path: str | None, prompt_id: str | None) -> str | N
             return "person"
         return "harness"
     return None
+
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+_SWITCH = re.compile(r"<local-command-stdout>\s*Set model to `?([^`<\n]+?)`?(?:\s+and\b|\s*<|\s*$)")
+
+
+def model_id(display: str) -> str | None:
+    """The model id behind the name Claude Code's `/model` prints ("Fable 5.2" → claude-fable-5-2). An id is kept as
+    it is; a name with no version ("Default", an alias) gives None."""
+    name = re.sub(r"\(.*?\)", "", display or "").strip()
+    if re.match(r"^claude-[a-z0-9.-]+(\[[^\]]*\])?$", name, re.IGNORECASE):
+        return name.lower()
+    m = re.match(r"^(?:claude\s+)?([A-Za-z]+)\s*([0-9]+(?:\.[0-9]+)*)$", name)
+    if not m:
+        return None
+    return f"claude-{m.group(1).lower()}-{m.group(2).replace('.', '-')}"
+
+
+def _text_of(row: dict) -> str:
+    content = row.get("content") if row.get("type") == "system" else (row.get("message") or {}).get("content")
+    if isinstance(content, list):
+        content = " ".join(str(x.get("text", "")) for x in content if isinstance(x, dict))
+    return content if isinstance(content, str) else ""
+
+
+def models_in_tail(transcript_path: str | None) -> dict:
+    """What a transcript's tail says about the model: the latest assistant reply (`reply`, `reply_at`) and the latest
+    `/model` switch (`switch`, the id or None when its name can't be read; `switch_name`; `switch_at`), and which of
+    the two came last in the file (`newest`: "reply", "switch" or None). Subagents' replies don't count."""
+    out: dict = {"reply": None, "reply_at": None, "switch": None, "switch_name": None, "switch_at": None,
+                 "newest": None}
+    for row in _tail_rows(transcript_path):
+        if row.get("isSidechain"):
+            continue
+        kind = row.get("type")
+        if kind == "assistant":
+            model = (row.get("message") or {}).get("model") if isinstance(row.get("message"), dict) else None
+            if isinstance(model, str) and model and not model.startswith("<"):
+                out.update(reply=model, reply_at=row.get("timestamp"), newest="reply")
+        elif kind in ("user", "system"):
+            text = _text_of(row)
+            if "Set model to" not in text:
+                continue
+            m = _SWITCH.search(_ANSI.sub("", text))
+            if m:
+                out.update(switch=model_id(m.group(1)), switch_name=m.group(1).strip(),
+                           switch_at=row.get("timestamp"), newest="switch")
+    return out

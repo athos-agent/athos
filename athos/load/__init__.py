@@ -606,22 +606,25 @@ def on_prompt(event: dict, cmd: str = "athos") -> str:
 def note_route(sid: str, prompt: str, scope: dict, trace: dict, found: list[store.Piece], in_store: int,
                in_scope: int, injected: int, ms: float) -> None:
     """The `route` audit event for one request, and its log.md line. Neither keeps any of the request's words."""
+    from athos import tiers
     person, wrapper = origin_of(prompt)
     project = scope.get("project")
     kind = "empty" if not prompt.strip() else "harness" if person is False else "person"
+    state = session.load(sid)
+    tier = tiers.describe(state.get("model"), piece_in_reach=bool(found))
     printed = ev.request_print(prompt)
     if scope.get("public"):
         printed.pop("request_sha")               # a public repository: not even a fingerprint of the request
-    ev.audit({"type": "route", "session_id": sid, "task_id": session.load(sid).get("task_id"),
-              "mode": scope.get("mode"), "project": project, "scope_reason": scope.get("reason"),
+    ev.audit({"type": "route", "session_id": sid, "task_id": state.get("task_id"),
+              "model": state.get("model"), **tier, "mode": scope.get("mode"), "project": project,
+              "scope_reason": scope.get("reason"),
               "named_projects": scope.get("named", []), "marker": bool(scope.get("marker")),
               "public": bool(scope.get("public")), "private_held": scope.get("private_held", 0),
               "store_pieces": in_store, "in_scope": in_scope,
               **printed, "request_kind": kind, "wrapper": wrapper, **trace,
               "thresholds": thresholds(), "injected_chars": injected, "ms": round(ms, 1)},
              line=_route_line(kind, scope, found, injected), project=project)
-    if project:
-        session.update(sid, project=project)
+    session.update(sid, collaborates=tier["collaborates"], **({"project": project} if project else {}))
 
 
 def _route_line(kind: str, scope: dict, found: list[store.Piece], injected: int) -> str:
@@ -678,9 +681,10 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
     sid = _session_of(event)
     model = _model_name(event)
     if model is not None:
-        session.update(sid, model=model)
+        # What the host reports now beats an older reply in a resumed session's transcript (eval.resolve_model).
+        session.update(sid, model=model, model_reported=model, model_reported_at=ev._iso(ev.now()))
     project = paths.project_of(event["cwd"]) if event.get("cwd") else None
-    ev.note_model(sid, None, model, "event" if model else "unknown", None, project)
+    ev.note_model(sid, None, model, "event" if model else "unknown", None, project, stage="session_start")
     from athos import capture
     here = enabled(event.get("cwd"))
     text = index_text(here, cmd, other_projects(here))

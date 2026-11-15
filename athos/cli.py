@@ -44,6 +44,8 @@ Everyday commands (`athos <command> --help` has the details of each):
     athos profile [add|remove <id>...] [--untagged]   the few pieces that load in every project; --untagged lists the
                                        pieces with no project (read-only)
     athos privacy [--json]             which pieces look private, for you to review (read-only)
+    athos tiers [add|remove frontier|apply <pattern>... | reset | which <model>] [--json]   which models learn
+                                       (frontier) and which apply what was learned; unknown models apply
     athos embed [on|off] [--model M]   also load know-how by meaning (local embeddings, Ollama); off by default
     athos test <id> [--backend meta]   re-check a piece against the corrections you made on it before
     athos shadow [--limit N] | on|off  compare a cheaper model with the answers you approved (Ollama by default)
@@ -1092,7 +1094,19 @@ def status() -> dict:
             "behind": _behind(lang),
             # Only recent tasks wait for a mark: an old backlog reads as debt, not help.
             "to_mark": sum(1 for t in tasks if t["result"] == "unevaluated" and ev.recent(t)),
-            "last": _task_summary(_session_task(sid, state, tasks))}
+            "last": _task_summary(_session_task(sid, state, tasks)),
+            # The model resolved for this session's latest request, its tier and the mode Athos works in with it.
+            "model": _model_summary(state)}
+
+
+def _model_summary(state: dict) -> dict | None:
+    from athos import tiers
+    if not state.get("model"):
+        return None
+    out = {"id": state["model"], "source": state.get("model_source"), **tiers.describe(state["model"])}
+    if "collaborates" in state:
+        out["collaborates"] = state["collaborates"]
+    return out
 
 
 def _behind(lang: str) -> str:
@@ -1151,6 +1165,37 @@ def cmd_profile(args) -> int | None:
         return 0
     print(f"profile: {len(ids)} of at most {control.PROFILE_MAX} pieces, loaded in every project"
           + (": " + ", ".join(ids) if ids else f" (none yet; `{_cmd()} profile add <id>`)"))
+    return 0
+
+
+def cmd_tiers(args) -> int:
+    """`athos tiers`: which models learn (frontier) and which apply what was learned; add, remove or reset patterns,
+    or ask which tier a model id falls in."""
+    from athos import tiers
+    if args.action == "which":
+        if not args.items:
+            return _fail("athos tiers which <model-id>")
+        rows = [{"model": m, **tiers.describe(m)} for m in args.items]
+        if args.json:
+            print(json.dumps(rows, indent=1))
+        else:
+            for r in rows:
+                print(f"{r['model']}: {r['tier']} ({r['work_mode']})")
+        return 0
+    if args.action in ("add", "remove"):
+        if len(args.items) < 2 or args.items[0] not in tiers.TIERS:
+            return _fail(f"athos tiers {args.action} frontier|apply <pattern>...")
+        (tiers.add if args.action == "add" else tiers.remove)(args.items[0], args.items[1:])
+    elif args.action == "reset":
+        tiers.reset()
+    current = tiers.patterns()
+    if args.json:
+        print(json.dumps({"tiers": current, "defaults": tiers.DEFAULTS, "unknown": tiers.APPLY}, indent=1))
+        return 0
+    for tier in tiers.TIERS:
+        print(f"{tier} ({tiers.mode_of(tier)}): {', '.join(current[tier]) or '-'}")
+    print("Any other model counts as apply. `athos tiers add|remove frontier|apply <pattern>...`, `athos tiers reset`, "
+          "`athos tiers which <model>`.")
     return 0
 
 
@@ -1675,6 +1720,12 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--as", dest="owner", metavar="NAME", help="the name to credit (anonymous if left out)")
     s.add_argument("--profession", default="other", choices=["law", "finance", "journalism", "science", "ops", "other"])
     s.add_argument("--lang", choices=["es", "en"], help="the language it is written in (guessed if left out)")
+    s = sub.add_parser("tiers", help="which models learn (frontier) and which apply what was learned")
+    s.add_argument("action", nargs="?", choices=["add", "remove", "reset", "which"], help="change the tiers, or ask "
+                   "which tier a model is in; bare, it prints them")
+    s.add_argument("items", nargs="*", help="add|remove: the tier, then patterns such as 'claude-opus-*' or exact "
+                   "ids; which: model ids")
+    s.add_argument("--json", action="store_true")
     s = sub.add_parser("hook", help="(for the agents' hook configuration) handle one event read as JSON on stdin")
     s.add_argument("event", choices=list(_HOOK_HANDLERS), help="which moment of the session the event marks")
     s.add_argument("--platform", default="claude-code", help="the agent sending it (default claude-code)")
@@ -1690,6 +1741,7 @@ _HANDLERS = {
     "watch": cmd_watch, "connector": cmd_connector, "desktop": cmd_desktop, "step": cmd_step, "test": cmd_test,
     "shadow": cmd_shadow, "status": cmd_status, "doctor": cmd_doctor, "gallery": cmd_gallery, "add": cmd_add, "share": cmd_share,
     "hook": cmd_hook, "audit": cmd_audit, "profile": cmd_profile, "privacy": cmd_privacy,
+    "tiers": cmd_tiers,
 }
 
 

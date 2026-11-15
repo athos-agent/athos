@@ -29,7 +29,8 @@ RULES = (
     ("other_project_load", "a piece of another project loaded without the request naming that project"),
     ("load_without_own_pieces", "a piece loaded in a project that has no pieces of its own"),
     ("edit_without_basis", "an edit given to the person with no evidence that the person made it"),
-    ("model_inconsistent", "the model recorded for the session's tasks disagrees with itself or the transcript"),
+    ("model_inconsistent", "a request recorded under a model other than the one that answered it (or, for older "
+                           "sessions, the session's models disagree with themselves or the transcript)"),
     ("injected_over_cap", "more characters added to one request than the router's cap"),
     ("trigger_not_from_person", "a special path (save, adjust, gallery, share) fired on text the person didn't write"),
     ("version_mismatch", "two versions of Athos at work: the hooks' and the command line's, or two in one session"),
@@ -206,9 +207,35 @@ def _transcript_models(path: str) -> list[tuple[str, str]]:
     return out
 
 
+def _model_per_request(c: _Ctx, models: list[dict]) -> dict:
+    """Since 0.1.113 the model is resolved for every request (`model` events with a `stage`). A switch in the middle of
+    a session, recorded on the requests after it, is not an anomaly. A request recorded under a model other than the
+    one whose replies answered it is; so is a task_start whose model no prompt event explains."""
+    found = []
+    at_prompt = {m.get("task_id"): m for m in models if m.get("stage") == "prompt"}
+    at_end = {m.get("task_id"): m for m in models if m.get("stage") == "end"}
+    checked = 0
+    for s in c.starts:
+        tid, recorded = s.get("task_id"), s.get("model")
+        told = at_prompt.get(tid)
+        if told is not None and told.get("model") != recorded:
+            found.append({"task_id": tid, "recorded": recorded, "model_event": told.get("model")})
+        answered = (at_end.get(tid) or {}).get("answered") or []
+        if answered:
+            checked += 1
+            if recorded not in answered:
+                found.append({"task_id": tid, "recorded": recorded, "answered": answered,
+                              "source": (told or {}).get("source")})
+    basis = (f"model events per request: the model recorded at each request against the replies that answered it "
+             f"({checked} of {len(c.starts)} tasks had their replies read)")
+    return _result("model_inconsistent", _status(found, False), found, basis)
+
+
 def _model_inconsistent(c: _Ctx, transcripts: bool) -> dict:
     found = []
     models = c.of("model")
+    if any(m.get("stage") for m in models):
+        return _model_per_request(c, models)
     recorded = [e.get("model") for e in c.starts + c.ends if e.get("model") not in (None, "", "unknown")]
     explained = {m.get("model") for m in models}
     if len(set(recorded)) > 1 and not set(recorded) <= explained:
