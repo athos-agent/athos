@@ -152,6 +152,10 @@ def _other_project_load(c: _Ctx) -> dict:
         piece_projects = set(c.byid[pid].projects)
         if route is not None:
             named = set(route.get("named_projects") or []) & piece_projects
+            if how == "opened":
+                # A project whose name is a common word, offered to a frontier model in one index line: the model
+                # decided the request meant it, and opened one of its pieces.
+                named |= set(route.get("offered_projects") or []) & piece_projects
             known = True
         else:
             start = c.start_of.get(tid) or {}

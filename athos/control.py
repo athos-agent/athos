@@ -229,6 +229,104 @@ def _named(project: str, prompt: str) -> bool:
     return project in named_projects([project], prompt)
 
 
+# ------------------------------------------------------------------------------------------------ ambiguous names
+# A project named like a common word ("api", "billing") was named by every request that used the word, and its pieces
+# came into scope. Such a name now needs a reference cue; a distinctive one ("heat-v2") keeps working without.
+COMMON_SHARE = 0.10        # a name found in at least this share of the other projects' pieces is a common word...
+COMMON_MIN = 2             # ...and in at least this many of them (a tiny store says little)
+VERY_SHORT = 3             # a one-word name this short ("api", "web", "cli") is ambiguous whatever the store says
+_PROJECT_NOUNS = r"(?:repo|repos|repository|repositorio|project|proyecto|codebase|folder|carpeta|app|workspace)"
+_QUOTES = "`\"'«“‘"
+_CLOSE = "`\"'»”’"
+
+
+def _name_regex(name: str) -> str:
+    """The name as a pattern: its words joined by any run of spaces, dashes, dots or underscores ("heat v2" is
+    heat-v2), as a word of its own."""
+    parts = [re.escape(w) for w in _NOT_A_NAME_CHAR.sub(" ", str(name).lower()).split()]
+    return r"(?<![\w.-])" + r"[\s_.-]+".join(parts) + r"(?![\w-])" if parts else r"(?!x)x"
+
+
+def has_cue(name: str, prompt: str) -> bool:
+    """Whether a request refers to the project with a reference cue, not merely uses its name as a word:
+    - a preposition or phrase of reference with no article ("in api", "from api", "like we did in api", "como hicimos
+      en api", "desde api"), or with a project noun ("from the api repo", "in the api project", "del proyecto api",
+      "en el repo api", "the api repo");
+    - a path (`~/api`, `api/`, `/api/`);
+    - the name inside backticks or quotes (`` `api` ``, "api", «api»).
+    "the api returns 500", "rate limits in the api" and "api.js" have no cue."""
+    text = (prompt or "").lower()
+    n = _name_regex(name)
+    pre = r"(?:in|into|inside|within|from|at|en|desde|dentro de)"
+    patterns = (
+        rf"(?<![\w-]){pre}\s+{n}",                                         # in api · en api · from api
+        rf"(?<![\w-]){pre}\s+(?:the|el|la|this|our|nuestro|ese|este)\s+{_PROJECT_NOUNS}\s+{n}",  # in the repo api
+        rf"(?<![\w-]){pre}\s+(?:the|el|la|this|our)\s+{n}\s+{_PROJECT_NOUNS}\b",   # from the api repo
+        rf"(?<![\w-])(?:del|de la|of the|of)\s+{_PROJECT_NOUNS}\s+{n}",   # del proyecto api · of the project api
+        rf"(?<![\w-]){_PROJECT_NOUNS}\s+{n}",                              # proyecto api · repo api
+        rf"{n}\s+{_PROJECT_NOUNS}\b",                                      # the api repo
+        rf"~/{n}",                                                         # ~/api
+        rf"/{n}(?=/)",                                                     # /work/api/
+        rf"(?<![\w./-]){n}/(?=[\w.-])",                                    # api/handlers.py
+        rf"[{_QUOTES}]{n}[{_CLOSE}]",                                      # `api` · "api"
+        rf"`[^`\n]*{n}[^`\n]*`",                                           # inside a code span
+    )
+    return any(re.search(p, text) for p in patterns)
+
+
+def _vocabulary(pieces: list[store.Piece]) -> dict[str, set[str]]:
+    """Each piece's words as the router reads them (load.words, uninflected): the store's own vocabulary."""
+    from athos import load
+    key = tuple((p.id, p.version, len(p.body)) for p in pieces)
+    if _VOCAB.get("key") != key:
+        _VOCAB.update(key=key, words={p.id: {load._plain(w) for w in load.words(f"{p.title} {p.when} {p.body}")}
+                                      | set(load.words(f"{p.title} {p.when} {p.body}")) for p in pieces})
+    return _VOCAB["words"]
+
+
+_VOCAB: dict = {}
+
+
+def name_commonness(name: str, pieces: list[store.Piece]) -> dict:
+    """Whether a project's name is ambiguous, decided with the router's own word statistics, not a hand list:
+    `short` (one word of VERY_SHORT letters or fewer), `stopword`, `common` (every word of the name is found in at
+    least COMMON_SHARE of the other projects' pieces, and in COMMON_MIN of them: the inverse document frequency the
+    router weighs words by), or `distinctive`. The project's own pieces do not count: they naturally say its name."""
+    from athos import load
+    words = _NOT_A_NAME_CHAR.sub(" ", str(name).lower()).split()
+    if len(words) == 1 and len(words[0]) <= VERY_SHORT:
+        return {"ambiguous": True, "why": "short", "share": None}
+    if all(w in load.STOP or load._fold(w) in load.STOP_PLAIN for w in words):
+        return {"ambiguous": True, "why": "stopword", "share": None}
+    others = [p for p in pieces if name not in p.projects]
+    vocab = _vocabulary(pieces)
+    shares = []
+    for w in words:
+        folded = load._fold(w)
+        if folded in load.STOP_PLAIN or len(folded) < 3:
+            continue                                     # "my" in "my-app" says nothing either way
+        holders = sum(1 for p in others if folded in vocab.get(p.id, ()) or load._plain(folded) in vocab.get(p.id, ()))
+        shares.append((holders, holders / max(1, len(others))))
+    common = bool(shares) and all(h >= COMMON_MIN and s >= COMMON_SHARE for h, s in shares)
+    share = round(min(s for _h, s in shares), 3) if shares else None
+    return {"ambiguous": common, "why": "common" if common else "distinctive", "share": share}
+
+
+def decide_named(known, prompt: str, pieces: list[store.Piece]) -> dict[str, str]:
+    """How each project a request mentions (`named_projects`) is decided, in this order: `cue` (a reference cue,
+    `has_cue`), `distinctive` (a name that is not a common word, `name_commonness`), else `ambiguous` (a common word
+    with no cue: the request may not mean the project at all)."""
+    out = {}
+    for q in named_projects(known, prompt):
+        if has_cue(q, prompt):
+            out[q] = "cue"
+        elif not name_commonness(q, pieces)["ambiguous"]:
+            out[q] = "distinctive"
+        else:
+            out[q] = "ambiguous"
+    return out
+
+
 def may_see(piece: store.Piece, here: str | None, public: bool = False) -> bool:
     """Whether a session in project `here` (None: no folder known) may load or name this piece.
 
@@ -321,17 +419,19 @@ def scope_project(pieces: list[store.Piece], here: str, prompt: str = "", public
 
 
 def _auto(pieces: list[store.Piece], here: str, prompt: str,
-          public: bool) -> tuple[list[store.Piece], str, list[str], int]:
+          public: bool) -> tuple[list[store.Piece], str, list[str], int, dict[str, str]]:
     """The `auto` scope for a session in project `here`: (pieces, reason, other projects the request named, private
-    pieces held back that would otherwise be in it)."""
+    pieces held back that would otherwise be in it, how each mentioned project was decided). An ambiguous mention (a
+    common word with no cue) brings nothing into scope; the prompt hook may offer it to a frontier model."""
     known = {q for p in pieces for q in p.projects}
-    named = [q for q in named_projects(known | {here}, prompt) if q != here]
+    how = {q: d for q, d in decide_named(known | {here}, prompt, pieces).items() if q != here}
+    named = sorted(q for q, d in how.items() if d != "ambiguous")
     profile = set(profile_ids())
     own = any(here in p.projects for p in pieces)
     reach = [p for p in pieces if here in p.projects or p.id in profile or set(named) & set(p.projects)]
     pool = [p for p in reach if may_see(p, here, public)]
     reason = ("auto:project" if own else "auto:no-own-pieces") + ("+named" if named else "")
-    return pool, reason, named, len(reach) - len(pool)
+    return pool, reason, named, len(reach) - len(pool), how
 
 
 def _in_project(pieces: list[store.Piece], project: str | None) -> list[store.Piece]:
@@ -371,8 +471,14 @@ def select(pieces: list[store.Piece], cwd: str | None = None, prompt: str = "",
     why = {"mode": mode, "project": here, "reason": mode, "named": [], "marker": bool(mark), "public": public}
     if mode == "auto" and not no_folder and public:
         # In a public repository another project is not named anywhere, not even in Athos's own log: only counted.
-        pool, reason, named, held = _auto(pieces, here, prompt, public)
-        return pool, {**why, "reason": reason, "named": [], "named_count": len(named), "private_held": held}
+        # Nothing of another project is offered there either, so an ambiguous mention is simply rejected.
+        pool, reason, named, held, how = _auto(pieces, here, prompt, public)
+        counts: dict[str, int] = {}
+        for d in how.values():
+            d = "rejected" if d == "ambiguous" else d
+            counts[d] = counts.get(d, 0) + 1
+        return pool, {**why, "reason": reason, "named": [], "named_count": len(named), "private_held": held,
+                      "ambiguous": [], "named_how_count": counts}
 
     def visible(chosen: list[store.Piece]) -> tuple[list[store.Piece], dict]:
         kept = [p for p in chosen if may_see(p, here, public)]
@@ -381,8 +487,9 @@ def select(pieces: list[store.Piece], cwd: str | None = None, prompt: str = "",
     if mode == "auto":
         if no_folder:
             return list(pieces), {**why, "reason": "auto:no-folder", "private_held": 0}
-        pool, reason, named, held = _auto(pieces, here, prompt, public)
-        return pool, {**why, "reason": reason, "named": named, "private_held": held}
+        pool, reason, named, held, how = _auto(pieces, here, prompt, public)
+        return pool, {**why, "reason": reason, "named": named, "private_held": held,
+                      "ambiguous": sorted(q for q, d in how.items() if d == "ambiguous"), "named_how": how}
     if mode == "none":
         return [], {**why, "private_held": 0}
     if mode == "project":

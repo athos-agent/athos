@@ -671,6 +671,8 @@ def cmd_list(args: argparse.Namespace) -> int | None:
     """Every piece, most recently used first; ● marks the pieces allowed to load in this folder, ○ the others."""
     from athos import start
     everything = sorted(store.all_pieces(), key=store.last_used, reverse=True)
+    if getattr(args, "project", None):              # one project's pieces (an index line may point here)
+        everything = [p for p in everything if args.project in p.projects]
     enabled = {p.id for p in load.enabled(os.getcwd())}
     pieces = control.here().pieces(everything)      # a public repository names only what may load in it
     hidden = len(everything) - len(pieces)
@@ -2105,7 +2107,8 @@ def _parser() -> argparse.ArgumentParser:
     s = sub.add_parser("start", help="first run: your language, your profession, example ways of working")
     s.add_argument("--lang", choices=["es", "en"])
     s.add_argument("--profile", choices=["law", "ops", "journalism", "science", "finance", "other"])
-    sub.add_parser("list", help="every piece in the store; ● marks the ones allowed to load here")
+    s = sub.add_parser("list", help="every piece in the store; ● marks the ones allowed to load here")
+    s.add_argument("--project", help="only this project's pieces")
     s = sub.add_parser("show", help="print one piece (it writes nothing; inside a session the tool hook counts it as "
                                     "used)")
     s.add_argument("id", help="the piece's id (its file name without .md)")

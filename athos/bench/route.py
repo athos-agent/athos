@@ -359,7 +359,7 @@ def replay(case: dict, meaning=False, show: bool = False, tier: str | None = Non
     byid = {p.id: p for p in everything}
     out = {"prompts": 0, "loaded": 0, "other_project": 0, "general": 0, "as_expected": 0, "cut": 0, "injected_max": 0,
            "injected_mean": 0.0, "pieces": len(everything), "project": project, "tier": tier, "scope": {}, "ms": [],
-           "rows": [], "offered_other_project": 0, "steps_only": 0}
+           "rows": [], "offered_other_project": 0, "steps_only": 0, "named_how": {}, "project_offered": 0}
     sizes = []
     each: dict[str, list[int]] = {"piece": [], "index": []}
     for n, c in enumerate(case["cases"], 1):
@@ -368,10 +368,16 @@ def replay(case: dict, meaning=False, show: bool = False, tier: str | None = Non
         pool, why = control.select(everything, cwd, request, project=project, public=public)
         pool = load.usable(pool, tier, why.get("project"))       # what a model of this tier may be given
         found, trace = load.decide(request, pool, meaning=meaning)
+        why, offer = load.settle_ambiguous(why, everything, tier)
         out["ms"].append((time.perf_counter() - t0) * 1000)
         here = why.get("project")
         ids = [p.id for p in found]
-        d = load.deliver(found, trace, pool, tier)
+        d = load.deliver(found, trace, pool, tier, offer=offer)
+        out["project_offered"] += bool(offer)
+        for decided, n in (why.get("named_how_count") or {}).items():
+            out["named_how"][decided] = out["named_how"].get(decided, 0) + n
+        for decided in (why.get("named_how") or {}).values():
+            out["named_how"][decided] = out["named_how"].get(decided, 0) + 1
         size = len(d["text"])
         out["cut"] += bool(d["cut"])
         out["steps_only"] += bool(d["steps_only"])
@@ -418,6 +424,10 @@ def render_replay(r: dict) -> str:
              f"given as its steps only for {r['steps_only']}, cut to fit for {r['cut']}) · {r['ms_mean']:.1f} ms per "
              f"request",
              both,
+             f"  other projects mentioned, by how they were decided: "
+             + (", ".join(f"{k} {v}" for k, v in sorted(r.get("named_how", {}).items())) or "none")
+             + (f" · a project offered in one index line for {r['project_offered']}" if r["tier"] == "frontier"
+                else ""),
              f"  scope: {scope}",
              "  \"Loaded\" is the router's choice: what an apply model is given, what a frontier model is offered first.",
              "  Read-only: no request is printed or written."]
