@@ -306,6 +306,13 @@ lost were turned down by the margin (7 of them single-word matches on pages with
 longer in reach there (one untagged page outside the profile). That bench counts as expected whatever loaded at the
 time, so it rewards the old router; requests that needed nothing and loaded something went from 20 to 13 of 202.
 
+**Reading a piece writes nothing.** `athos show <id>` prints a piece and leaves everything as it was: no session, no
+event, not the piece's last-used date, so you (or an agent checking your rules) can read any piece without it counting
+as used. When the agent runs `athos show` inside a session, the tool hook sees the command and counts the piece as used
+for that task (`piece_opened` event; the piece joins the task's pieces and is credited after the routed ones for an
+edit); a piece's file read straight from the store is drawn on the trail but not counted. `athos show --use <id>`
+counts it from the command line, in the session of the folder you run it in.
+
 `athos embed on` adds meaning to the words, with a local embedding model through Ollama (default `embeddinggemma`,
 `athos embed on --model <name>` for another; `ollama pull embeddinggemma` first). It is off by default, and with it
 off, or with Ollama down, loading is exactly the words-only router. When on, each piece's title, "when" and its
@@ -330,6 +337,7 @@ of it keeps a request's words: only its length and a 12-character fingerprint (`
 | `model` | a session starts, every request, and the end of a task whose replies could be read | `task_id`, `model`, `source` (event: the hook said so; transcript_switch: a `/model` switch newer than the latest reply; transcript_reply: the latest reply, since this request's own reply does not exist yet; session: what the session reported, when reported later than both, or last knew; replies: the replies that answered the task; unknown), `seen_in_transcript` (the model of the transcript's latest reply), `stage` (session_start, prompt, end), `changed`, `tier` (frontier, apply), `work_mode` (learn, collaborate), and at the end `answered` (the models whose replies answered the task) and `at_start` |
 | `trigger` | a special path matches: save, adjust, gallery, share | `task_id`, `trigger`, `from_person` (true; false for a harness wrapper such as a subagent's message, also one that opens with another wrapper, or when the transcript says the harness sent it; null when the text opens with another tag or the transcript has no entry for it yet), `acted` (it acts only when `from_person` is true), `wrapper`, `origin_signal` (which signal decided: `heuristic`, `both`, `disagree`, `missing`, `missing:heuristic`), `transcript_origin` (person, harness, or null), `project`, `request_chars`, `request_sha`, `injected_total` (what the path handed the model: save, adjust and gallery; a share request is counted in its route event) |
 | `context` | a session starts | `hook` (session_start), `project`, `injected_total` (everything the hook handed the model), `injected_parts` (`index`, `journal`, `guide`, `offer`, `audit_hint`, `review`), `index_cap` |
+| `piece_opened` | the tool hook sees the agent run `athos show <id>` | `task_id`, `piece`, `projects`, `via` (show), `offered` (the frontier index of this request listed it), `again` (it was already in use for the task), `project` |
 | `hook_error` | a hook swallows an exception so your session carries on | `hook`, `where`, `error` (the exception's kind), `line` (file and line inside Athos), never its message |
 | `learn`, `grade`, `ui` | reserved for autonomous learning, a piece's grade and the panel's state | not written yet |
 

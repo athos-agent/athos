@@ -4,7 +4,7 @@ Everyday commands (`athos <command> --help` has the details of each):
 
     athos start                        first run: language, profession, example ways of working (no programming needed)
     athos list                         every piece in the store; a filled dot marks the ones allowed to load here
-    athos show <id>                    print a piece (inside a session, that also counts as loading it)
+    athos show <id> [--use]            print a piece; it writes nothing (--use: count it as used in this folder's session)
     athos save                         read a piece on stdin and store it: new, or a new version of the `id:` it names
     athos save --from-audio FILE       a recording of how you do a task, drafted by Meta's models; saved once you confirm
     athos load [all | project [name] | pieces <id>... | none]   choose what may load; bare, it prints the choice
@@ -409,11 +409,13 @@ def cmd_list(args: argparse.Namespace) -> int | None:
 
 
 def cmd_show(args: argparse.Namespace) -> int | None:
-    """Print one piece as stored. Run inside a session, reading it counts as loading it there."""
+    """Print one piece as stored. Reading writes nothing: no session, no event, not the piece's last-used date (a
+    reader once marked pieces used in an old session, 2026-11-15). When the agent runs it inside a session, the tool
+    hook sees the command and counts the piece as used for that task; `--use` counts it from here instead."""
     piece = store.get(args.id)
     if piece is None:
         return _fail(f"no piece {args.id}")
-    sid = _here()[1].get("session_id")
+    sid = _here()[1].get("session_id") if args.use else None
     if sid:
         load.mark_loaded(sid, [piece.id])
     sys.stdout.write(store.render(piece))
@@ -1544,8 +1546,11 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--lang", choices=["es", "en"])
     s.add_argument("--profile", choices=["law", "ops", "journalism", "science", "finance", "other"])
     sub.add_parser("list", help="every piece in the store; ● marks the ones allowed to load here")
-    s = sub.add_parser("show", help="print one piece")
+    s = sub.add_parser("show", help="print one piece (it writes nothing; inside a session the tool hook counts it as "
+                                    "used)")
     s.add_argument("id", help="the piece's id (its file name without .md)")
+    s.add_argument("--use", action="store_true", help="count it as used by this folder's session (the hooks do this "
+                   "when the agent runs show)")
     s = sub.add_parser("save", help="store the piece written on stdin (a new version when its id: already exists)")
     s.add_argument("--from-audio", metavar="FILE", help="a recording of how you do a task: Meta's Muse Voice "
                    "Transcribe and Muse Spark draft it as a way of working, saved once you confirm")

@@ -20,7 +20,9 @@ import time
 
 from athos import paths, session, store
 
-SHOW = re.compile(r"(?:^|[\s/;&|])athos\s+show\s+([A-Za-z0-9_-]+)")
+# `athos show <id>` as the agent typed it (also through a quoted full path, and with flags before the id): the tool
+# hook sees it, so the piece counts as used for the task without `show` itself writing anything.
+SHOW = re.compile(r"(?:^|[\s/;&|'\"])athos['\"]?\s+show\s+(?:--?[A-Za-z][\w-]*\s+)*([A-Za-z0-9][A-Za-z0-9_-]*)")
 # `athos step …` as the agent typed it, seen by the tool hook: in a sandbox (Codex, Muse Code) the command itself may
 # not reach ~/.athos, but the hook runs outside it.
 STEP = re.compile(r"(?:^|[\s/;&|'\"])athos['\"]?\s+step\s+(?:--new\s+(?:\"([^\"]*)\"|'([^']*)'|(\S+))|([^\s;&|'\"]+))")
@@ -95,17 +97,22 @@ def on_tool(event: dict) -> None:
                 step(sid, None if new else m.group(4), new, (did.group(1) or did.group(2)) if did else None)
             except SystemExit:
                 pass
+    elif SHOW.search(str(tin.get("command", ""))):
+        # The agent opened a piece with `athos show`: that is using it for this task (the frontier index offers pieces
+        # to open this way). The command itself writes nothing, so a person or another agent reading a piece leaves
+        # no trace (2026-11-15: reading rules marked them used in an old session).
+        from athos import load
+        for m in SHOW.finditer(str(tin.get("command", ""))):
+            p = store.get(m.group(1))
+            if p:
+                note(sid, {"kind": "read", "piece": p.id, "title": p.title})
+                load.note_opened(sid, p, "show", event.get("cwd"))
     else:
-        pid = None
-        m = SHOW.search(str(tin.get("command", "")))
-        if m:
-            pid = m.group(1)
-        else:
-            f = str(tin.get("file_path") or tin.get("path") or tin.get("filePath") or "")
-            kh = str(paths.know_how())
-            if f.startswith(kh) and f.endswith(".md"):
-                pid = os.path.basename(f)[:-3]
-        p = store.get(pid) if pid else None
+        # Its file read straight from the store: drawn on the trail, but not counted as used (reading a piece as a
+        # file is how one looks at it without touching anything).
+        f = str(tin.get("file_path") or tin.get("path") or tin.get("filePath") or "")
+        kh = str(paths.know_how())
+        p = store.get(os.path.basename(f)[:-3]) if f.startswith(kh) and f.endswith(".md") else None
         if p:
             note(sid, {"kind": "read", "piece": p.id, "title": p.title})
 
@@ -216,7 +223,8 @@ def view(state: dict) -> dict:
         for x in steps[:max(last, 0)]:
             if x["state"] == "ahead":
                 x["state"] = "skipped"
-        how = "loaded" if pid in (state.get("task_loaded") or []) else "read"
+        opened = pid in (state.get("task_opened") or []) and pid not in (state.get("task_why") or {})
+        how = "loaded" if pid in (state.get("task_loaded") or []) and not opened else "read"
         see = [{"id": q, "title": store.get(q).title} for q in wiki.links_of(p)[:3] if store.get(q)]
         pieces.append({"id": pid, "title": p.title, "version": p.version, "when": p.when[:600], "how": how,
                        "why": why.get(pid, []), "record": ev.record(pid, tasks), "see": see, "steps": steps})

@@ -554,8 +554,9 @@ def _wiki():
 
 
 def mark_loaded(session_id: str, ids: list[str]) -> None:
-    """Note that these pages were used in this session, whether the prompt hook added them or the model opened one
-    with `athos show`: the session state, the eval log and each page's last-used time all learn it."""
+    """Note that these pages were used in this session, whether the prompt hook added them or the tool hook saw the
+    model open one with `athos show`: the session state, the eval log and each page's last-used time all learn it.
+    `athos show` itself writes nothing unless asked (`--use`)."""
     if not ids:
         return
     already = session.load(session_id).get("loaded", [])
@@ -563,6 +564,25 @@ def mark_loaded(session_id: str, ids: list[str]) -> None:
     ev.note_loaded(session_id, ids=list(ids))
     for piece_id in ids:
         store.touch(piece_id)
+
+
+def note_opened(session_id: str, piece: store.Piece, via: str, cwd: str | None = None) -> None:
+    """The model opened a piece itself (the tool hook saw `athos show <id>`): it is used for the open task, credited
+    after the routed ones for an edit, and written down as a `piece_opened` event, with whether the frontier index of
+    this request offered it."""
+    state = session.load(session_id)
+    offered = piece.id in (state.get("task_offered") or [])
+    already = piece.id in (state.get("task_loaded") or [])
+    mark_loaded(session_id, [piece.id])
+    route = list(state.get("task_route") or [])
+    opened = list(state.get("task_opened") or [])
+    session.update(session_id, task_route=route + ([piece.id] if piece.id not in route else []),
+                   task_opened=opened + ([piece.id] if piece.id not in opened else []))
+    project = state.get("project") or (paths.project_of(cwd) if cwd else None)
+    ev.audit({"type": "piece_opened", "session_id": session_id, "task_id": state.get("task_id"), "piece": piece.id,
+              "projects": list(piece.projects), "via": via, "offered": offered, "again": already, "project": project},
+             line=f"opened {loggable([piece], project)} ({via})" + (" · offered in the index" if offered else ""),
+             project=project)
 
 
 def _session_of(event: dict) -> str:

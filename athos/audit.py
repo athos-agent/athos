@@ -38,7 +38,7 @@ RULES = (
     ("weak_evidence_learning", "a piece saved by autonomous learning with only the model's opinion as evidence"),
 )
 WEAK_EVIDENCE = {"", "model", "model_opinion", "self_report"}
-AUDIT_TYPES = {"route", "edit_seen", "model", "trigger", "hook_error", "learn", "grade", "ui", "context"}
+AUDIT_TYPES = {"route", "edit_seen", "model", "trigger", "hook_error", "learn", "grade", "ui", "context", "piece_opened"}
 
 
 # ------------------------------------------------------------------------------------------------ gathering
