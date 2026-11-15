@@ -110,8 +110,8 @@ class WikiTest(TempHome):
         repo = Path(self.home) / "pub"
         repo.mkdir()
         (repo / paths.MARKER).write_text('name = "pub"\npublic = true\n')
-        capture.save_text("---\ntitle: Land a change\nwhen: committing\nid: land\nnote: again\n---\n" + LAND, "w3",
-                          str(repo))
+        # (a new page: an id of a page that may not be named there is refused before anything is written)
+        capture.save_text("---\ntitle: Land a public change\nwhen: committing here\n---\n" + LAND, "w3", str(repo))
         self.assertFalse((target / "athos-beta-one.md").exists())
         self.assertIsNone(wiki.sync_installed(str(repo)))
 

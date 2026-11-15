@@ -256,7 +256,8 @@ which elsewhere would bring it (the `route` event keeps only how many projects w
 run there names one either: `athos list`, `profile` (and `--untagged`), `report`, `wiki`, `status --json`, `privacy`
 and `audit` leave them out or only count them; a command given the id of a page that may not be named there (`show`,
 `revert`, `test`, `share`, `route`, `verify`, `dismiss`, `delegate`, `merge`, `export --piece`) answers exactly as for
-an id that does not exist, so the answer does not say whether another project has it; `athos audit` reads only this
+an id that does not exist, so the answer does not say whether another project has it, and so does `athos save` with
+such an `id:` (nothing is changed or created; a new page is saved by leaving `id:` out); `athos audit` reads only this
 project's sessions and refuses `--show` and `--project` of another one; `athos journal --project` of another project
 is refused; `athos export` to a folder writes only this project's pages, and `--dataset` (which holds requests) is
 refused. One check (`control.Here`) decides for all of them, and a test runs every command in a public repository.

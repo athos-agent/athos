@@ -165,13 +165,17 @@ class _Written(NamedTuple):
     improved: bool
 
 
-def _write_piece(text: str, origin: dict, project: str, learning: dict | None = None) -> _Written:
+def _write_piece(text: str, origin: dict, project: str, learning: dict | None = None, here=None) -> _Written:
     """Create the piece, or improve the one its `id` names. A new piece belongs to the project it was saved in (none
     when no project is known, as in Claude Desktop's chat): it joins the profile only when the person puts it there
     (`athos profile add`). A `visibility:` line in what the agent sent is kept for a new piece. With `learning` (an
     autonomous save: status, learned_by, evidence...), only a new piece is written, with those fields."""
     meta, title, when, piece_id, body = _fields(text)
     tags = [project] if project else []
+    if piece_id and here is not None and here.public and not here.may_name(piece_id):
+        # A repository marked public: an id that may not be named there is neither changed nor created, and the
+        # answer is the one an id that does not exist gets, so it does not say whether another project has it.
+        raise ValueError(here.refuse(piece_id) + " To save a new piece here, leave out `id:`.")
     if learning is not None:
         absent = [name for name, value in (("title", title), ("when", when), ("body", body)) if not value]
         if absent:
@@ -232,7 +236,10 @@ def save_text(text: str, session_id: str = "default", cwd: str | None = None,
     comes back); any other is created, and the diff is None. ValueError when a new piece lacks title, when or body,
     or an improvement changes nothing. Then the session's tallies reset, the wiki and exports refresh, and the
     session learns what was saved for the band to show."""
-    written = _write_piece(text, origin_for(session_id, transcript_path), paths.project_of(cwd), learning)
+    from athos import control
+    here = control.here(cwd) if cwd else None
+    written = _write_piece(text, origin_for(session_id, transcript_path), here.project if here else paths.project_of(cwd),
+                           learning, here)
     piece = written.piece
     _reset_counters(session_id, piece.id)
     rebuilt = _refresh_wiki(cwd)

@@ -190,3 +190,40 @@ class HandOverTest(Folders):
         added = self.hook("prompt", {"session_id": "h4", "cwd": str(self.root),
                                      "prompt": "draft the alpha release notes for beta"})
         self.assertIn("Beta ledger", added)                # named in the request: in scope, so it may come along
+
+
+class SaveByIdTest(Folders):
+    """`athos save` with the `id:` of a piece that may not be named in a public repository changes nothing and answers
+    as for an id that does not exist."""
+
+    def setUp(self):
+        super().setUp()
+        piece("alpha-release", "Ship the alpha release", "shipping the alpha release", ["alpha"])
+        piece("beta-report", "Write the beta weekly report", "writing the beta weekly report", ["beta"])
+        self.root = Path(self.folder("alpha"))
+        (self.root / paths.MARKER).write_text('name = "alpha"\npublic = true\n')
+
+    def save(self, text, *flags):
+        import sys
+        from unittest import mock
+        out = io.StringIO()
+        with contextlib.chdir(self.root), contextlib.redirect_stdout(out), contextlib.redirect_stderr(out), \
+                mock.patch.object(sys, "stdin", io.StringIO(text)):
+            code = cli.main(["save", *flags])
+        return code, out.getvalue()
+
+    def test_another_projects_id_is_refused_like_a_missing_one(self):
+        before = store.get("beta-report").path.read_bytes()
+        body = "---\nid: {id}\nnote: tweak\n---\n## #one\n**When:** now.\n**Do:** zebra quartz marmalade.\n"
+        code, out = self.save(body.format(id="beta-report"))
+        self.assertEqual(code, 1)
+        self.assertEqual(store.get("beta-report").path.read_bytes(), before)
+        self.assertNotIn("Write the beta weekly report", out)
+        self.assertNotIn("zebra", out)
+        code2, out2 = self.save(body.format(id="no-such-piece"))
+        self.assertEqual((code2, out2.replace("no-such-piece", "X")), (code, out.replace("beta-report", "X")))
+        self.assertIsNone(store.get("no-such-piece"))
+        self.assertEqual(sorted(p.id for p in store.all_pieces()), ["alpha-release", "beta-report"])
+        code, out = self.save(body.format(id="alpha-release"))             # its own piece: improved as usual
+        self.assertEqual(code, 0, out)
+        self.assertEqual(store.get("alpha-release").version, 2)
