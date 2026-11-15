@@ -176,6 +176,30 @@ class InjectedTextTest(Folders):
         self.assertLessEqual(r["injected_chars"], r["thresholds"]["inject_cap"])
         self.assertNotIn("athos step", capture.guide())
 
+    def test_a_long_page_comes_as_its_steps_before_it_is_cut(self):
+        why = "**Because:** " + "a long story of how it went wrong once, " * 6 + "\n**Links:** [[other#x]]\n"
+        body = "\n".join(STEP.format(f"s{i}") + why for i in range(30))       # whole, over the cap
+        piece("long", "Cut a long release", "cutting a long release", ["alpha"], body=body)
+        text, cut, left = load.fit([store.get("long")])
+        self.assertEqual((cut, left, load.fit_steps([store.get("long")])), ([], [], ["long"]))
+        self.assertEqual(text.count("**Do:** the s"), 30)                       # every step's When and Do
+        self.assertNotIn("**Because:**", text)
+        self.assertIn("only each step's When and Do", text)
+        self.assertIn("athos show long", text)
+        # Too many steps even so: as many whole steps as fit, and the ones left out are named.
+        body = "\n".join(STEP.format(f"s{i}") + why for i in range(400))
+        piece("huge", "Cut a huge release", "cutting a huge release", ["alpha"], body=body)
+        text, cut, left = load.fit([store.get("huge")])
+        self.assertEqual(cut, ["huge"])
+        self.assertLessEqual(len(text), load.INJECT_CAP)
+        kept = text.count("**Do:** the s")
+        self.assertGreater(kept, 50)
+        self.assertIn(f"{400 - kept} more step(s) left out: #s{kept}, ", text)
+        self.assertNotIn("the s399 thing", text)
+        out = self.hook("prompt", {"session_id": "c3", "cwd": self.folder("alpha"), "prompt": "cut a long release"})
+        self.assertIn("only each step's When and Do", out)
+        self.assertEqual(events("route")[-1]["steps_only"], ["long"])
+
     def test_without_steps_reported_the_trail_and_the_stop_still_work(self):
         piece("ship", "Ship the alpha release", "shipping the alpha release", ["alpha"])
         e = {"session_id": "c2", "cwd": self.folder("alpha")}

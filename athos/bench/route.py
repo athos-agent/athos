@@ -356,7 +356,7 @@ def replay(case: dict, meaning=False, show: bool = False, tier: str | None = Non
     byid = {p.id: p for p in everything}
     out = {"prompts": 0, "loaded": 0, "other_project": 0, "general": 0, "as_expected": 0, "cut": 0, "injected_max": 0,
            "injected_mean": 0.0, "pieces": len(everything), "project": project, "tier": tier, "scope": {}, "ms": [],
-           "rows": [], "offered_other_project": 0}
+           "rows": [], "offered_other_project": 0, "steps_only": 0}
     sizes = []
     each: dict[str, list[int]] = {"piece": [], "index": []}
     for n, c in enumerate(case["cases"], 1):
@@ -370,6 +370,7 @@ def replay(case: dict, meaning=False, show: bool = False, tier: str | None = Non
         d = load.deliver(found, trace, pool, tier)
         size = len(d["text"])
         out["cut"] += bool(d["cut"])
+        out["steps_only"] += bool(d["steps_only"])
         sizes.append(size)
         if found:
             each["piece"].append(d["piece_chars"])
@@ -410,7 +411,8 @@ def render_replay(r: dict) -> str:
              + (f" · another project's piece offered in an index for {r['offered_other_project']}"
                 if r["tier"] == "frontier" else ""),
              f"  characters added: max {r['injected_max']}, mean {r['injected_mean']:.0f} over every request (a page "
-             f"cut to fit for {r['cut']}) · {r['ms_mean']:.1f} ms per request",
+             f"given as its steps only for {r['steps_only']}, cut to fit for {r['cut']}) · {r['ms_mean']:.1f} ms per "
+             f"request",
              both,
              f"  scope: {scope}",
              "  \"Loaded\" is the router's choice: what an apply model is given, what a frontier model is offered first.",

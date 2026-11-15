@@ -490,6 +490,10 @@ def _page_section(piece: store.Piece) -> str:
 PREFACE = ("# Athos — know-how that matches this request\n\nThe user's own know-how for this kind of task. "
            "Follow it unless the request says otherwise.\n")
 CUT_NOTE = "\n… (cut to fit; `{cmd} show {id}` prints the whole page)\n"
+STEPS_NOTE = ("\n… (only each step's When and Do, to fit: `{cmd} show {id}` prints the whole page, with the reasons, "
+              "links and history)\n")
+STEPS_CUT_NOTE = ("\n… (only each step's When and Do, to fit, and {n} more step(s) left out: {ids}. `{cmd} show {id}` "
+                  "prints the whole page)\n")
 
 
 def inject_text(pieces: list[store.Piece], cmd: str = "athos", cap: int | None = None) -> str:
@@ -500,24 +504,45 @@ def inject_text(pieces: list[store.Piece], cmd: str = "athos", cap: int | None =
 
 def fit(pieces: list[store.Piece], cmd: str = "athos", cap: int | None = None) -> tuple[str, list[str], list[str]]:
     """`inject_text`, plus the pages cut to fit and the pages left out for lack of room. The notes come first in the
-    budget; then each page whole while it fits, the first that doesn't is cut at a line (with a note on how to read
-    the rest) and any after it are left out. A 26 KB page once came whole with every request (2026-11-14)."""
+    budget; then each page whole while it fits. The first that doesn't is given as its steps (`_steps_section`):
+    each statement's When and Do, and its hand-overs, without the reasons and links, which are what a step is
+    followed by; whole when that fits, else as many whole steps as fit, naming the ones left out. A page without
+    statements is cut at a line. Either way a note says how to read the rest, and any page after it is left out. A
+    26 KB page once came whole with every request (2026-11-14); cut at a line, a long page lost its last steps
+    whole (2026-11-15). The pages given only as steps are in `fit_steps`."""
+    return _fit(pieces, cmd, cap)[:3]
+
+
+def fit_steps(pieces: list[store.Piece], cmd: str = "athos", cap: int | None = None) -> list[str]:
+    """The pages `fit` gave as their steps only (When and Do), because whole they did not fit."""
+    return _fit(pieces, cmd, cap)[3]
+
+
+def _fit(pieces: list[store.Piece], cmd: str = "athos",
+         cap: int | None = None) -> tuple[str, list[str], list[str], list[str]]:
     if not pieces:
-        return "", [], []
+        return "", [], [], []
     cap = INJECT_CAP if cap is None else cap
     notes = _instructions(pieces, cmd)
     room = cap - len(PREFACE) - sum(len(n) + 1 for n in notes) - 1
     sections: list[str] = []
     cut: list[str] = []
     left: list[str] = []
+    steps: list[str] = []
     for piece in pieces:
         section = _page_section(piece)
-        if cut or left or room <= 0:
+        if cut or left or steps or room <= 0:
             left.append(piece.id)
             continue
         if len(section) + 1 <= room:
             sections.append(section)
             room -= len(section) + 1
+            continue
+        short, whole = _steps_section(piece, room - 1, cmd)
+        if short:
+            sections.append(short)
+            (steps if whole else cut).append(piece.id)
+            room = 0                              # a page after it is left out, as after a cut
             continue
         note = CUT_NOTE.format(cmd=cmd, id=piece.id)
         keep = section[:max(0, room - len(note) - 1)]
@@ -529,8 +554,53 @@ def fit(pieces: list[store.Piece], cmd: str = "athos", cap: int | None = None) -
         cut.append(piece.id)
         room = 0
     if not sections:
-        return "", cut, left
-    return "\n".join([PREFACE, *sections, *notes]), cut, left
+        return "", cut, left, steps
+    return "\n".join([PREFACE, *sections, *notes]), cut, left, steps
+
+
+def _steps_section(piece: store.Piece, room: int, cmd: str) -> tuple[str, bool]:
+    """A page as its steps only, within `room` characters: the heading and "when", then each statement's id, When,
+    Do and hand-overs (Calls, If), without Because, Links or the page's history. Returns the text ("" for a page
+    without statements, or when not even one step fits) and whether every step fit."""
+    wiki = _wiki()
+    if not wiki.is_wiki(piece):
+        return "", False
+    head = "\n".join((f"## {piece.title} (`{piece.id}`, v{piece.version})", f"When: {piece.when}", ""))
+    blocks = []
+    for st in wiki.statements(piece):
+        lines = [f"### #{st.id}"]
+        lines += [f"**{k}:** {v}" for k, v in (("When", st.when), ("Do", st.do)) if v]
+        raw = _raw_statement(piece, st.id)
+        lines += [ln for ln in raw.splitlines() if ln.startswith(("**Calls:**", "**If:**"))]
+        blocks.append((st.id, "\n".join(lines) + "\n"))
+    whole_note = STEPS_NOTE.format(cmd=cmd, id=piece.id)
+    text = head + "\n".join(b for _, b in blocks)
+    if len(text) + len(whole_note) <= room:
+        return text + whole_note, True
+    kept, used = [], len(head)
+    for n, (sid, block) in enumerate(blocks):
+        rest = [i for i, _ in blocks[n + 1:]]
+        note = STEPS_CUT_NOTE.format(cmd=cmd, id=piece.id, n=len(blocks) - n, ids=_ids_line([sid] + rest))
+        if used + len(block) + 1 + len(note) > room:
+            break
+        kept.append(block)
+        used += len(block) + 1
+    if not kept:
+        return "", False
+    rest = [i for i, _ in blocks[len(kept):]]
+    note = STEPS_CUT_NOTE.format(cmd=cmd, id=piece.id, n=len(rest), ids=_ids_line(rest))
+    return head + "\n".join(kept) + note, False
+
+
+def _ids_line(ids: list[str], limit: int = 8) -> str:
+    shown = ", ".join(f"#{i}" for i in ids[:limit])
+    return shown + (f" and {len(ids) - limit} more" if len(ids) > limit else "")
+
+
+def _raw_statement(piece: store.Piece, sid: str) -> str:
+    """The text of one statement of a page, as written."""
+    m = re.search(rf"^## #{re.escape(sid)}\s*$(.*?)(?=^## #|\Z)", piece.body, re.M | re.S)
+    return m.group(1) if m else ""
 
 
 def _instructions(pieces: list[store.Piece], cmd: str) -> list[str]:
@@ -636,7 +706,8 @@ def on_prompt(event: dict, cmd: str = "athos", defer: bool = False) -> str:
     text = body + extra if body else ""
     parts = {("index" if d["delivery"] == "index" else "pieces"): len(body),
              **{k: v for k, v in parts.items() if v and body}}
-    trace = {**trace, "cut": cut, "left_out": left, "injected_parts": {k: v for k, v in parts.items() if v},
+    trace = {**trace, "cut": cut, "left_out": left, "steps_only": d["steps_only"],
+             "injected_parts": {k: v for k, v in parts.items() if v},
              "delivery": d["delivery"], "offered": d["offered"], "piece_chars": d["piece_chars"],
              "index_chars": d["index_chars"]}
     args = (sid, prompt, scope, trace, shown if d["delivery"] != "index" else [], len(everything), len(pool),
@@ -657,14 +728,14 @@ def deliver(found: list[store.Piece], trace: dict, pool: list[store.Piece], tier
     sizes are measured either way (`piece_chars`, `index_chars`) for the route event and the bench."""
     from athos import tiers
     if not found:
-        return {"delivery": None, "text": "", "cut": [], "left_out": [], "offered": [], "piece_chars": 0,
-                "index_chars": 0}
-    body, cut, left = fit(found, cmd, cap)
+        return {"delivery": None, "text": "", "cut": [], "left_out": [], "steps_only": [], "offered": [],
+                "piece_chars": 0, "index_chars": 0}
+    body, cut, left, steps = _fit(found, cmd, cap)
     index, offered = pull_index(found, trace, pool, cmd)
     if tier == tiers.FRONTIER:
-        return {"delivery": "index", "text": index, "cut": [], "left_out": [], "offered": offered,
+        return {"delivery": "index", "text": index, "cut": [], "left_out": [], "steps_only": [], "offered": offered,
                 "piece_chars": len(body), "index_chars": len(index)}
-    return {"delivery": "piece", "text": body, "cut": cut, "left_out": left, "offered": [],
+    return {"delivery": "piece", "text": body, "cut": cut, "left_out": left, "steps_only": steps, "offered": [],
             "piece_chars": len(body), "index_chars": len(index)}
 
 
