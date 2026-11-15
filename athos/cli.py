@@ -943,7 +943,8 @@ def _bench_route(args) -> int:
             if r == "hybrid":                    # the index in memory: nothing is written to the person's home
                 idx = embed.refresh(store.all_pieces(), model=model, write=False)
                 meaning = lambda p, ps, idx=idx: embed.scores(p, ps, model=model, index=idx, spawn=False)
-            out[r] = route.replay(case, meaning, show=args.show)
+            for tier in ([args.tier] if args.tier else ["apply", "frontier"]):
+                out[r if args.tier else f"{r}, {tier}"] = route.replay(case, meaning, show=args.show, tier=tier)
         print(json.dumps(out, indent=1) if args.json else
               "\n\n".join(f"[{r}] {route.render_replay(x)}" for r, x in out.items()))
         return 0
@@ -1671,6 +1672,9 @@ def _parser() -> argparse.ArgumentParser:
                         "against your store (read-only, counts only)")
     s.add_argument("--show", action="store_true",
                    help="with route --replay: also list, per request that loaded something, the ids loaded")
+    s.add_argument("--tier", choices=["apply", "frontier"],
+                   help="with route --replay: deliver as to this tier's model (apply: the pieces; frontier: an index "
+                        "of the pieces in reach); default both")
     s = sub.add_parser("embed", help="also load know-how by meaning, with a local embedding model (Ollama); on|off")
     s.add_argument("action", nargs="?", choices=["on", "off"])
     s.add_argument("--model", help="the Ollama embedding model (default embeddinggemma)")

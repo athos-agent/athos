@@ -109,8 +109,11 @@ class _Ctx:
 
     def loads(self) -> list[tuple[str, str, str]]:
         """(task id, piece id, how it is known) for every load of the session: the route event's choice when the task
-        has one, else the pieces its task_end lists (which also count pages the model opened itself)."""
-        out = [(r.get("task_id"), pid, "route") for r in self.routes for pid in r.get("chosen") or []]
+        has one (since 0.1.116 a frontier model is only offered it, in an index: then the pieces it opened, from
+        `piece_opened`), else the pieces its task_end lists (which also count pages the model opened itself)."""
+        out = [(r.get("task_id"), pid, "route") for r in self.routes if r.get("delivery") != "index"
+               for pid in r.get("chosen") or []]
+        out += [(e.get("task_id"), e.get("piece"), "opened") for e in self.of("piece_opened") if e.get("piece")]
         for e in self.ends:
             if e.get("task_id") not in self.routed_tasks:
                 out += [(e.get("task_id"), pid, "task_end") for pid in e.get("pieces") or []]
@@ -334,8 +337,8 @@ def _private_piece_named(c: _Ctx) -> dict:
     outside = {pid for pid, p in private.items() if not (c.project and c.project in p.projects)}
     found = []
     for r in c.routes:
-        ids = set(r.get("chosen") or []) | set(r.get("handed_over") or []) | {x.get("piece") for x in
-                                                                                r.get("candidates") or []}
+        ids = set(r.get("chosen") or []) | set(r.get("handed_over") or []) | set(r.get("offered") or []) | {
+            x.get("piece") for x in r.get("candidates") or []}
         hits = (ids & outside) | (ids & set(private) if r.get("public") else set())
         if hits:
             found.append({"task_id": r.get("task_id"), "where": "route event", "pieces": len(hits)})

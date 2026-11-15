@@ -306,6 +306,23 @@ lost were turned down by the margin (7 of them single-word matches on pages with
 longer in reach there (one untagged page outside the profile). That bench counts as expected whatever loaded at the
 time, so it rewards the old router; requests that needed nothing and loaded something went from 20 to 13 of 202.
 
+**Pull instead of push, on frontier models.** When the model answering a request is in the frontier tier (`athos
+tiers`), the router's choice is not pasted in: the request gets a short index of the pieces in reach instead, best
+first (the router's choice and the pages it hands over to, then the other pieces it scored, then the rest of this
+project's pieces and your profile, most recently used first), one line each with id, title and "when", at most 6 lines
+and 1200 characters, and one sentence: if one applies, read it with `athos show <id>` and follow it; if none does,
+ignore the list. The model opens what it needs, and that counts as using the piece (below). A wrong choice of the
+router then costs a few lines instead of a page. An apply model, or one whose tier is unknown, still gets the pieces
+themselves, since it follows better than it picks. Nothing chosen means nothing added, on either tier. The route event
+says which delivery was used (`delivery`: index or piece) and measures both (`index_chars`, `piece_chars`).
+`athos bench route --replay <file> --tier frontier|apply` replays a session as to either tier (both by default).
+
+On the bench, "loaded" is the router's choice under either delivery: the pieces an apply model is given, and the
+first lines of the index a frontier model is offered. hit@1 is therefore the same for both, and says whether the
+right piece is at the top of the index on frontier; what changes is the size. Measured on 2026-11-15 on the public
+cases (starters en+es, requests that loaded something): pieces mean 3336 and max 6823 characters, index mean 1013 and
+max 1075.
+
 **Reading a piece writes nothing.** `athos show <id>` prints a piece and leaves everything as it was: no session, no
 event, not the piece's last-used date, so you (or an agent checking your rules) can read any piece without it counting
 as used. When the agent runs `athos show` inside a session, the tool hook sees the command and counts the piece as used
@@ -332,7 +349,7 @@ of it keeps a request's words: only its length and a 12-character fingerprint (`
 
 | event | written when | fields |
 |---|---|---|
-| `route` | every request the prompt hook sees, loaded or not | `task_id`, `model`, `tier`, `work_mode`, `collaborates` (an apply model always; a frontier one when a piece loaded), `mode` (the loading mode), `project`, `scope_reason`, `named_projects`, `marker` (a `.athos.toml` applied), `public`, `private_held` (private pieces kept out, counted), `store_pieces`, `in_scope`, `request_chars`, `request_sha` (not in a public repository), `request_kind` (person, harness, empty), `wrapper`, `candidates` (up to 5: `piece`, `score`, `shared` (how many words it shares with the request, never which), `head_share`, `request_share`, `projects`, `kept`, `reason`), `scored`, `chosen`, `handed_over`, `meaning`, `thresholds`, `cut` (pages cut to fit), `left_out` (pages with no room), `injected_chars` (the router's own text), `injected_total` (everything the prompt hook handed the model: the router's text plus an edit notice, a share request or a rating added after it), `injected_parts` (the characters of each: `pieces`, `connectors`, `offer`, `edit`, `share`, `rating`), `ms` |
+| `route` | every request the prompt hook sees, loaded or not | `task_id`, `model`, `tier`, `work_mode`, `collaborates` (an apply model always; a frontier one when a piece loaded), `mode` (the loading mode), `project`, `scope_reason`, `named_projects`, `marker` (a `.athos.toml` applied), `public`, `private_held` (private pieces kept out, counted), `store_pieces`, `in_scope`, `request_chars`, `request_sha` (not in a public repository), `request_kind` (person, harness, empty), `wrapper`, `candidates` (up to 5: `piece`, `score`, `shared` (how many words it shares with the request, never which), `head_share`, `request_share`, `projects`, `kept`, `reason`), `scored`, `chosen`, `handed_over`, `meaning`, `thresholds`, `cut` (pages cut to fit), `left_out` (pages with no room), `delivery` (piece: the pages themselves, to an apply model; index: a list of the pieces in reach, to a frontier model; null when nothing was chosen), `offered` (the ids the index listed), `piece_chars` and `index_chars` (what each delivery costs, measured either way), `injected_chars` (the router's own text), `injected_total` (everything the prompt hook handed the model: the router's text plus an edit notice, a share request or a rating added after it), `injected_parts` (the characters of each: `pieces`, `connectors`, `offer`, `edit`, `share`, `rating`), `ms` |
 | `edit_seen` | the edit detector keeps a file the agent wrote, sees the agent change it again, or finds a change on the next request | `task_id`, `file_sha` (a hash of the path), `decision` (snapshot, rebased (the agent changed it: the copy moves on), pending (the person changed it between two tool calls; told on the next request), attributed, unattributed (a change with no evidence: given to nobody)), `source` (agent_tool, agent_shell, outside, unexplained), `basis` (the evidence for the decision: `changed_during:<tool>`, `no_timing:<tool>`, `tool_failed`, `changed_between_tool_calls`, `changed_after_turn_end`, `no_tool_call_since`, or why there is none: `no_turn_end`, `changed_before_turn_end`, `tool_after_turn_end`, `background_task_running`), `attributed_to` (agent, person, or null), and for a change given to the person `detector` (between_tool_calls, after_turn_end), `piece` (not in a public repository), `piece_basis` (current_step, route_best, none) |
 | `model` | a session starts, every request, and the end of a task whose replies could be read | `task_id`, `model`, `source` (event: the hook said so; transcript_switch: a `/model` switch newer than the latest reply; transcript_reply: the latest reply, since this request's own reply does not exist yet; session: what the session reported, when reported later than both, or last knew; replies: the replies that answered the task; unknown), `seen_in_transcript` (the model of the transcript's latest reply), `stage` (session_start, prompt, end), `changed`, `tier` (frontier, apply), `work_mode` (learn, collaborate), and at the end `answered` (the models whose replies answered the task) and `at_start` |
 | `trigger` | a special path matches: save, adjust, gallery, share | `task_id`, `trigger`, `from_person` (true; false for a harness wrapper such as a subagent's message, also one that opens with another wrapper, or when the transcript says the harness sent it; null when the text opens with another tag or the transcript has no entry for it yet), `acted` (it acts only when `from_person` is true), `wrapper`, `origin_signal` (which signal decided: `heuristic`, `both`, `disagree`, `missing`, `missing:heuristic`), `transcript_origin` (person, harness, or null), `project`, `request_chars`, `request_sha`, `injected_total` (what the path handed the model: save, adjust and gallery; a share request is counted in its route event) |
@@ -403,8 +420,8 @@ differ, and the next request starts from it. `athos status --json` has `model` (
 
 Each model has a tier. **frontier** models may learn new ways of working (mode `learn`); **apply** models use what is
 already known (mode `collaborate`), and a frontier session also collaborates when a piece loaded for the request. A
-model no pattern matches counts as apply. The tiers are only recorded for now (`model` and `route` events, status);
-they do not change what loads or what is saved.
+model no pattern matches counts as apply. Since 0.1.116 the tier decides how the router's choice is delivered (see
+"Pull instead of push" below); it does not change what is saved.
 
 ```
 athos tiers [--json]                              the patterns of each tier

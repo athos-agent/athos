@@ -81,7 +81,17 @@ class ReplayTest(TempHome):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             self.assertEqual(cli.main(["bench", "route", "--replay", str(f), "--json"]), 0)
-        self.assertEqual(json.loads(out.getvalue())["lexical"]["loaded"], 1)
+        both = json.loads(out.getvalue())
+        self.assertEqual((both["lexical, apply"]["loaded"], both["lexical, frontier"]["loaded"]), (1, 1))
+        # The same choice, delivered as the piece (apply) or as an index of the pieces in reach (frontier).
+        apply, frontier = both["lexical, apply"], both["lexical, frontier"]
+        self.assertEqual(apply["injected_max"], apply["chars"]["piece"]["max"])
+        self.assertEqual(frontier["injected_max"], frontier["chars"]["index"]["max"])
+        self.assertLess(frontier["injected_max"], apply["injected_max"])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.main(["bench", "route", "--replay", str(f), "--tier", "frontier", "--json"])
+        self.assertEqual(json.loads(out.getvalue())["lexical"]["tier"], "frontier")
         before = sorted(p.name for p in Path(self.home).rglob("*"))
         with contextlib.redirect_stdout(io.StringIO()):
             cli.main(["bench", "route", "--replay", str(f)])

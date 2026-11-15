@@ -18,6 +18,10 @@ from athos import control, eval as ev, paths, session, store
 # Size budgets, in characters.
 INDEX_CAP = 4000         # the session-start catalogue
 INJECT_CAP = 8000        # everything added to one request; a page that does not fit is cut, and the cut is recorded
+# Pull instead of push: a frontier model gets a short index of the pieces in reach and opens the one it needs.
+PULL_LINES = 6           # at most this many pieces in the index
+PULL_WHEN = 160          # each one's "when", cut at a word to about this many characters
+PULL_CAP = 1200          # the whole index, header included
 
 # Lexical ranking.
 TOP_K = 2                # at most this many pages are picked by score
@@ -593,9 +597,12 @@ _PENDING: dict[str, tuple] = {}     # a route event held until the prompt hook k
 
 
 def on_prompt(event: dict, cmd: str = "athos", defer: bool = False) -> str:
-    """UserPromptSubmit: the pieces that match the request, recorded as loaded in this session, with the words that
-    loaded each one (the band shows them, and [Didn't apply] remembers them). The `route` event is written at once,
-    or, with `defer`, when the caller has added its own text and calls `finish_route` with the total."""
+    """UserPromptSubmit: what the router found for the request, delivered the way the model answering it takes it
+    best (`deliver`): an apply model gets the pieces (recorded as loaded, with the words that loaded each one, which
+    the band shows and [Didn't apply] remembers); a frontier model gets a short index of the pieces in reach, and a
+    piece counts as used only once the model opens it (`note_opened`). The `route` event is written at once, or, with
+    `defer`, when the caller has added its own text and calls `finish_route` with the total."""
+    from athos import tiers
     prompt = event.get("prompt", "")
     sid = _session_of(event)
     started = time.perf_counter()
@@ -603,9 +610,11 @@ def on_prompt(event: dict, cmd: str = "athos", defer: bool = False) -> str:
     pool, scope = control.select(everything, event.get("cwd"), prompt)
     found, trace = decide(prompt, pool)
     ms = (time.perf_counter() - started) * 1000
+    tier = tiers.tier_of(session.load(sid).get("model"))     # the model resolved for this request (eval.task_start)
+    d = deliver(found, trace, pool, tier, cmd)
     extra = ""
     parts: dict[str, int] = {}
-    if found:
+    if d["delivery"] == "piece":
         conn = note_connectors(sid, found, cmd)
         extra += "\n" + conn + "\n" if conn else ""
         parts["connectors"] = len(conn or "")
@@ -613,23 +622,88 @@ def on_prompt(event: dict, cmd: str = "athos", defer: bool = False) -> str:
         offer = replay.offer_text([p.id for p in found], cmd)
         extra += "\n" + offer + "\n" if offer else ""
         parts["offer"] = len(offer or "")
-    body, cut, left = fit(found, cmd, INJECT_CAP - len(extra))
-    shown = [p for p in found if p.id not in left]
+        if extra:
+            d = deliver(found, trace, pool, tier, cmd, INJECT_CAP - len(extra))
+    body, cut, left = d["text"], d["cut"], d["left_out"]
+    shown = [p for p in found if p.id not in left] if d["delivery"] == "piece" else []
     if shown:
         # In a public repository nothing taken from a request is kept, not even the words that loaded a page.
         session.update(sid, task_why={p.id: [] if scope.get("public") else why(prompt, p) for p in shown})
-    if shown:
         session.update(sid, task_route=[p.id for p in shown])     # best first: the edit detector credits the first
+    if d["delivery"]:
+        session.update(sid, task_delivery=d["delivery"], task_offered=d["offered"])
     mark_loaded(sid, [piece.id for piece in shown])
     text = body + extra if body else ""
-    parts = {"pieces": len(body), **{k: v for k, v in parts.items() if v and body}}
-    trace = {**trace, "cut": cut, "left_out": left, "injected_parts": {k: v for k, v in parts.items() if v}}
-    args = (sid, prompt, scope, trace, shown, len(everything), len(pool), len(text), ms)
+    parts = {("index" if d["delivery"] == "index" else "pieces"): len(body),
+             **{k: v for k, v in parts.items() if v and body}}
+    trace = {**trace, "cut": cut, "left_out": left, "injected_parts": {k: v for k, v in parts.items() if v},
+             "delivery": d["delivery"], "offered": d["offered"], "piece_chars": d["piece_chars"],
+             "index_chars": d["index_chars"]}
+    args = (sid, prompt, scope, trace, shown if d["delivery"] != "index" else [], len(everything), len(pool),
+            len(text), ms)
     if defer:
         _PENDING[sid] = args
     else:
         _write_route(args, len(text), {})
     return text
+
+
+def deliver(found: list[store.Piece], trace: dict, pool: list[store.Piece], tier: str, cmd: str = "athos",
+            cap: int | None = None) -> dict:
+    """How the router's choice reaches the model. Nothing when nothing was chosen. To an apply model (and any model of
+    unknown tier) the pieces themselves (`fit`): it follows better than it picks. To a frontier model an index of the
+    pieces in reach (`pull_index`): it picks well, and opens the one it needs with `athos show`, so a wrong choice of
+    the router costs a few lines instead of a page (a page of up to 26 KB came with every request, 2026-11-14). Both
+    sizes are measured either way (`piece_chars`, `index_chars`) for the route event and the bench."""
+    from athos import tiers
+    if not found:
+        return {"delivery": None, "text": "", "cut": [], "left_out": [], "offered": [], "piece_chars": 0,
+                "index_chars": 0}
+    body, cut, left = fit(found, cmd, cap)
+    index, offered = pull_index(found, trace, pool, cmd)
+    if tier == tiers.FRONTIER:
+        return {"delivery": "index", "text": index, "cut": [], "left_out": [], "offered": offered,
+                "piece_chars": len(body), "index_chars": len(index)}
+    return {"delivery": "piece", "text": body, "cut": cut, "left_out": left, "offered": [],
+            "piece_chars": len(body), "index_chars": len(index)}
+
+
+PULL_HEAD = ("# Athos — know-how that may fit this request\n\n"
+             "The user's own ways of working closest to this request, best first. If one applies, read it with "
+             "`{cmd} show <id>` and follow it; if none does, ignore this list and don't mention it.\n")
+
+
+def _short(text: str, limit: int) -> str:
+    text = " ".join(str(text).split())
+    if len(text) <= limit:
+        return text
+    cut = text.rfind(" ", 0, limit - 1)
+    return text[:cut if cut > limit // 2 else limit - 1].rstrip(",;:(- ") + "…"
+
+
+def pull_index(found: list[store.Piece], trace: dict, pool: list[store.Piece], cmd: str = "athos",
+               lines: int = PULL_LINES, cap: int = PULL_CAP) -> tuple[str, list[str]]:
+    """The index a frontier model gets instead of the pieces: the router's choice first (and the pages it hands over
+    to), then the other candidates it scored, then the rest of the pieces in reach for this request (the scope the
+    hooks apply: this project's and the profile, never a piece the session may not see), most recently used first;
+    one line each with id, title and "when", at most `lines` lines and `cap` characters. Returns the text and the ids
+    it lists."""
+    byid = {p.id: p for p in pool}
+    order = [p.id for p in found] + [c["piece"] for c in trace.get("candidates") or []] + \
+        [p.id for p in _most_recent_first(pool)]
+    picked = [byid.get(pid) or next((p for p in found if p.id == pid), None) for pid in dict.fromkeys(order)]
+    head = PULL_HEAD.format(cmd=cmd)
+    out, ids, used = [head], [], len(head) + 1         # each line costs its own length and a newline
+    for p in picked:
+        if p is None or len(ids) >= lines:
+            continue
+        line = f"- `{p.id}` — {_short(p.title, 100)}. When: {_short(p.when, PULL_WHEN)}"
+        if used + len(line) + 1 > cap:
+            break
+        out.append(line)
+        ids.append(p.id)
+        used += len(line) + 1
+    return ("\n".join(out) + "\n", ids) if ids else ("", [])
 
 
 def finish_route(sid: str, total: int, added: dict[str, int] | None = None) -> None:
@@ -661,7 +735,7 @@ def note_route(sid: str, prompt: str, scope: dict, trace: dict, found: list[stor
     project = scope.get("project")
     kind = "empty" if not prompt.strip() else "harness" if person is False else "person"
     state = session.load(sid)
-    tier = tiers.describe(state.get("model"), piece_in_reach=bool(found))
+    tier = tiers.describe(state.get("model"), piece_in_reach=bool(found or trace.get("chosen")))
     printed = ev.request_print(prompt)
     if scope.get("public"):
         printed.pop("request_sha")               # a public repository: not even a fingerprint of the request
@@ -673,7 +747,9 @@ def note_route(sid: str, prompt: str, scope: dict, trace: dict, found: list[stor
               "store_pieces": in_store, "in_scope": in_scope,
               **printed, "request_kind": kind, "wrapper": wrapper, **trace,
               "thresholds": thresholds(), "injected_chars": injected, "injected_total": total, "ms": round(ms, 1)},
-             line=_route_line(kind, scope, found, injected, total), project=project)
+             line=(_offer_line(scope, trace.get("offered") or [], injected, total)
+                   if trace.get("delivery") == "index" and kind == "person"
+                   else _route_line(kind, scope, found, injected, total)), project=project)
     session.update(sid, collaborates=tier["collaborates"], **({"project": project} if project else {}))
 
 
@@ -688,6 +764,15 @@ def _route_line(kind: str, scope: dict, found: list[store.Piece], injected: int,
         return f"none{more} · {reason}"
     marker = " · public repository" if scope.get("public") else ""
     return f"loaded {loggable(found, scope.get('project'))} · {injected} chars{more} · {reason}{marker}"
+
+
+def _offer_line(scope: dict, offered: list[str], injected: int, total: int | None) -> str:
+    """log.md for a frontier request: the pieces its index offered (named as `loggable` allows), not loaded."""
+    byid = {p.id: p for p in store.all_pieces()}
+    listed = loggable([byid[i] for i in offered if i in byid], scope.get("project"))
+    more = f" · {total} chars in all" if total is not None and total != injected else ""
+    marker = " · public repository" if scope.get("public") else ""
+    return f"index of {len(offered)} ({listed}) · {injected} chars{more} · scope {scope.get('reason')}{marker}"
 
 
 def nameable(piece: store.Piece, project: str | None) -> bool:

@@ -5,7 +5,8 @@ lists of patterns (`fnmatch`, case-insensitive) kept in `<home>/config.json` und
 defaults below hold. A model no pattern matches counts as `apply`: an unknown model never learns.
 
 Two modes follow from the tier, for the phases that act on them: `learn` (frontier) and `collaborate` (apply). A
-frontier session also collaborates when a relevant piece is in reach. Nothing here changes what is loaded or saved.
+frontier session also collaborates when a relevant piece is in reach. The router delivers by tier (load.deliver): a
+frontier model gets an index of the pieces in reach and opens what it needs; an apply model gets the pieces.
 """
 
 from __future__ import annotations

@@ -119,7 +119,8 @@ class Verdicts(LogTestCase):
 
 class Reporting(LogTestCase):
     def test_success_rates_baseline_and_time_saved(self):
-        session.update("alpha", model="claude-opus-5-5")
+        # An apply model: the piece itself is added (a frontier model gets an index, and a piece counts once opened).
+        session.update("alpha", model="claude-sonnet-5-5")
         self.work("alpha", "first release", saving=RELEASE_PIECE, verdict="g", seconds=300)
         later = [("release 0.3.0 now", "g", 100), ("another release please", "c", 140), ("release again", None, 90)]
         for prompt, verdict, seconds in later:
@@ -129,7 +130,7 @@ class Reporting(LogTestCase):
         self.assertEqual((piece["uses"], piece["evaluated"], piece["success_rate"]), (3, 2, 0.5))
         self.assertEqual(piece["baseline"]["duration_s"], 300)
         self.assertAlmostEqual(piece["time_saved_s"], 300 - (100 + 140 + 90) / 3)
-        self.assertEqual((model["model"], model["tasks"], model["evaluated"]), ("claude-opus-5-5", 4, 3))
+        self.assertEqual((model["model"], model["tasks"], model["evaluated"]), ("claude-sonnet-5-5", 4, 3))
         self.assertAlmostEqual(model["success_rate"], 2 / 3)
 
     def test_loading_a_piece_and_saving_its_next_version_is_still_a_use(self):
