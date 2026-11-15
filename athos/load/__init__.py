@@ -785,8 +785,8 @@ def on_prompt(event: dict, cmd: str = "athos", defer: bool = False) -> str:
         conn = note_connectors(sid, found, cmd)
         extra += "\n" + conn + "\n" if conn else ""
         parts["connectors"] = len(conn or "")
-        from athos import replay                 # a cheaper model proven on this piece: the person hears it once
-        offer = replay.offer_text([p.id for p in found], cmd)
+        from athos import indicator, replay      # a cheaper model proven on this piece: the person hears it once
+        offer = "" if indicator.minimal() else replay.offer_text([p.id for p in found], cmd)
         extra += "\n" + offer + "\n" if offer else ""
         parts["offer"] = len(offer or "")
         if extra:
@@ -1047,14 +1047,18 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
     from athos import autolearn
     mode = autolearn.session_mode(sid)
     # An apply model never saves, so it gets no capture guide; a frontier one with autonomous learning gets its own.
+    from athos import indicator
+    quiet = indicator.minimal()
     if (text or first_run) and capture.enabled() and mode != autolearn.APPLY:
-        guide = capture.guide(cmd, auto=autolearn.autonomous(sid))
+        auto = autolearn.autonomous(sid)
+        guide = capture.guide(cmd, auto=auto, ask=autolearn.ask_mode(), minimal=quiet)
         text = (text + "\n\n" if text else "") + guide
         parts["guide"] = len(guide)
-        session.update(sid, guide=True)
+        session.update(sid, guide="auto" if auto else True)
     from athos import replay
     # A cheaper model proven on a piece in reach here: told once, at the session's start (never another project's).
-    offer = replay.offer_text(None if not event.get("cwd") else [p.id for p in here], cmd)
+    # The model says it in its reply, so the person reads it: only in the classic interface.
+    offer = "" if quiet else replay.offer_text(None if not event.get("cwd") else [p.id for p in here], cmd)
     if offer:
         text = (text + "\n\n" if text else "") + offer
         parts["offer"] = len(offer)

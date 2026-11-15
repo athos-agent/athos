@@ -59,6 +59,7 @@ class HookCase(TempHome):
 class EditsTest(HookCase):
 
     def test_a_hand_edit_is_offered_once_with_its_diff_and_noted_for_the_panels(self):
+        self.classic()      # the classic interface: the person reads this
         self.hook("prompt", {**self.ev, "prompt": "review a services contract for a client"})
         self.hook("tool", {**self.ev, "tool_name": "Bash",
                            "tool_input": {"command": "athos step review-a-services-contract#penalties"}})
@@ -233,6 +234,7 @@ class WhoChangedItTest(HookCase):
         self.assert_given_to_nobody(self.next_request())
 
     def test_by_hand_between_two_tool_calls(self):
+        self.classic()      # the classic interface: the person reads this
         self.report.write_text(REPORT.replace("should pay", "shall pay"))      # the person, while the agent thinks
         time.sleep(edits.MARGIN_S + 0.3)
         self.hook("tool", {**self.ev, "tool_name": "Read", "tool_input": {"file_path": "other.md"},
@@ -251,6 +253,7 @@ class WhoChangedItTest(HookCase):
         self.assertEqual(edit_events(self.home, "learned_from_edit")[0]["basis"][0], "changed_between_tool_calls")
 
     def test_by_hand_after_the_turn(self):
+        self.classic()      # the classic interface: the person reads this
         self.agent_runs("sed -i.bak 's/Fine of 5%/Fine of 6%/' report.md")
         self.hook("stop", self.ev)
         self.report.write_text(self.report.read_text().replace("should pay", "shall pay"))
@@ -269,6 +272,7 @@ class WhoChangedItTest(HookCase):
         self.assertEqual(nobody[0]["basis"], ["background_task_running"])
 
     def test_in_a_public_repository_the_events_keep_hashes_only(self):
+        self.classic()      # the classic interface: the person reads this
         (self.work / ".athos.toml").write_text('public = true\n')
         self.hook("prompt", {**self.ev, "prompt": "review a services contract for a client"})
         f = self.agent_writes("client-memo.md")

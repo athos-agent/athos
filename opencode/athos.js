@@ -48,6 +48,9 @@ export const AthosPlugin = async ({ directory, client }) => {
   }
   async function toastStep() {
     const st = status()
+    // Only in the classic interface (ATHOS_UI=classic or "ui": "classic" in config.json): the minimal one shows the
+    // person nothing on its own.
+    if (st?.ui !== "classic") return
     const p = st?.trail?.pieces?.[0]
     if (!p) return
     const es = st.lang === "es"

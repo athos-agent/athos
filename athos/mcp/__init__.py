@@ -167,7 +167,14 @@ def app_only(tool: dict) -> bool:
 def tools() -> list[dict]:
     """The tools this host gets: the pages' own ones (and the library, which is a page) only where a page can be
     drawn."""
-    return [t for t in TOOLS if not (app_only(t) or t["name"] in APPS_ONLY) or draws_apps()]
+    listed = [t for t in TOOLS if not (app_only(t) or t["name"] in APPS_ONLY) or draws_apps()]
+    from athos import indicator
+    if not indicator.minimal():
+        return listed
+    # The minimal interface: the trail panel no longer opens on its own when the model calls athos_find or
+    # athos_done (the person did not ask for it); the library, which they ask for, still opens.
+    return [{k: v for k, v in t.items() if k != "_meta"} if (t.get("_meta") or {}).get("ui", {}).get("resourceUri")
+            == UI_URI else t for t in listed]
 
 
 # The panel asks for its state every few seconds; which agents are here and their versions change only when the

@@ -1,15 +1,17 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
-import { announceText, barText, followingText, savedText, statusText, stepsText, trailRows, trailText, whyText, words }
-  from './ui'
+import { announceText, barText, followingText, indicatorText, savedText, statusText, stepsText, trailRows, trailText,
+  whyText, words } from './ui'
 
 type Body = Extract<Parameters<typeof test>[1], (...a: never[]) => unknown>
 type Harness = Parameters<Body>[0]
 type On = Parameters<Body>[1]
 
-// The store most tests start from: three pieces, one in use, and a last task that improved it and has no verdict yet.
+// The store most tests start from: three pieces, one in use, and a last task that improved it and has no verdict yet,
+// in the classic interface (ATHOS_UI=classic), where all of it is drawn.
 const PIECE = 'cut-a-release'
 const STATUS = {
+  ui: 'classic', state: 'collaborating', why: 'piece_delivered',
   pieces: 3, enabled: 3, loading: 'all', loaded: [PIECE], to_mark: 1,
   last: { task_id: 't1', result: 'unevaluated', pieces: [PIECE], saved: [], improved: [PIECE] },
   bars: null, last_saved: null, following: [],
@@ -19,7 +21,7 @@ const STATUS = {
  * `cli(args)` (args are what follows `python3 bin/athos`), toasts go nowhere, and what the status line is set to is
  * pushed to `statusLines` when a test passes one. Any other answer a test needs is registered beside it, before
  * `start`. */
-function fakeEngine(on: On, cli: (args: string[]) => string, statusLines?: unknown[]): void {
+function fakeEngine(on: On, cli: (args: string[]) => string, statusLines?: unknown[], toasts?: unknown[]): void {
   on('session.root', () => ({ value: '/work' }))
   on('process.run', (_, e) => {
     const stdout = cli((e as unknown as { argv: string[] }).argv.slice(2))
@@ -27,7 +29,7 @@ function fakeEngine(on: On, cli: (args: string[]) => string, statusLines?: unkno
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('ui.status', (_, e) => { statusLines?.push(e); return { value: undefined } })
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', (_, e) => { toasts?.push(e); return { value: undefined } })
 }
 
 /** `athos` answering every command with this status, as `athos status --json` would. */
@@ -268,4 +270,113 @@ test('the trail shows the strategy: the branch, whether the case took it, and th
   expect(rows).toContain('|  cuándo: every clause is checked')
   expect(rows).toContain('|  por qué: the client reads the table')
   expect(stepsText({ ...STATUS, trail: t } as never)).toBe('✓ #data → ▶ #comments')
+})
+
+
+// ------------------------------------------------------------------------------------------------ the minimal interface
+// What `athos status --ui` prints by default: the state alone.
+const brief = (state: string, lang = 'en') => ({ state, why: 'test', ui: 'minimal', lang })
+
+/** The prompt footer's mode labels, on a surface, with the engine's own labels. */
+const mountModes = ($: Harness, surface: 'terminal' | 'desktop', modes: string[] = []) =>
+  $.ui.mount({ plugin: 'athos', component: 'SessionMode', surface, props: { modes } } as never)
+
+test('the mark reads in the person\'s language and is absent while idle or in the classic interface', () => {
+  expect(indicatorText(brief('learning') as never)).toEqual({ color: 'red', text: 'Athos is learning' })
+  expect(indicatorText(brief('collaborating') as never)).toEqual({ color: 'green', text: 'Athos is collaborating' })
+  expect(indicatorText(brief('learning', 'es') as never)).toEqual({ color: 'red', text: 'Athos está aprendiendo' })
+  expect(indicatorText(brief('collaborating', 'es') as never)).toEqual({ color: 'green', text: 'Athos está colaborando' })
+  expect(indicatorText(brief('idle') as never)).toBe(undefined)
+  expect(indicatorText({ ...brief('learning'), ui: 'classic' } as never)).toBe(undefined)
+  expect(indicatorText(null)).toBe(undefined)
+})
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  for (const [state, lang, color, text] of [
+    ['learning', 'en', 'red', 'Athos is learning'], ['collaborating', 'en', 'green', 'Athos is collaborating'],
+    ['learning', 'es', 'red', 'Athos está aprendiendo'], ['collaborating', 'es', 'green', 'Athos está colaborando'],
+  ] as const) {
+    test(`minimal, ${surface}, ${lang}: ${state} is one square and its words beside the footer's labels`, async ($, on) => {
+      fakeEngine(on, always(brief(state, lang)))
+      await $.session.start({ cwd: '/work', surface, isInteractive: true })
+      const ui = await mountModes($, surface, ['focus'])
+      const square = await ui.find({ type: 'Text', text: '■' })
+      expect(square?.props?.color).toBe(color)
+      expect((await ui.find({ type: 'Text', text: new RegExp(text) }))?.text).toBeTruthy()
+      // The engine's own labels (`focus`) are still drawn, after the mark.
+      const tree = await ui.drawn() as unknown as { children: { type: string }[] }
+      expect(tree.children.at(-1)?.type).toBe('engine')
+      await ui.unmount()
+    })
+  }
+
+  test(`minimal, ${surface}: nothing of Athos while idle`, async ($, on) => {
+    fakeEngine(on, always(brief('idle')))
+    await $.session.start({ cwd: '/work', surface, isInteractive: true })
+    const ui = await mountModes($, surface)
+    expect(await ui.find({ type: 'Text', text: /Athos|■/ })).toBe(undefined)
+    await ui.unmount()
+  })
+}
+
+test('minimal: no status line, no band, no line under the prompt, no pane, no toast, whatever the state', async ($, on) => {
+  // Everything the classic interface would draw is in what `athos status` knows (a verdict to give, a save to offer,
+  // a trail, bars), yet the minimal interface reads only the state and draws only its mark.
+  const lines: { text?: string }[] = []
+  const opened: string[] = []
+  const toasts: unknown[] = []
+  const asked: string[] = []
+  fakeEngine(on, args => { asked.push(args.join(' ')); return JSON.stringify(brief('collaborating')) }, lines, toasts)
+  on('ui.open', (_, e) => { opened.push((e as unknown as { id: string }).id); return { value: { isPlaced: true } } })
+  on('ui.panes', () => ({ value: [] }))
+  on('prompt.submit', (_, e) => ({ text: (e as unknown as { text: string }).text }))
+  await start($)
+  await $.prompt.submit({ text: 'fix the parser' } as never)
+  const band = await mountBand($)
+  expect(await band.find({ type: 'Text', text: /athos|Athos|How did this task go|Save/ })).toBe(undefined)
+  expect(await band.find({ type: 'Button' })).toBe(undefined)
+  await band.unmount()
+  const hint = await $.ui.mount({ plugin: 'athos', component: 'PromptHint', surface: 'terminal',
+    props: { hint: '? for shortcuts', isDraft: false, isWorking: true } })
+  expect(await hint.find({ type: 'Text', text: /athos|following/ })).toBe(undefined)
+  await hint.unmount()
+  expect(lines.every(l => !l.text)).toBe(true)
+  expect(opened).toEqual([])
+  expect(toasts).toEqual([])
+  expect(asked.every(a => a === 'status --ui')).toBe(true)
+})
+
+test('classic: the old interface is all there, and the mark is not', async ($, on) => {
+  const lines: { text?: string }[] = []
+  fakeEngine(on, always(STATUS), lines)
+  await start($)
+  expect(lines.at(-1)?.text).toBe('3 ways of working · 1 in use · 1 to mark')
+  const modes = await mountModes($, 'terminal')
+  expect(await modes.find({ type: 'Text', text: /Athos is|■/ })).toBe(undefined)
+  await modes.unmount()
+  const band = await mountBand($)
+  expect((await band.find({ type: 'Text', text: /How did this task go/ }))?.text).toBeTruthy()
+  await band.unmount()
+})
+
+test('minimal: after the turn, while a verification still runs, the mark is looked at again until it goes', async ($, on) => {
+  const clock = mock.clock(on)
+  let state = 'learning'
+  const asked: string[] = []
+  fakeEngine(on, args => { asked.push(args.join(' ')); return JSON.stringify(brief(state)) })
+  on('turn.complete', () => ({ text: '' }))
+  await start($)
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as never)
+  await clock.advance(2000)                                  // the look shortly after the turn
+  const settled = asked.length
+  await clock.advance(5000)
+  expect(asked.length).toBeGreaterThan(settled)              // still learning: looked at again
+  state = 'idle'
+  await clock.advance(5000)                                  // the verification ended: the mark goes
+  const last = asked.length
+  await clock.advance(30000)
+  expect(asked.length).toBe(last)                            // and nobody polls an idle Athos
+  const modes = await mountModes($, 'terminal')
+  expect(await modes.find({ type: 'Text', text: /Athos|■/ })).toBe(undefined)
+  await modes.unmount()
 })

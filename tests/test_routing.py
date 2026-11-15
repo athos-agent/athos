@@ -105,7 +105,7 @@ class PrivateTest(Folders):
         own = self.hook("prompt", {"session_id": "s2", "cwd": self.folder("beta"),
                                    "prompt": "triage the clinic intake form"})
         self.assertIn("Triage the clinic intake form", own)                     # its own project: it loads
-        self.assertIn("clinic-intake", log_text().splitlines()[-1])
+        self.assertIn("clinic-intake", [x for x in log_text().splitlines() if "] route |" in x][-1])
 
 
 class MarkerTest(Folders):

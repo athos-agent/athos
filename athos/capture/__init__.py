@@ -92,14 +92,12 @@ AUTO_FORMAT = _save_format().replace("{cmd} save <<'EOF'", "{cmd} save --auto <<
 
 AUTO_GUIDE = """## Learning on its own (Athos)
 
-Athos learns from this session without asking the person. When a task ends after real work that objective checks
-proved (a test run, a build or a linter that passed, a commit), Athos's Stop hook says so once, in one short line. Then,
-if the task taught something reusable (how it was solved, a rule that was not obvious, how to tell it went right),
-save exactly one new piece by running:
+Athos learns from this session without asking the person. {when}, if the task taught something reusable (how it was
+solved, a rule that was not obvious, how to tell it went right), save exactly one new piece by running:
 
 {format}
 
-or, if nothing reusable came out of it, just stop. Every step needs a **Check:**: the command in backticks that proves
+Otherwise do nothing, and don't mention Athos. Every step needs a **Check:**: the command in backticks that proves
 it went right and can be run again later in this repository, or the fact anyone can observe; a piece without a
 runnable Check is never verified. Write only what the task showed. No secrets, emails, links, folders of this computer
 (use paths relative to the repository) or other projects' names: a piece that carries any is not saved. It is kept as
@@ -110,11 +108,39 @@ print the piece.
 """
 
 
-def guide(cmd: str = "athos", auto: bool = False) -> str:
-    """The capture instructions, given once at session start (out of the user's sight) so the Stop hook can be short.
-    With `auto`, the instructions of autonomous learning (athos/autolearn.py) instead."""
+# When the model keeps what a task taught, by `autolearn.ask`: on its own before its final answer (`guide`, the
+# default: nothing is said at the end of the task), or when the Stop hook's one line asks (`stop`).
+AUTO_WHEN = {
+    "guide": "Before your final answer to a task whose work an objective check proved in this session (a test run, a "
+             "build or a linter that passed, a commit), as the last thing you do",
+    "stop": "When a task ends after real work that objective checks proved (a test run, a build or a linter that "
+            "passed, a commit), Athos's Stop hook says so once, in one short line. Then",
+}
+
+# The person's own save, for a session where they see nothing of Athos (the minimal interface): no button, no line.
+GUIDE_MINIMAL = """## Saving know-how (Athos)
+
+When the person asks to keep how a task was done (a request that starts "Athos · save:", or in their own words), save
+exactly one piece by running:
+
+{format}
+
+If a piece already loaded in this session covers the task, improve it (its `id:` and a `note:`) instead of creating
+a new one. Otherwise never bring saving up. Don't announce the save in your answer and don't print the piece.
+
+"""
+
+
+def guide(cmd: str = "athos", auto: bool = False, ask: str = "guide", minimal: bool = False) -> str:
+    """The capture instructions, given once at session start (out of the user's sight) so the Stop hook can be short
+    or silent. With `auto`, the instructions of autonomous learning (athos/autolearn.py) instead, worded for
+    `autolearn.ask` (`guide`: save before the final answer; `stop`: when the Stop hook's line asks). With `minimal`
+    (and not `auto`), the person's own save only: nothing offers or asks for it."""
     if auto:
-        return AUTO_GUIDE.format(format=AUTO_FORMAT.format(cmd=cmd), cmd=cmd)
+        return AUTO_GUIDE.format(format=AUTO_FORMAT.format(cmd=cmd), cmd=cmd,
+                                 when=AUTO_WHEN.get(ask, AUTO_WHEN["guide"]))
+    if minimal:
+        return GUIDE_MINIMAL.format(format=FORMAT.format(cmd=cmd), cmd=cmd)
     return GUIDE.format(format=FORMAT.format(cmd=cmd), cmd=cmd)
 
 

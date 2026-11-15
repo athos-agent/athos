@@ -40,8 +40,8 @@ Requires Python 3.11+ (the installer picks the newest one you have). No other de
 
 ## Use
 
-Athos works on its own: it loads matching know-how with each request and, after real work, offers to save what the
-task taught. These are the commands you will reach for:
+Athos works on its own: it loads matching know-how with each request and, on a frontier model, keeps what a task
+proved without asking (see "Autonomous learning" below). These are the commands you will reach for:
 
 ```
 /athos:list          see your know-how and what is enabled
@@ -49,6 +49,41 @@ task taught. These are the commands you will reach for:
 /athos:report        what each piece and each model brings to your work
 /athos:codex         take your know-how to Codex
 ```
+
+### What you see: one small square
+
+In Claude Code (the terminal and the Desktop app's Code tab) Athos shows one thing, at the right of the prompt's
+footer, beside Claude Code's own mode labels, while the agent works and while it waits:
+
+| state | what you see | when |
+|---|---|---|
+| learning | a red ■ and `Athos is learning` (`Athos está aprendiendo`) | the session runs on a frontier model with autonomous learning on, no piece is in use, and the task in progress did work or produced evidence (a verification, a commit), or a save or an independent verification this session started is still running |
+| collaborating | a green ■ and `Athos is collaborating` (`Athos está colaborando`) | one of your pieces is in use for the task in progress: given to an apply model, or opened by a frontier model from the index; until the task ends |
+| idle | nothing | everything else: Athos off, nothing matched, a question that only read, between tasks |
+
+If both could apply, collaborating wins. Nothing else is drawn and no hook line is shown to you: no status line, no
+trail pane, no band above the prompt or its buttons, no toasts, no "Stop hook feedback" line, and the model is not
+asked to pass Athos's offers on to you (a cheaper model, the overnight review, a rule from your edits, a re-check).
+What Athos decides still goes to its log (`athos audit`), and every change of the square is one `ui` event there.
+
+`athos status --json` carries the same state as `state` (`learning`, `collaborating`, `idle`) with a short `why`
+(`gathering_evidence`, `task_with_work`, `save_asked`, `verifying`, `piece_delivered`, `piece_opened`, `nothing_in_use`,
+`between_tasks`, `no_task`, `off`, …); `athos status --ui` is what the hooks module polls (only that, in this
+interface). Reading it writes nothing, except the one `ui` event and `sessions/ui/<session>.json` when the state
+changes. A task whose session has not moved in 20 minutes is shown as idle (an interrupted turn never reaches the Stop
+hook).
+
+**The classic interface.** `ATHOS_UI=classic` in the environment Claude Code starts with, or `"ui": "classic"` in
+`~/.athos/config.json` (which also reaches Desktop's chat and the hooks module however Claude Code was started), brings
+back everything below: the status line, the trail pane, the band with [Save], [Not now], [Didn't apply], [Show trail],
+[Change this step] and [Keep this rule], the verdict row, the bars, the "following" line and its steps, the toasts,
+and the lines the model was asked to tell you. `ATHOS_UI=minimal` (or `"ui": "minimal"`) is the default.
+
+What stays visible where, in the minimal interface: in Desktop's regular chat the trail panel no longer opens on its
+own (the model's `athos_find` and `athos_done` no longer carry it), and `athos_library` still opens the library when
+you ask; in OpenCode the sidebar stays where you put it, but its step toasts are off; `athos watch`, `athos watch
+--web` and `athos library` show what they always showed, only when you run them. A command you type yourself
+(`athos list`, `athos mark`, …) prints as before.
 
 When a piece has proven itself, hand the task to a smaller, cheaper model: on your own machine through
 [Ollama](https://ollama.com), or on Meta's models through Meta Model API (`--backend meta`, key in `MODEL_API_KEY` or
@@ -567,28 +602,47 @@ told about it and asked to propose a rule.
 **Saving on its own, on a frontier model.** When a task on a frontier model ends with grounds to keep it (the same
 rule that used to ask: an edit within three tool calls, five commands that changed something, or a checklist
 followed, and nothing saved yet), Athos looks at its evidence. At least one strong item for the work (a verification
-that passed, a commit), no failed verification as the last one, and no revert or edit of yours after the last success:
-then the Stop hook says one short line to the model, which you also see (Claude Code shows it as "Stop hook feedback"):
+that passed, a commit), no failed verification as the last one, and no revert or edit of yours after the last success.
+
+How the model hears it is `autolearn.ask` in `~/.athos/config.json`:
+
+- `"guide"` (the default): nothing is said at the end of the task. The session guide (hidden, at session start, and
+  again on the first request of a session whose model became a frontier one later) tells a frontier model once: before
+  its final answer to a task whose work an objective check proved in this session, if the task taught something
+  reusable, save it with `athos save --auto`; otherwise do nothing and don't mention Athos. The Stop hook only records
+  the task as `qualified`.
+- `"stop"`: the Stop hook also says one short line to the model when a task qualifies, which you also see (Claude Code
+  shows it as "Stop hook feedback"; the square stays red while the model answers it):
 
 ```
 Athos: if this task taught something reusable, keep it as one piece with Check lines (`athos save --auto`, as the session guide says); otherwise just stop.
 ```
 
-Otherwise nothing is said. The session guide (hidden, at session start) tells a frontier model how: one new piece,
-every step with a Check, no secrets, emails, links, folders of this computer or other projects' names. `athos save
---auto` then saves it without asking you, as a `candidate` of the current project only (`visibility: project`), with
+The trade-off: the line arrives at the moment the task ends, with the evidence fresh, so a model acts on it more
+reliably than on an instruction read at the start of a long session, which it may forget or weigh against your
+request; but you read it after every qualifying task. With `guide`, check that saves still happen: `athos audit`
+prints, per session, `learning on its own: N saved · M task(s) qualified without a save before the end · K ended with
+nothing saved` (and how many qualified tasks ran without the session guide); qualified tasks that keep ending with
+nothing saved, while saves stay at zero, mean the model is not acting on the guide, and `"ask": "stop"` brings the line
+back.
+
+The guide says how: one new piece, every step with a Check, no secrets, emails, links, folders of this computer or
+other projects' names. `athos save --auto` then saves it without asking you, as a `candidate` of the current project only (`visibility: project`), with
 `learned_by`, the evidence summary, `confidence: 0.3` and the risk the detector finds, after two checks: the task's
 evidence must still qualify, and the private-data detector of `athos share` must find nothing (emails, phone and ID
 numbers, links, folders of this computer, another project's name, your name); if it finds something the piece is not
 saved and the model is told which kinds, never the text. It never changes an existing piece. A candidate does not
-reach an apply model until it is verified. Every decision is a `learn` event: asked, saved, or skipped with its reason
-(no strong evidence, a failed last verification, private data, an apply model, or the model stopping without saving).
+reach an apply model until it is verified. Every decision is a `learn` event: qualified (`ask: guide`), asked (`ask:
+stop`), saved, or skipped with its reason (no strong evidence, a failed last verification, private data, an apply
+model, or the model stopping without saving).
 
 On an apply model nothing is ever offered or asked for, and `athos save` (with or without `--auto`) refuses with a line
 saying why: apply models never create or change a piece. A model Athos could not resolve at all keeps the person's own
 save path as before, but never saves on its own. Another agent's models (Codex, Muse Code, OpenCode) are apply models
 until you name them frontier with `athos tiers add frontier <pattern>`. `"autolearn": {"on": false}` in
-`~/.athos/config.json` turns autonomous learning off: a frontier session is then offered [Save] (or asked) as before.
+`~/.athos/config.json` turns autonomous learning off: a frontier session is then offered [Save] (or asked) as before,
+in the classic interface; in the minimal one nothing is offered or asked in sight (a headless `claude -p` run, or
+`ATHOS_ASK=model`, still asks the model), and the guide only says how to save when you ask for it.
 
 **The worker never grades its own work.** Whether the work was right is decided by an independent verifier, not by
 the model that did it. Right after an autonomous save Athos writes a folder for it, `~/.athos/verify/<id>-v<n>-<task>/`:
@@ -825,8 +879,9 @@ athos opencode install       writes ~/.config/opencode/plugins/athos.js (it runs
 ```
 
 With any model OpenCode runs, the pieces that match each message go into its system prompt, every task is recorded
-with OpenCode's own token counts, and after a turn that changed something or followed a checklist Athos asks once
-whether to save or improve a piece, as in Claude Code. `athos opencode uninstall` removes it.
+with OpenCode's own token counts, and, in the classic interface, after a turn that changed something or followed a
+checklist Athos asks once whether to save or improve a piece, and a toast follows the steps; in the minimal one
+(the default) neither. `athos opencode uninstall` removes it.
 
 ### In Claude Desktop
 
@@ -835,8 +890,9 @@ the trail pane beside the transcript. For the regular **chat**, which takes MCP 
 as a Desktop extension: `athos desktop` builds `dist/athos.mcpb`; double-click it (or drag it into Settings →
 Extensions). It runs `athos mcp` against your own `~/.athos`.
 
-In the chat, Athos finds the know-how for each request (`athos_find`) and opens its **trail panel** in the
-conversation (MCP Apps): a greeting, the piece the task walks with each step ✓ done, ▶ now and ○ ahead as the model
+In the chat, Athos finds the know-how for each request (`athos_find`) and, in the classic interface (`"ui": "classic"`
+in `~/.athos/config.json`), opens its **trail panel** in the conversation (MCP Apps); in the minimal one (the default)
+the panel does not open on its own. The panel: a greeting, the piece the task walks with each step ✓ done, ▶ now and ○ ahead as the model
 reports it (`athos_step`), the steps your know-how lacks, and two buttons: **Change this step** (you write how the step
 changes; the piece is improved) and **Save as a way of working**. **Keep beside** pins the panel where the host allows it. In a
 chat without MCP Apps, the same tools answer as text.

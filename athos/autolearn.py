@@ -4,6 +4,10 @@ evidence; apply models never create or change a piece, they only add evidence.
 The settings live in `<home>/config.json` under `"autolearn"`; anything not saved there takes the default below.
 
     on                  autonomous learning on frontier models (false: the [Save] offer and the model ask, as before)
+    ask                 how the model is told to keep what a task taught: `guide` (the default) says it once, out of
+                        the person's sight, in the session guide, and the Stop hook only records; `stop` also has the
+                        Stop hook say one short line when a task qualifies, which is more reliable (it arrives right
+                        when the task ends) but the person reads it as "Stop hook feedback"
     verifier.on         the independent verifier runs after an autonomous save
     verifier.models     the models it may use (Claude Code aliases or ids); null: one per frontier family the tiers
                         name, a different one from the model that did the work when there are two
@@ -28,6 +32,7 @@ from athos import session
 
 DEFAULTS = {
     "on": True,
+    "ask": "guide",
     "verifier": {"on": True, "models": None, "timeout_s": 300, "max_usd_per_run": 0.5},
     "replay": {"on": False, "model": "haiku"},
     "budget": {"runs_per_day": 6, "usd_per_day": 1.0, "usd_estimate_per_run": 0.25},
@@ -72,8 +77,22 @@ def session_mode(sid: str | None) -> str:
 
 def autonomous(sid: str | None) -> bool:
     """Whether this session learns on its own: a frontier model, with autonomous learning on and capture not off."""
+    return autonomous_state(session.load(sid)) if sid else False
+
+
+def autonomous_state(state: dict) -> bool:
+    """`autonomous` for a session state already read."""
     from athos import capture
-    return capture.enabled() and settings().get("on") is not False and session_mode(sid) == LEARN
+    return capture.enabled() and settings().get("on") is not False and mode_for(state.get("model")) == LEARN
+
+
+ASKS = ("guide", "stop")
+
+
+def ask_mode() -> str:
+    """`guide` (the default) or `stop`: where the instruction to keep what a task taught reaches the model."""
+    value = str(settings().get("ask") or "guide").strip().lower()
+    return value if value in ASKS else "guide"
 
 
 def tells_edits(sid: str | None) -> bool:
@@ -168,9 +187,12 @@ ASK = {"en": "Athos: if this task taught something reusable, keep it as one piec
 
 
 def stop_decision(sid: str, state: dict, grounds: str, cmd: str = "athos") -> dict | None:
-    """The Stop hook on a frontier model with autonomous learning: a task with grounds (real work, or a checklist
-    followed: capture._grounds_to_ask) and strong evidence (evidence.qualifies) gets one short line asking the model to
-    write what is reusable with `athos save --auto`; anything else ends quietly. Every decision is a `learn` event."""
+    """The Stop hook on a frontier model with autonomous learning, for a task with grounds (real work, or a checklist
+    followed: capture._grounds_to_ask) that did not save. Without strong evidence (evidence.qualifies) it ends quietly
+    (`skipped`). With it: under `ask: guide` (the default) nothing is said, since the session guide already told the
+    model to save before finishing, and the task is recorded as `qualified`; under `ask: stop` the model gets one
+    short line asking it to write what is reusable with `athos save --auto` (`asked`). Either way the next request
+    records `model_saved_nothing` if no save came. Every decision is a `learn` event."""
     from athos import capture, evidence, start
     if not grounds:
         return None
@@ -181,13 +203,17 @@ def stop_decision(sid: str, state: dict, grounds: str, cmd: str = "athos") -> di
         session.update(sid, tools_since_capture=0, work_since_capture=0, edits_since_capture=0, checklist=False,
                        checklist_typed=False)
         return None
+    how = ask_mode()
     session.update(sid, tools_since_capture=0, work_since_capture=0, edits_since_capture=0, checklist=False,
-                   checklist_typed=False, asked=state.get("asked", 0) + 1,
-                   auto_ask={"task_id": state.get("task_id"), "answered": False})
-    note(sid, state, "asked", reason, items, grounds=grounds)
+                   checklist_typed=False, asked=state.get("asked", 0) + (how == "stop"),
+                   auto_ask={"task_id": state.get("task_id"), "answered": False, "ask": how})
+    note(sid, state, "asked" if how == "stop" else "qualified", reason, items, grounds=grounds, ask=how,
+         guide=bool(state.get("guide") == "auto"))
+    if how != "stop":
+        return None
     lang = "es" if start.lang() == "es" else "en"
     text = ASK[lang].format(cmd=cmd)
-    if not state.get("guide"):           # no session guide in context: the format comes along
+    if state.get("guide") != "auto":     # no autonomous session guide in context: the format comes along
         text += "\n\n" + capture.AUTO_FORMAT.format(cmd=cmd)
     return {"decision": "block", "reason": text}
 
@@ -200,7 +226,7 @@ def on_next_request(sid: str | None) -> None:
     state = session.load(sid)
     asked = state.get("auto_ask") or {}
     if asked and not asked.get("answered") and asked.get("task_id") == state.get("task_id"):
-        note(sid, state, "skipped", "model_saved_nothing")
+        note(sid, state, "skipped", "model_saved_nothing", ask=asked.get("ask") or "stop")
     if asked:
         session.update(sid, auto_ask=None)
 

@@ -424,6 +424,16 @@ def running() -> bool:
         return False
 
 
+def running_since(since: float) -> bool:
+    """A verifier run is under way and started at or after `since` (a session's `verifying_since`): the lock is
+    fresh and was taken no earlier than a few seconds before that moment. One stat, for the indicator's polls."""
+    try:
+        taken = _lock().stat().st_mtime
+    except OSError:
+        return False
+    return running() and taken >= since - 5
+
+
 def spawn(athos_cmd: Path, args: list[str], popen=subprocess.Popen) -> bool:
     """Start `athos verify …` detached, at low priority, printing nothing: the hook or the save never waits. Nothing
     starts with ATHOS_SPAWN=off (the tests) unless a stub `popen` is passed."""

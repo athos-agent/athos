@@ -1,5 +1,5 @@
 {
-  "description": "Athos: the trail pane, status line and band (ui.tsx), and the moments bin/athos records (session start, each request, each tool and each failed one, each answer).",
+  "description": "Athos: one small mark while it learns or collaborates (ui.tsx; ATHOS_UI=classic brings back the trail pane, status line and band), and the moments bin/athos records (session start, each request, each tool and each failed one, each answer).",
   "modules": ["./ui.tsx"],
   "hooks": {
     "SessionStart": [{ "hooks": [{ "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/athos\" hook session-start" }] }],

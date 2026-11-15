@@ -195,15 +195,18 @@ Teach a task once, in any of these tools, and the others follow it:
 | **Muse Code** (Meta) | the same plugin as Claude Code | a lawyer's contract review followed step by step; tokens from Muse's own log |
 | **OpenCode** (any model) | plugin | the same review with Meta's Muse Spark; Athos asked, and Muse improved the piece |
 
-In all four, the pieces that match a request are loaded and the agent opens by saying which of your ways of working it
-follows and how it applies; every task is recorded with the model that answered; and after real work, or a task that
-followed a checklist, Athos offers to save or improve a piece. A piece written in OpenCode loads in Claude Code the
-next day.
+In all four, the pieces that match a request are loaded; every task is recorded with the model that answered; and on
+a frontier model, a task whose work a test, a build or a commit proved can be kept as a new piece without asking you,
+which an independent check verifies before a cheaper model ever gets it. A piece written in OpenCode loads in Claude
+Code the next day.
 
-In Claude Code, the band above the prompt says it in one place: which of your ways of working the task used, how it
-has done so far and which words loaded it, with **Didn't apply** when it didn't fit (those words won't load it again);
-**Save** when the task is worth keeping, so the AI is not asked after every task; and **Good / Corrected / Failed**.
-Plain words count too: "ok excelente, …" marks the last task good. Only the last week's tasks wait for a mark.
+In Claude Code, Athos shows you one thing, at the right of the prompt's footer: a small red ■ with "Athos is learning"
+while it learns from the task, a green ■ with "Athos is collaborating" while one of your ways of working is in use, and
+nothing otherwise. Everything else stays out of sight and goes to its log (`athos audit`). The earlier interface (a
+band above the prompt with **Didn't apply**, **Save** and **Good / Corrected / Failed**, the trail pane, the status
+line) comes back with `ATHOS_UI=classic` or `"ui": "classic"` in `~/.athos/config.json`
+([details](docs/REFERENCE.md#what-you-see-one-small-square)). Plain words count too: "ok excelente, …" marks the last
+task good.
 
 **It starts to pay off on a cheaper model.** On five public bench tasks in five domains (code, data, devices, a
 planning method, finance operations), Meta's Muse Spark did 25 of 25 runs right with the know-how and 2 of 25 without

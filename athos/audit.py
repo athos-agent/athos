@@ -521,7 +521,23 @@ def _summary(c: _Ctx) -> dict:
                                 or len(c.of("learned_from_edit"))),
             "models": sorted({e.get("model") for e in c.starts if e.get("model")}),
             "triggers": len(c.of("trigger")), "hook_errors": len(c.of("hook_error")),
-            "own_pieces": len(c.own), "audit_events": bool(set(e.get("type") for e in c.evs) & AUDIT_TYPES)}
+            "own_pieces": len(c.own), "audit_events": bool(set(e.get("type") for e in c.evs) & AUDIT_TYPES),
+            "learning": _learning(c), "ui_changes": len(c.of("ui"))}
+
+
+def _learning(c: _Ctx) -> dict:
+    """Whether the model keeps what tasks taught on its own: the frontier tasks that qualified (strong evidence, no
+    save before the end; `qualified` under `ask: guide`, `asked` under `ask: stop`), the autonomous saves, the tasks
+    that ended without one (`model_saved_nothing`), saves refused, and qualified tasks whose session never got the
+    autonomous guide."""
+    learns = c.of("learn")
+    by = lambda d, r=None: [e for e in learns if e.get("decision") == d and (r is None or e.get("reason") == r)]
+    return {"qualified": len(by("qualified")), "asked": len(by("asked")), "saved": len(by("saved")),
+            "saved_nothing": len(by("skipped", "model_saved_nothing")),
+            "refused": len([e for e in by("skipped") if e.get("reason") not in (
+                "model_saved_nothing", "no_strong_evidence", "last_verification_failed", "correction_after_success",
+                "apply_model")]),
+            "without_guide": len([e for e in by("qualified") if not e.get("guide")])}
 
 
 def _public_not_declared(c: _Ctx, cwd: str | None) -> dict:
@@ -582,6 +598,13 @@ def render(report: dict) -> str:
                      f"loads in {m['tasks_with_loads']} tasks, another project's in {m['loads_other_project']} · "
                      f"{m['edits_to_person']} edits given to the person · models {', '.join(m['models']) or '-'} · "
                      f"{m['triggers']} triggers · {m['hook_errors']} hook errors · {m['own_pieces']} pieces of its own")
+        learning = m.get("learning") or {}
+        if any(learning.values()):
+            lines.append(f"  learning on its own: {learning['saved']} saved · {learning['qualified'] + learning['asked']}"
+                         f" task(s) qualified without a save before the end ({learning['asked']} asked at the stop) · "
+                         f"{learning['saved_nothing']} ended with nothing saved · {learning['refused']} save(s) refused"
+                         + (f" · {learning['without_guide']} without the session guide" if learning['without_guide']
+                            else ""))
         if not m["audit_events"]:
             lines.append("  (recorded before the audit events: some rules are partial or could not be checked)")
         for r in s["rules"]:

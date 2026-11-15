@@ -54,6 +54,7 @@ class McpAppTest(TempHome):
         return {"jsonrpc": "2.0", "id": i, "method": "tools/call", "params": {"name": name, "arguments": args}}
 
     def test_the_panel_is_offered_only_to_hosts_that_draw_it(self):
+        self.classic()      # the classic interface: the person reads this
         tools = self.rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]["result"]["tools"]
         find = next(t for t in tools if t["name"] == "athos_find")
         self.assertEqual(find["_meta"]["ui"]["resourceUri"], "ui://athos/trail")
@@ -138,6 +139,7 @@ class McpAppTest(TempHome):
         self.assertEqual(rating.take_pending("claude-desktop"), "")
 
     def test_the_task_closes_with_a_receipt_of_what_was_learned_and_what_else_fits(self):
+        self.classic()      # the classic interface: the person reads this
         store.create("Release the greet package", "releasing greet with a new option",
                      BODY + "\n## #push-tag\n**Do:** push.\n", piece_id="release")
         store.create("Write the release notes", "writing the release notes of greet for a new version",

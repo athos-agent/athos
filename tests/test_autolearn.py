@@ -314,7 +314,7 @@ class _HookedTask(TempHome):
         os.makedirs(self.work)
         self.ev = {"session_id": "f1", "cwd": self.work, "transcript_path": None}
 
-    def task(self, model="claude-opus-5-5", verify=True, ok=True, edits=4):
+    def task(self, model="claude-opus-5-5", verify=True, ok=True, edits=4, stop=True):
         self.cli.send("session-start", {**self.ev, "model": model})
         self.cli.send("prompt", {**self.ev, "prompt": "fix the parser and add a test"})
         for _ in range(edits):
@@ -325,7 +325,7 @@ class _HookedTask(TempHome):
             event.update({"tool_response": {"stdout": "OK", "stderr": "", "interrupted": False}} if ok
                          else {"error": "Exit code 1"})
             self.cli.send(name, event)
-        return self.cli.send("stop", self.ev)
+        return self.cli.send("stop", self.ev) if stop else None
 
     def learns(self):
         from athos import eval as ev
@@ -336,11 +336,9 @@ class AutonomousSaveTest(_HookedTask):
     """A frontier task, then the model's `athos save --auto`."""
 
     def test_a_qualifying_frontier_task_with_strong_evidence_saves_a_candidate(self):
-        asked = self.task()
-        line = asked["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("save --auto", line)
-        self.assertEqual(len(line.splitlines()), 1)                         # one short line: the person sees it
-        self.assertLess(len(line), 200)
+        # By default (`autolearn.ask: guide`) the Stop hook says nothing: the session guide told the model to save
+        # before its final answer, and the hook records that the task qualified.
+        self.assertIsNone(self.task())
         done = self.cli.run_athos("save", "--auto", stdin=PIECE, cwd=self.work)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("as a candidate of demo", done.stdout)
@@ -350,8 +348,35 @@ class AutonomousSaveTest(_HookedTask):
         self.assertIn("verify:unittest:ok", piece.evidence)
         self.assertTrue(any(e.startswith("task:") for e in piece.evidence))
         decisions = [(e["decision"], e["reason"]) for e in self.learns()]
-        self.assertEqual(decisions, [("asked", "strong_evidence"), ("saved", "strong_evidence")])
+        self.assertEqual(decisions, [("qualified", "strong_evidence"), ("saved", "strong_evidence")])
+        self.assertEqual((self.learns()[0]["ask"], self.learns()[0]["guide"]), ("guide", True))
         self.assertEqual(self.learns()[-1]["checks"], 2)
+
+    def test_as_the_guide_says_the_model_saves_before_its_answer_and_the_stop_hook_stays_silent(self):
+        self.task(stop=False)
+        done = self.cli.run_athos("save", "--auto", stdin=PIECE, cwd=self.work)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.cli.run_athos("hook", "tool", stdin=json.dumps({**self.ev, "tool_name": "Bash", "tool_input": {
+            "command": "athos save --auto <<'EOF'"}}))
+        self.assertIsNone(self.cli.send("stop", self.ev))
+        self.assertEqual([e["decision"] for e in self.learns()], ["saved"])
+
+    def test_the_guide_says_to_save_before_the_final_answer(self):
+        opening = self.cli.context(self.cli.send("session-start", {**self.ev, "model": "claude-opus-5-5"}))
+        self.assertIn("Before your final answer", opening)
+        self.assertIn("save --auto", opening)
+        self.assertNotIn("Stop hook", opening)
+
+    def test_ask_stop_brings_back_the_one_line_at_the_stop(self):
+        Path(self.home, "config.json").write_text(json.dumps({"autolearn": {"ask": "stop"}}))
+        opening = self.cli.context(self.cli.send("session-start", {**self.ev, "model": "claude-opus-5-5"}))
+        self.assertIn("Stop hook says so once", opening)
+        asked = self.task()
+        line = asked["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("save --auto", line)
+        self.assertEqual(len(line.splitlines()), 1)                         # one short line: the person sees it
+        self.assertLess(len(line), 200)
+        self.assertEqual((self.learns()[-1]["decision"], self.learns()[-1]["ask"]), ("asked", "stop"))
 
     def test_without_strong_evidence_nothing_is_asked_or_saved(self):
         self.assertIsNone(self.task(verify=False))
@@ -384,7 +409,7 @@ class AutonomousSaveTest(_HookedTask):
     def test_the_model_that_stops_saving_nothing_is_recorded(self):
         self.task()
         self.cli.send("prompt", {**self.ev, "prompt": "thanks, next thing"})
-        self.assertEqual(self.learns()[-1]["reason"], "model_saved_nothing")
+        self.assertEqual((self.learns()[-1]["reason"], self.learns()[-1]["ask"]), ("model_saved_nothing", "guide"))
 
     def test_an_existing_piece_is_never_changed_autonomously(self):
         old = store.create("Old", "old", "x", projects=["demo"])

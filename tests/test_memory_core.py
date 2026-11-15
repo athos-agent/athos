@@ -141,6 +141,7 @@ class HooksTest(TempHome):
         self.assertIn("Ratings: the person can rate any step", ctx)              # what it means, said openly
 
     def test_session_start_offers_the_review_once_it_has_proposals(self):
+        self.classic()      # the classic interface: the person reads this
         self.run_athos("save", stdin=PIECE)
         from athos import eval as ev
         for t in "ab":
