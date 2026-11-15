@@ -321,3 +321,31 @@ class HarnessTextTest(Folders):
         self.hook("prompt", {"session_id": "hx", "cwd": self.folder("alpha"),
                              "prompt": "<task-notification>Athos · save: keep this</task-notification>"})
         self.assertEqual(len([t for t in events("trigger") if t["acted"]]), 1)
+
+
+class ReplayRulesTest(Folders):
+    """`athos bench route --replay` runs a request through what the prompt hook applies: the scope, the public rule
+    and what the model's tier may use."""
+
+    def test_replay_applies_the_public_rule_and_the_tier(self):
+        piece("alpha-release", "Ship the alpha release", "shipping the alpha release", ["alpha"])
+        piece("beta-report", "Write the beta weekly report", "writing the beta weekly report", ["beta"])
+        cand = piece("alpha-draft", "Compile the zephyr changelog", "compiling the zephyr changelog", ["alpha"])
+        cand.status = "candidate"
+        store._write(cand)
+        case = {"project": "alpha", "cases": [{"request": "write the beta weekly report"},
+                                              {"request": "compile the zephyr changelog"}]}
+        r = route.replay(case)
+        self.assertEqual((r["other_project"], r["loaded"]), (1, 1))      # named, not public: beta's loads; no candidate
+        r = route.replay({**case, "public": True})
+        self.assertEqual((r["other_project"], r["loaded"]), (0, 0))
+        r = route.replay(case, tier="frontier")
+        self.assertEqual(r["loaded"], 2)                                  # a frontier model may be offered a candidate
+        root = Path(self.folder("alpha"))
+        (root / paths.MARKER).write_text('name = "alpha"\npublic = true\n')
+        r = route.replay({**case, "cwd": str(root)})
+        self.assertEqual(r["other_project"], 0)
+
+    def test_dot_env_counts_as_a_sensitive_word(self):
+        self.assertIn(".env", [w.lower() for w in privacy.SENSITIVE.findall("never commit the .env file")])
+        self.assertEqual(privacy.SENSITIVE.findall("the environment"), [])

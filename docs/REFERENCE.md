@@ -377,9 +377,11 @@ missed (nothing loaded), wrong (a piece loaded that the request didn't call for;
 to don't count) and "none ok" (a request that needs nothing loaded nothing), with the time per request including
 reading the store. `--from-store` uses the request that started each task you marked good and the pieces it used, and
 prints only totals, never a request. `--replay <file>` runs the requests of one session (a JSON file you keep outside
-the repository, since it holds real requests: `{"project": "<name>", "cwd": "<optional folder>", "cases":
-[{"request": "...", "expect": []}]}`, `expect` being the piece ids it should load, none when empty) through the loading
-mode and per-project scope the hooks apply, then `load.relevant`, and counts the requests where something loaded,
+the repository, since it holds real requests: `{"project": "<name>", "cwd": "<optional folder>", "public": <optional
+true>, "cases": [{"request": "...", "expect": []}]}`, `expect` being the piece ids it should load, none when empty)
+through the loading mode and per-project scope the hooks apply, the public rule (the case's `public`, or the marker of
+its `cwd`), and what the tier's model may be given (no retired piece; to an apply model only verified and legacy
+ones), then `load.relevant`, and counts the requests where something loaded,
 where a piece of another project loaded, where a general piece loaded, the ones that loaded exactly what was expected,
 and the characters added (largest and mean); `--show` adds, per request that loaded something, its number, its length
 and the ids loaded, never its text. Measured on 2026-10-31 without the sports starters (embeddinggemma through a local Ollama):

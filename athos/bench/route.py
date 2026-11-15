@@ -331,6 +331,7 @@ def load_replay(path: str | Path) -> dict:
     """A replay case: the requests of one real session, to run again against a store as the hooks would.
 
         {"name": "...", "project": "<the session's project>", "cwd": "<optional: its folder>",
+         "public": <optional: true when the session's repository is marked public>,
          "cases": [{"request": "...", "expect": []}, ...]}
 
     `expect` lists the piece ids the request should load ([] or absent: none). The case stays wherever its owner
@@ -353,6 +354,8 @@ def replay(case: dict, meaning=False, show: bool = False, tier: str | None = Non
     everything = store.all_pieces()
     project = case.get("project") or None
     cwd = case.get("cwd") or None
+    # The case may say the session's repository is public (with no folder on this machine to read its marker from).
+    public = True if case.get("public") is True else None
     byid = {p.id: p for p in everything}
     out = {"prompts": 0, "loaded": 0, "other_project": 0, "general": 0, "as_expected": 0, "cut": 0, "injected_max": 0,
            "injected_mean": 0.0, "pieces": len(everything), "project": project, "tier": tier, "scope": {}, "ms": [],
@@ -362,7 +365,8 @@ def replay(case: dict, meaning=False, show: bool = False, tier: str | None = Non
     for n, c in enumerate(case["cases"], 1):
         request = str(c.get("request") or "")
         t0 = time.perf_counter()
-        pool, why = control.select(everything, cwd, request, project=project)
+        pool, why = control.select(everything, cwd, request, project=project, public=public)
+        pool = load.usable(pool, tier, why.get("project"))       # what a model of this tier may be given
         found, trace = load.decide(request, pool, meaning=meaning)
         out["ms"].append((time.perf_counter() - t0) * 1000)
         here = why.get("project")

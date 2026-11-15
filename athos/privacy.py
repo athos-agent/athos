@@ -20,7 +20,7 @@ SENSITIVE = re.compile(
     r"\b(?:clients?|clientes?|customers?|patients?|pacientes?|clinic(?:al|s)?|cl[ií]nic[ao]s?|medical|m[eé]dic[oa]s?|"
     r"health|salud|hospital(?:es|s)?|hipaa|baa|dpa|gdpr|personal data|datos personales|invoices?|facturas?|"
     r"payroll|salar(?:y|ies|io|ios)|production|producci[oó]n|credentials?|credenciales?|passwords?|contrase[ñn]as?|"
-    r"secrets?|api keys?|\.env)\b", re.IGNORECASE)
+    r"secrets?|api keys?)\b|(?<![\w.])\.env\b", re.IGNORECASE)      # `.env` starts with a dot: no \b before it
 ACCOUNT = re.compile(r"(?<!\d)\d{12}(?!\d)")                 # a cloud account number
 STRONG = {"email", "phone", "id number"}                      # share.py's findings that point at a real person
 SENSITIVE_MIN = 3                                            # distinct sensitive words for that signal alone
