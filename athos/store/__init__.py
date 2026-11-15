@@ -268,24 +268,42 @@ def _piece_files(folder: Path) -> list[Path]:
 
 
 def all_pieces() -> list[Piece]:
-    """Every piece in the store, ordered by filename."""
+    """Every piece in the store, ordered by filename, with what is kept beside the files (`_beside`)."""
     folder = paths.know_how()
     files = _piece_files(folder) if folder.is_dir() else []
-    return [parse(f.read_text()) for f in files]
+    used, meta = _used(), _meta()
+    return [_beside(parse(f.read_text()), used, meta) for f in files]
 
 
 def get(piece_id: str) -> Piece | None:
-    """The piece with this id, or None when there is no such file."""
+    """The piece with this id, or None when there is no such file, with what is kept beside its file (`_beside`)."""
     target = _file_for(piece_id)
     if not target.is_file():
         return None
-    return parse(target.read_text())
+    return _beside(parse(target.read_text()), _used(), _meta())
+
+
+def _beside(p: Piece, used: dict, meta: dict) -> Piece:
+    """A piece as read, with what Athos keeps beside its file instead of in it: the last use (`last-used.json`, for
+    every piece) and, for a learned piece, its bookkeeping (`piece-meta.json`: confidence, last verified, evidence).
+    Using and grading a piece used to rewrite its file on every reuse: noise in a synced or git-tracked folder, and a
+    lost update when the person's editor had it open. The file takes these values on its next real change."""
+    day = used.get(p.id)
+    if isinstance(day, str) and day > (p.last_used or ""):
+        p.last_used = day
+    if not legacy(p):
+        for key, value in (meta.get(p.id) or {}).items():
+            if key in _META_KEYS and value is not None:
+                setattr(p, key, list(value) if key == "evidence" else str(value))
+    return p
 
 
 def _write(p: Piece) -> None:
     """Store a piece in its file as is (no archiving, no version bump), in one step: the file is replaced whole, so
-    a hook, the verifier or the person's editor reading it at the same time sees the old piece or the new one."""
+    a hook, the verifier or the person's editor reading it at the same time sees the old piece or the new one. What
+    was kept beside the file for it is in the file now, so it is cleared there."""
     paths.write_atomic(p.path, render(p))
+    _clear_meta(p.id)
 
 
 def _archive(p: Piece) -> Path:
@@ -347,6 +365,13 @@ def update(piece_id: str, note: str, body: str | None = None, title: str | None 
     _archive(current)
     origin = origin or current.origin
     version = current.version + 1
+    retext = current.status == "verified" and ((title or current.title).strip() != current.title.strip()
+                                               or (when or current.when).strip() != current.when.strip()
+                                               or (current.body if body is None else body).strip()
+                                               != current.body.strip())
+    if retext:
+        # Verified means verified for that text: a new title, when or body has not been checked by anyone yet.
+        note = (note.strip() or "updated") + "; verified → candidate: the text changed since it was verified"
     improved = Piece(
         id=current.id,
         title=title or current.title,
@@ -361,6 +386,8 @@ def update(piece_id: str, note: str, body: str | None = None, title: str | None 
         visibility=current.visibility,
         **{key: getattr(current, key) for key in (*_LEARNING_KEYS, "evidence")},
     )
+    if retext:
+        improved.status = "candidate"
     _write(improved)
     diff = difflib.unified_diff(render(current).splitlines(True), render(improved).splitlines(True),
                                 f"{current.id} v{current.version}", f"{current.id} v{version}")
@@ -386,8 +413,18 @@ def revert(piece_id: str, to: int | None = None) -> Piece:
     restored.projects = list(current.projects)
     restored.version = current.version + 1
     restored.history = [f"v{restored.version} {today()}: reverted to v{target}", *current.history]
+    if restored.status == "verified" and not _passed_for(restored):
+        # The text brought back was verified as some other text, or never by the verifier: a candidate again.
+        restored.status = "candidate"
+        restored.history[0] += "; verified → candidate: no verifier passed this text"
     _write(restored)
     return restored
+
+
+def _passed_for(p: Piece) -> bool:
+    """Whether the verifier passed on this piece's exact text (its title, when and body)."""
+    from athos import grade
+    return grade.verifier_passed(p) is not None
 
 
 def legacy(p: Piece) -> bool:
@@ -417,19 +454,52 @@ def set_status(piece_id: str, new: str, note: str, asked: bool = False) -> Piece
     return current
 
 
+_META_KEYS = ("confidence", "last_verified", "evidence", "risk", "learned_by")
+
+
+def _meta_file() -> Path:
+    return paths.home() / "piece-meta.json"
+
+
+def _meta(strict: bool = False) -> dict:
+    """What is kept beside learned pieces' files: {piece id: {field: value}}. One that cannot be read is {} to a
+    reader and, with `strict` (before a change is written back), paths.StateUnreadable."""
+    try:
+        data = paths.read_state(_meta_file(), retries=2)
+    except paths.StateUnreadable:
+        if strict:
+            raise
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _clear_meta(piece_id: str) -> None:
+    if piece_id not in _meta():
+        return
+    import json
+    with paths.locked(_meta_file()):
+        data = _meta(strict=True)
+        if data.pop(piece_id, None) is not None:
+            paths.write_atomic(_meta_file(), json.dumps(data, indent=1, sort_keys=True))
+
+
 def set_meta(piece_id: str, **fields) -> Piece | None:
-    """Change bookkeeping fields in place, like `touch` (confidence, last_verified, evidence, risk): not a new
-    version. None for an unknown piece."""
+    """Change bookkeeping fields (confidence, last_verified, evidence, risk): not a new version, and not a write of the
+    piece's file. They are kept beside it (`piece-meta.json`) and reach the file with its next status change or
+    improvement. A legacy piece's bookkeeping is never kept at all. None for an unknown piece."""
+    import json
     piece = get(piece_id)
     if piece is None or legacy(piece):
-        return piece                          # a legacy piece's file is never rewritten for bookkeeping
-    changed = False
-    for key, value in fields.items():
-        if key in (*_LEARNING_KEYS, "evidence") and key != "status" and getattr(piece, key) != value:
-            setattr(piece, key, value)
-            changed = True
-    if changed:
-        _write(piece)
+        return piece
+    changes = {k: v for k, v in fields.items() if k in _META_KEYS and v is not None and getattr(piece, k) != v}
+    if not changes:
+        return piece
+    with paths.locked(_meta_file()):
+        data = _meta(strict=True)
+        data[piece_id] = {**(data.get(piece_id) or {}), **changes}
+        paths.write_atomic(_meta_file(), json.dumps(data, indent=1, sort_keys=True))
+    for key, value in changes.items():
+        setattr(piece, key, value)
     return piece
 
 
@@ -446,28 +516,25 @@ def _used() -> dict:
 
 
 def last_used(p: Piece) -> str:
-    """When a piece was last used: its file's `last_used`, or, for a legacy piece (whose file is not rewritten on
-    use), the later date recorded for it in `<home>/last-used.json`."""
+    """When a piece was last used: the later of its file's `last_used` and the date `touch` recorded for it in
+    `<home>/last-used.json`."""
     other = _used().get(p.id)
     return max(p.last_used or "", other) if isinstance(other, str) else (p.last_used or "")
 
 
 def touch(piece_id: str) -> None:
-    """Mark a piece as used today. This only moves `last_used`; it is not a new version. A legacy piece's file is
-    not rewritten: the date goes to `<home>/last-used.json` instead."""
+    """Mark a piece as used today. This only moves its last-used date, kept in `<home>/last-used.json`: a use is
+    not a change, so no piece's file is rewritten for it (a learned piece's file takes the date with its next real
+    change)."""
+    import json
     piece = get(piece_id)
     if piece is None or piece.last_used == today():
         return
-    if legacy(piece):
-        import json
-        with paths.locked(_used_file()):
-            used = _used()
-            if used.get(piece_id) != today():
-                used[piece_id] = today()
-                paths.write_atomic(_used_file(), json.dumps(used, indent=1, sort_keys=True))
-        return
-    piece.last_used = today()
-    _write(piece)
+    with paths.locked(_used_file()):
+        used = _used()
+        if used.get(piece_id) != today():
+            used[piece_id] = today()
+            paths.write_atomic(_used_file(), json.dumps(used, indent=1, sort_keys=True))
 
 
 def export(dest: Path) -> int:

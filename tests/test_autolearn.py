@@ -90,6 +90,9 @@ class StatusFieldsTest(TempHome):
         self.assertEqual((retired.status, retired.version), ("retired", 2))
         self.assertIn("verified → retired", retired.history[0])
         self.assertTrue((store.paths.history() / p.id / "v1.md").is_file())     # nothing deleted
+        from athos import eval as ev, grade
+        ev.audit({"type": "verify", "piece": p.id, "outcome": "pass", "body_sha": grade.body_sha(p),
+                  "paths_only": True, "version": 1})                    # the verifier passed this very text
         back = store.revert(p.id)
         self.assertEqual((back.status, back.version), ("verified", 3))
 

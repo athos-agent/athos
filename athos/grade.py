@@ -52,8 +52,9 @@ STRONG_NEGATIVE = {"person_edit", "revert", "check_failed"}
 
 
 def body_sha(p: store.Piece) -> str:
-    """What the verifier's verdict is about: the piece's title, when and body (a status change does not alter it)."""
-    return hashlib.sha256(f"{p.title}\n{p.when}\n{p.body}".encode()).hexdigest()[:16]
+    """What the verifier's verdict is about: the piece's title, when and body (a status change does not alter it),
+    without the blank lines around them, which writing a piece to its file and reading it back may change."""
+    return hashlib.sha256(f"{p.title.strip()}\n{p.when.strip()}\n{p.body.strip()}".encode()).hexdigest()[:16]
 
 
 def note(piece_id: str, was: str, now: str, basis: str, **more) -> None:

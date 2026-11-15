@@ -611,8 +611,15 @@ a change to that page (`athos save` with its `id:`, `athos revert`, a curate or 
 ageing it and bookkeeping (confidence, evidence) leave it byte for byte as it is, comments and keys Athos does not know
 included; what they would have recorded goes to the audit log (a `grade` event, from legacy to legacy, with what was
 seen), the review marks (the next frontier model's index says it needs review) and, for its last use,
-`~/.athos/last-used.json`. A status change is a new version, the outgoing one archived in `.history` as for any improvement,
-so `athos revert <id>` brings it back; retiring supersedes a page and deletes nothing.
+`~/.athos/last-used.json`. A learned page's file is not rewritten on use or grading either: its last use goes to
+`last-used.json` and its confidence, last verification and evidence to `~/.athos/piece-meta.json`, and the file takes
+them with its next status change or improvement. A status change is a new version, the outgoing one archived in
+`.history` as for any improvement, so `athos revert <id>` brings it back; retiring supersedes a page and deletes nothing.
+
+**Verified means verified for that text.** A change to a verified page's title, when or body, by anyone, makes it a
+`candidate` again (its history says so), and a verifier's verdict counts only for the exact text it read. `athos
+revert` to a version that was verified brings it back verified only when the verifier passed that very text;
+otherwise it comes back a candidate.
 
 **Check lines.** A statement may say how to tell that its step went right, next to When, Do, Because and Links:
 
