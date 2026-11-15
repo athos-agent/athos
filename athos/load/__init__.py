@@ -675,9 +675,13 @@ def _steps_section(piece: store.Piece, room: int, cmd: str, apply: bool = False)
     if len(text) + len(whole_note) <= room:
         return text + whole_note, True
     kept, used = [], len(head)
-    for n, (sid, block) in enumerate(blocks):
+    for n, (_sid, block) in enumerate(blocks):
+        # Keeping this step leaves the ones after it out: that is the note to make room for (the note naming this
+        # step too was measured instead, and a page could pass the cap by a few dozen characters).
         rest = [i for i, _ in blocks[n + 1:]]
-        note = STEPS_CUT_NOTE.format(cmd=cmd, id=piece.id, n=len(blocks) - n, ids=_ids_line([sid] + rest))
+        if not rest:
+            break                                 # every step whole did not fit with its note (checked above)
+        note = STEPS_CUT_NOTE.format(cmd=cmd, id=piece.id, n=len(rest), ids=_ids_line(rest))
         if used + len(block) + 1 + len(note) > room:
             break
         kept.append(block)

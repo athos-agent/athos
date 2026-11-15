@@ -145,3 +145,24 @@ class Misfires(TempHome):
         self.assertEqual(load._plain("published"), "publish")
         self.assertEqual(load._plain("publicado"), "public")
         self.assertEqual(load._plain("tip"), "tip")
+
+
+class FitCapFuzzTest(TempHome):
+    def test_a_page_cut_to_some_of_its_steps_never_passes_the_cap(self):
+        import random
+        from athos import load, store
+        rng = random.Random(7)
+        over = []
+        for trial in range(25):
+            n = rng.randint(3, 30)
+            body = "".join(f"## #{'s' * rng.randint(1, 3)}{i}{'x' * rng.randint(0, 25)}\n**When:** at step {i}.\n"
+                           f"**Do:** {'do the thing ' * rng.randint(1, 8)}\n**Because:** {'why ' * rng.randint(0, 30)}\n\n"
+                           for i in range(n))
+            p = store.Piece(id=f"fuzz-{trial}", title="Fuzz page", when="fuzzing", body=body, projects=[],
+                            created="2026-11-01", last_used="2026-11-01", origin={"platform": "t", "model": "t"})
+            for cap in range(600, 3000, 43):
+                for apply in (False, True):
+                    text = load._fit([p], "athos", cap, apply=apply)[0]
+                    if len(text) > cap:
+                        over.append((trial, cap, apply, len(text) - cap))
+        self.assertEqual(over, [])
