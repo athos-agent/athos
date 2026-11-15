@@ -75,7 +75,8 @@ import sys
 import time
 from pathlib import Path
 
-from athos import capture, cases, control, edits, eval as ev, load, paths, replay, session, store, trail
+from athos import autolearn, capture, cases, control, edits, evidence, eval as ev, load, paths, replay, session, store, \
+    trail
 
 ROOT = Path(__file__).resolve().parent.parent      # the Athos installation this module belongs to
 ME = ROOT / "bin" / "athos"                         # its launcher: hooks, shims and printed commands point here
@@ -351,18 +352,22 @@ def _on_prompt(event: dict, platform: str) -> None:
         return
     from athos import start
     start.note_language(prompt)
+    previous = session.load(sid).get("task_id") if sid else None
     if sid:
         # After `athos mark c`, these words are the correction the last task needed (athos/cases.py).
         _quietly(cases.note_prompt, sid, prompt)
-        ev.infer_mark(sid, prompt)     # before the new task replaces it
+        reaction = ev.infer_mark(sid, prompt)     # before the new task replaces it
+        _quietly(evidence.note_reaction, previous, reaction)
     ev.task_start(event, platform)
     capture.note_request(event)
     added: dict[str, int] = {}
     context = load.on_prompt(event, _cmd(), defer=True)
     try:
         if capture.enabled():
-            # The person's hand edits of files the agent wrote: a rule of their way of working, offered once.
-            learned = edits.on_prompt(event, _cmd())
+            # The person's hand edits of files the agent wrote: evidence of a correction of the task that wrote them,
+            # and, unless Athos learns on its own or the model may not change a piece, a rule offered once.
+            learned, found = edits.on_prompt(event, _cmd(), tell=autolearn.tells_edits(sid))
+            _quietly(evidence.note_person_edits, found, previous)
             added["edit"] = len(learned or "")
             context = (context + "\n" + learned) if context and learned else (context or learned)
         if share.asked(prompt) and _act_on(event, "share"):
@@ -395,6 +400,7 @@ def _on_tool(event: dict, platform: str) -> None:
         sid = _folder_session_id(event, sid)
     if capture.enabled():
         edits.on_tool(event, sid)
+        _quietly(evidence.on_tool, event, sid, False, platform)      # a verification, a commit, a revert
     if not event.get("agent_id") and (told := _quietly(_verify_trigger, event, sid, "tool")):
         _add_context("PostToolUse", told)
 
@@ -407,6 +413,7 @@ def _on_tool_failed(event: dict, platform: str) -> None:
         sid = _folder_session_id(event, sid)
     if capture.enabled():
         edits.on_tool(event, sid, failed=True)
+        _quietly(evidence.on_tool, event, sid, True, platform)       # a verification that failed
     if not event.get("agent_id") and (told := _quietly(_verify_trigger, event, sid, "tool")):
         _add_context("PostToolUseFailure", told)
 
@@ -416,6 +423,7 @@ def _on_stop(event: dict, platform: str) -> None:
     _quietly(_verify_trigger, event, event.get("session_id"), "stop")    # nothing is told: the turn is over
     rec = ev.task_end(event)
     _quietly(cases.on_task_end, event, rec)
+    _quietly(evidence.prune)                  # only the last few hundred tasks' evidence stays
     _quietly(replay.maybe_spawn, ME)          # background shadowing, when the person turned it on
     sid = event.get("session_id")
     if sid and not session.load(sid).get("trail"):

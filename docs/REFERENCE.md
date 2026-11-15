@@ -537,6 +537,28 @@ own work, and a candidate needs at least one runnable Check (a command in backti
 capture guide asks for one per step; a page given as its steps only, to fit the 8000-character cap, keeps each step's
 Check with its When and Do.
 
+**Evidence, gathered without asking.** During every task the hooks note what objectively happened, in
+`~/.athos/evidence/<task>.jsonl` (the last 300 tasks), and keep the last 4000 characters of each verification
+command's output beside it, for the verifier:
+
+| item | written when | strength |
+|---|---|---|
+| `verify` | a verification command ends: a test runner (pytest, `python -m unittest`, `npm test`, `npm run test:*`, `go test`, `cargo test`, `make test`/`check`, jest, vitest, …), a build (`npm run build`, `cargo build`, `go build`, `tsc`, …), a linter (`ruff check`, eslint, flake8, `black --check`, …), a type checker (mypy, pyright, `tsc --noEmit`, `go vet`, `cargo check`), or the **Check** of a piece the task uses; with `ok`, `kind`, `label` and `check_of` | strong when the hook saw that command's own exit status |
+| `commit` | `git commit` succeeded (with its short hash) | strong |
+| `revert` | `git revert`, `git reset --hard`, `git checkout -- …` or `git restore` succeeded | strong, against the work |
+| `person_edit` | the edit detector gave a change to you (see above): a correction | strong, against the work |
+| `reaction` | your next words plainly judged the task (`ok`, `corrected`) | weak: read from words |
+| `model_claim` | the model's own statement about its work | weak |
+
+A command's exit status is its own only when it runs alone or in a chain joined by `&&`: `pytest | tail` reports
+`tail`'s status and `pytest || true` always succeeds, so those count as weak. A failure counts only when the command is
+last and only setup (`cd`, `export`, `source`) or a `;` comes before it. Claude Code runs PostToolUse after a command
+that exited 0 and PostToolUseFailure after one that did not; agents whose tool hooks give no exit status (Codex, Muse
+Code and OpenCode unless the event carries an exit code) only produce weak items. Subagents' commands and Athos's own
+are left out, and in a repository marked public the command itself is not kept, only what kind it was. With
+autonomous learning on (below), and always on an apply model, an edit of yours is only evidence: the agent is no longer
+told about it and asked to propose a rule.
+
 ### Per-step models
 
 For `athos delegate`: within one way of working, most steps are mechanical (extract the data, run a script, format a table) and one or two

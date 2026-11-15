@@ -460,12 +460,14 @@ def model_text(found: list[dict], cmd: str = "athos") -> str:
     return "\n".join(parts)
 
 
-def on_prompt(event: dict, cmd: str = "athos") -> str:
+def on_prompt(event: dict, cmd: str = "athos", tell: bool = True) -> tuple[str, list[dict]]:
     """UserPromptSubmit, after the new task started: find the person's edits since the agent's last writes, record
-    them (`edit_seen`, `learned_from_edit`), then tell the model. The telling is the last, separable step."""
+    them (`edit_seen`, `learned_from_edit`), then, with `tell`, tell the model. The telling is the last, separable
+    step: with autonomous learning, or on an apply model, the edits are only evidence (athos/evidence.py) and the
+    model hears nothing. Returns the text for the model and what was found."""
     sid = event.get("session_id", "default")
     found = record(sid, check(sid))
-    return model_text(found, cmd)
+    return (model_text(found, cmd) if tell else ""), found
 
 
 def record(sid: str, found: list[dict]) -> list[dict]:
