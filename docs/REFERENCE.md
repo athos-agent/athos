@@ -624,7 +624,9 @@ so `athos revert <id>` brings it back; retiring supersedes a page and deletes no
 ```
 
 A Check is a command in backticks, or a fact anyone can observe. An apply model runs the check instead of judging its
-own work, and a candidate needs at least one runnable Check (a command in backticks) before it can be verified. The
+own work, and a candidate needs at least one runnable Check before it can be verified: a command in backticks that is
+itself a verification (a test runner, a build, a linter, a type checker, as in the table below). A Check of `git status`
+or `cat VERSION` only reads something: it is not runnable, and running it is no evidence. The
 capture guide asks for one per step; a page given as its steps only, to fit the 8000-character cap, keeps each step's
 Check with its When and Do.
 
@@ -635,15 +637,24 @@ command's output beside it, for the verifier:
 | item | written when | strength |
 |---|---|---|
 | `verify` | a verification command ends: a test runner (pytest, `python -m unittest`, `npm test`, `npm run test:*`, `go test`, `cargo test`, `make test`/`check`, jest, vitest, …), a build (`npm run build`, `cargo build`, `go build`, `tsc`, …), a linter (`ruff check`, eslint, flake8, `black --check`, …), a type checker (mypy, pyright, `tsc --noEmit`, `go vet`, `cargo check`), or the **Check** of a piece the task uses; with `ok`, `kind`, `label` and `check_of` | strong when the hook saw that command's own exit status |
-| `commit` | `git commit` succeeded (with its short hash) | strong |
-| `revert` | `git revert`, `git reset --hard`, `git checkout -- …` or `git restore` succeeded | strong, against the work |
+| `commit` | `git commit` succeeded and owned the command's success (with its short hash) | strong |
+| `revert` | `git revert`, `git reset --hard`, `git checkout -- …` or `git restore` succeeded (not `git revert --abort` or `--quit`, `git reset --hard` onto `origin/…`, `upstream/…` or `@{u}`, nor `git restore --staged` alone) | strong, against the work |
 | `person_edit` | the edit detector gave a change to you (see above): a correction | strong, against the work |
 | `reaction` | your next words plainly judged the task (`ok`, `corrected`) | weak: read from words |
 | `model_claim` | the model's own statement about its work | weak |
 
 A command's exit status is its own only when it runs alone or in a chain joined by `&&`: `pytest | tail` reports
-`tail`'s status and `pytest || true` always succeeds, so those count as weak. A failure counts only when the command is
-last and only setup (`cd`, `export`, `source`) or a `;` comes before it. Claude Code runs PostToolUse after a command
+`tail`'s status and `pytest || true` always succeeds, so those count as weak. A failure counts as that command's only
+when it is last and only setup (`cd`, `export`, `source`) or a `;` comes before it; a failed chain with a verification
+in it whose failure cannot be pinned on one command (`pytest && npm run build`, `pytest 2>&1 | tail`) is a strong item
+against the work all the same (`unattributed`), until a later verification passes. Strong is kept for commands that
+really checked something: a run that only asks the runner about itself or lists what it would do (`--version`,
+`--help`, `--collect-only`, `--no-run`, `make -n`), a linter told to fix (`--fix`, `lint:fix`), the tasks a gradle run
+leaves out (`-x test`), a command sent to the background (its hook comes when it starts, so its status is not known),
+anything after a `#` comment, and a test run whose output says no test ran (`Ran 0 tests`, `collected 0 items`, `[no
+test files]`, `running 0 tests`, `No tests found`, `0 passing`) are not strong. A longer word is another command:
+`pytest-watch` is not pytest and `make test-clean` is not `make test`. Up to 60 weak items are kept per task; strong
+ones are never dropped. Claude Code runs PostToolUse after a command
 that exited 0 and PostToolUseFailure after one that did not; agents whose tool hooks give no exit status (Codex, Muse
 Code and OpenCode unless the event carries an exit code) only produce weak items. Subagents' commands and Athos's own
 are left out, and in a repository marked public the command itself is not kept, only what kind it was. With

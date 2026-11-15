@@ -34,7 +34,8 @@ from pathlib import Path
 from athos import paths, session
 
 OUTPUT_CAP = 4000          # characters of a verification command's output kept for the verifier
-ITEMS_CAP = 60             # items per task; later ones are dropped
+ITEMS_CAP = 60             # weak items per task; later weak ones are dropped, strong ones never are
+STRONG_CAP = 2000          # a bound on one task's file only: far more strong items than any task produces
 OUTPUTS_CAP = 20           # output files per task
 KEEP_TASKS = 300           # evidence of older tasks is removed
 
@@ -45,34 +46,81 @@ _PREFIX = re.compile(r"^(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S*|time|nice(?:\s+-n\s*-?\
 _PY = r"python[0-9.]*\s+-m\s+"
 _JS = r"(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?"
 # (kind, label group or fixed label, pattern) — matched at the start of a segment, after the prefixes above.
+_END = r"(?![\w-])"         # the runner's own word ends here: `pytest-watch` and `make test-clean` are other words
 VERIFY = [
-    ("test", re.compile(rf"^(?:{_PY})?(pytest|py\.test|unittest|nose2?|tox|nox)\b")),
-    ("test", re.compile(r"^(jest|vitest|mocha|ava|rspec|phpunit|ctest|trial|nosetests|playwright\s+test|cypress\s+run)\b")),
-    ("test", re.compile(rf"^{_JS}(test(?::[\w:.-]+)?)\b")),
-    ("test", re.compile(r"^(go|cargo|deno|swift|mix|dotnet|bazel|zig)\s+test\b")),
-    ("test", re.compile(r"^(?:mvn|\./mvnw)\b.*\b(test|verify)\b")),
-    ("test", re.compile(r"^(?:gradle|\./gradlew)\b.*\b(test|check)\b")),
-    ("test", re.compile(r"^make\s+(test|tests|check)\b")),
-    ("typecheck", re.compile(r"^(mypy|pyright|pyre)\b")),
+    ("test", re.compile(rf"^(?:{_PY})?(pytest|py\.test|unittest|nose2?|tox|nox){_END}")),
+    ("test", re.compile(rf"^(jest|vitest|mocha|ava|rspec|phpunit|ctest|trial|nosetests|playwright\s+test|cypress\s+run)"
+                        rf"{_END}")),
+    ("test", re.compile(rf"^{_JS}(test(?::[\w:.-]+)?){_END}")),
+    ("test", re.compile(rf"^(go|cargo|deno|swift|mix|dotnet|bazel|zig)\s+test{_END}")),
+    ("test", re.compile(rf"^(?:mvn|\./mvnw)\b.*(?<![\w-])(test|verify){_END}")),
+    ("test", re.compile(rf"^(?:gradle|\./gradlew)\b.*(?<![\w-])(test|check){_END}")),
+    ("test", re.compile(rf"^make\s+(test|tests|check){_END}")),
+    ("typecheck", re.compile(rf"^(mypy|pyright|pyre){_END}")),
     ("typecheck", re.compile(r"^(tsc)\b.*--noEmit\b")),
-    ("typecheck", re.compile(rf"^{_JS}(typecheck|type-check|tsc|check-types)\b")),
-    ("typecheck", re.compile(r"^(cargo\s+check|go\s+vet)\b")),
+    ("typecheck", re.compile(rf"^{_JS}(typecheck|type-check|tsc|check-types){_END}")),
+    ("typecheck", re.compile(rf"^(cargo\s+check|go\s+vet){_END}")),
     ("lint", re.compile(r"^(flake8|pylint|eslint|stylelint|shellcheck|rubocop|golangci-lint|hadolint|markdownlint|"
                         r"biome\s+(?:check|lint)|ruff\s+check|ruff\s+format\s+.*--check|black\s+.*--check|"
-                        r"isort\s+.*--check|prettier\s+.*--check|gofmt\s+-l)\b")),
-    ("lint", re.compile(rf"^{_JS}(lint(?::[\w:.-]+)?)\b")),
-    ("lint", re.compile(r"^(cargo\s+clippy)\b")),
-    ("build", re.compile(rf"^{_JS}(build(?::[\w:.-]+)?)\b")),
-    ("build", re.compile(r"^(cargo|go|swift|dotnet|zig)\s+build\b")),
+                        rf"isort\s+.*--check|prettier\s+.*--check|gofmt\s+-l){_END}")),
+    ("lint", re.compile(rf"^{_JS}(lint(?::[\w:.-]+)?){_END}")),
+    ("lint", re.compile(rf"^(cargo\s+clippy){_END}")),
+    ("build", re.compile(rf"^{_JS}(build(?::[\w:.-]+)?){_END}")),
+    ("build", re.compile(rf"^(cargo|go|swift|dotnet|zig)\s+build{_END}")),
     ("build", re.compile(r"^make\s+(build|all)\s*$")),
-    ("build", re.compile(r"^(?:mvn|\./mvnw)\b.*\b(package|compile|install)\b")),
-    ("build", re.compile(r"^(?:gradle|\./gradlew)\b.*\b(build|assemble)\b")),
+    ("build", re.compile(rf"^(?:mvn|\./mvnw)\b.*(?<![\w-])(package|compile|install){_END}")),
+    ("build", re.compile(rf"^(?:gradle|\./gradlew)\b.*(?<![\w-])(build|assemble){_END}")),
     ("build", re.compile(r"^(tsc)\b(?!.*--noEmit)")),
 ]
+# Words that make a runner report on itself, list what it would run, or pretend: it then verifies nothing.
+_INFO_FLAGS = {"--version", "-V", "--help", "-h", "--collect-only", "--co", "--no-run", "--listTests", "--list-tests",
+               "--list", "--dry-run", "--just-print", "--recon", "--setup-plan", "--fixtures", "--showconfig"}
+_MAKE_DRY = {"-n", "--dry-run", "--just-print", "--recon", "-q", "--question"}
+_FIXING = {"--fix", "--fix-only", "--write", "--unsafe-fixes"}
+# Tasks a gradle or maven run was told to leave out (`-x test`): they did not run.
+_EXCLUDED = re.compile(r"\s(?:-x|--exclude-task)\s+\S+")
+# What a test runner prints when it ran no test at all, and what it prints when it ran some.
+_NO_TESTS = [re.compile(p, re.I | re.M) for p in (
+    r"^Ran 0 tests\b", r"\bcollected 0 items\b", r"\bno tests ran\b", r"\[no test files\]", r"\bno tests to run\b",
+    r"^running 0 tests\s*$", r"\bNo tests found\b", r"^\s*0 passing\b", r"\bNo test files found\b",
+    r"\bTests:\s+0 total\b")]
+_SOME_TESTS = [re.compile(p, re.I | re.M) for p in (
+    r"^Ran [1-9]\d* tests?\b", r"\bcollected [1-9]\d* items?\b", r"\b[1-9]\d* (?:passed|failed)\b",
+    r"^ok\s+\S+\s+[\d.]+s\b", r"^running [1-9]\d* tests?\s*$", r"^\s*[1-9]\d* passing\b",
+    r"\bTests:\s+.*\b[1-9]\d* (?:passed|total)\b", r"^(?:PASS|FAIL)\s+\S+", r"\b[1-9]\d* examples?, \d+ failures?\b",
+    r"\bTests run: [1-9]\d*")]
 _SETUP = re.compile(r"^(cd|pushd|popd|export|source|\.|set|unset|ulimit|true)\b")
-_COMMIT = re.compile(r"^git\s+(?:-C\s+\S+\s+)?commit\b(?!.*--dry-run)")
-_REVERT = re.compile(r"^git\s+(?:-C\s+\S+\s+)?(?:revert\b|reset\s+.*--hard\b|checkout\s+(?:\S+\s+)?--\s|checkout\s+\.\s*$|"
-                     r"restore\b(?!.*--staged\s*$))")
+_COMMIT = re.compile(r"^git\s+(?:-C\s+\S+\s+)?commit(?![\w-])(?!.*(?:\s--dry-run|\s--help|\s-h)(?![\w-]))")
+
+
+class _Reverts:
+    """Whether a simple command throws work away: `git revert` (not `--abort` or `--quit`, which undo nothing), `git
+    reset --hard` (not onto the remote's branch, which only catches up with it), `git checkout -- <files>` or `git
+    checkout .`, and `git restore` of the working tree (not `--staged` alone, which only unstages)."""
+
+    _GIT = re.compile(r"^git\s+(?:-C\s+\S+\s+)?(\S+)(.*)$")
+    _REMOTE = re.compile(r"(?:^|\s)(?:(?:origin|upstream)/\S+|\S*@\{u(?:pstream)?\}|FETCH_HEAD)(?:\s|$)")
+
+    def match(self, bare: str) -> bool | None:
+        found = self._GIT.match(bare or "")
+        if not found:
+            return None
+        verb, rest = found.group(1), " " + found.group(2).strip() + " "
+        words = rest.split()
+        if verb == "revert":
+            return None if {"--abort", "--quit"} & set(words) else True
+        if verb == "reset":
+            return True if "--hard" in words and not self._REMOTE.search(rest) else None
+        if verb == "checkout":
+            return True if ("--" in words or words == ["."]) else None
+        if verb == "restore":
+            staged = {"--staged", "-S"} & set(words)
+            tree = {"--worktree", "-W"} & set(words)
+            return True if (tree or not staged) else None
+        return None
+
+
+_REVERT = _Reverts()
 _SECRET = re.compile(r"(?i)\b(?:[a-z0-9_]*(?:token|secret|password|passwd|api[_-]?key|auth)[a-z0-9_]*)=\S+"
                      r"|\b[A-Za-z0-9+/_-]{32,}\b")
 
@@ -95,6 +143,11 @@ def segments(cmd: str) -> list[tuple[str, str]]:
         elif ch in "'\"":
             quote = ch
             buf.append(ch)
+        elif ch == "#" and (i == 0 or text[i - 1] in " \t\n;&|("):
+            # A comment runs nothing: `true # && pytest` is `true`.
+            end = text.find("\n", i)
+            i = len(text) if end == -1 else end
+            continue
         elif text.startswith(("&&", "||"), i):
             out.append(("".join(buf).strip(), text[i:i + 2]))
             buf, i = [], i + 2
@@ -124,15 +177,35 @@ def _bare(segment: str) -> str:
 
 def kind_of(segment: str) -> tuple[str, str] | None:
     """(kind, label) when a simple command is a verification command (a test runner, a build, a linter, a type
-    checker), else None. Subshells and `sh -c` strings are not read."""
+    checker), else None. Subshells and `sh -c` strings are not read. A run that only reports on the runner, lists
+    what it would run or pretends (`--version`, `--help`, `--collect-only`, `--no-run`, `make -n`), a linter told to fix
+    instead of check (`--fix`, `lint:fix`), and the tasks a gradle or maven run leaves out (`-x test`) verify nothing."""
     bare = _bare(segment)
     if not bare or bare.startswith(("(", "{", "$(")) or re.match(r"^(?:ba|z)?sh\s+-c\b", bare):
         return None
+    words = bare.split()
+    if _INFO_FLAGS & set(words) or (words[0] == "make" and _MAKE_DRY & set(words)) or _FIXING & set(words):
+        return None
+    matched = _EXCLUDED.sub(" ", bare)
     for kind, rx in VERIFY:
-        found = rx.match(bare)
+        found = rx.match(matched)
         if found:
-            label = (found.group(1) if found.groups() and found.group(1) else bare.split()[0])
+            label = (found.group(1) if found.groups() and found.group(1) else words[0])
+            if "fix" in label.lower():
+                return None
             return kind, " ".join(label.split())[:40]
+    return None
+
+
+def tests_ran(output: str) -> bool | None:
+    """Whether a test runner's output shows at least one test ran: True when it counts some, False when it says it ran
+    none (`Ran 0 tests`, `collected 0 items`, `[no test files]`, `running 0 tests`, `No tests found`, `0 passing`),
+    None when it says neither."""
+    text = output or ""
+    if any(rx.search(text) for rx in _SOME_TESTS):
+        return True
+    if any(rx.search(text) for rx in _NO_TESTS):
+        return False
     return None
 
 
@@ -141,12 +214,14 @@ def _norm(cmd: str) -> str:
 
 
 def checks_of(piece) -> list[tuple[str, str]]:
-    """(statement id, command) for each **Check:** of a piece that names a command in backticks."""
+    """(statement id, command) for each runnable **Check:** of a piece: a command in backticks that is itself a
+    verification (a test runner, a build, a linter, a type checker). A Check of `git status` or `cat VERSION` reads
+    something and proves nothing, so it is not runnable, and running it is no evidence."""
     from athos import wiki
     out = []
     for st in wiki.statements(piece):
         for found in re.findall(r"`([^`\n]+)`", st.check or ""):
-            if found.strip():
+            if found.strip() and kind_of(found.strip()):
                 out.append((st.id, found.strip()))
     return out
 
@@ -168,7 +243,7 @@ def classify(cmd: str, checks: list[tuple[str, str, str]] | None = None) -> list
     out = []
     for i, (seg, sep) in enumerate(parts):
         check = _check_match(seg, checks or [])
-        found = kind_of(seg) or (("check", _bare(seg).split()[0][:40]) if check else None)
+        found = kind_of(seg)
         if not found:
             continue
         before = [s for _, s in parts[:i]]
@@ -204,17 +279,21 @@ def file_of(task_id: str) -> Path:
 
 
 def add(task_id: str | None, item: dict) -> dict | None:
-    """Append one item to a task's evidence. None (nothing written) without a task or past ITEMS_CAP."""
+    """Append one item to a task's evidence. None (nothing written) without a task, or for a weak item past ITEMS_CAP
+    weak items: a strong item (a failure, a revert, a change the person made) is never dropped, or a long task's last
+    failure would go unseen and its earlier pass would still count."""
     if not task_id:
         return None
     from athos import eval as ev
     target = file_of(task_id)
     target.parent.mkdir(parents=True, exist_ok=True)
+    strong_item = item.get("strength") == "strong"
     try:
-        count = len(target.read_text().splitlines()) if target.exists() else 0
+        lines = target.read_text().splitlines() if target.exists() else []
     except OSError:
-        count = 0
-    if count >= ITEMS_CAP:
+        lines = []
+    weak = sum(1 for line in lines if '"strength": "strong"' not in line)
+    if (not strong_item and weak >= ITEMS_CAP) or len(lines) >= STRONG_CAP:
         return None
     item = {"at": ev._iso(ev.now()), **item}
     with target.open("a") as out:
@@ -313,11 +392,29 @@ def _task_checks(state: dict) -> list[tuple[str, str, str]]:
     return out
 
 
+def background(event: dict) -> bool:
+    """A tool call the agent sent to the background: its hook comes when it started, not when it ended, so the exit
+    status it carries is not the command's (Claude Code: `run_in_background`, and a `backgroundTaskId` in the answer)."""
+    tin = event.get("tool_input") if isinstance(event.get("tool_input"), dict) else {}
+    r = event.get("tool_response") if isinstance(event.get("tool_response"), dict) else {}
+    return bool(tin.get("run_in_background") or r.get("backgroundTaskId") or r.get("backgroundTaskID"))
+
+
+def _owns_success(cmd: str, index: int) -> bool:
+    """Whether a command's success is the success of its `index`-th simple command (as `classify` decides it)."""
+    parts = segments(cmd)
+    before = [s for _, s in parts[:index]]
+    after = [s for _, s in parts[index:-1]]
+    piped = parts[index][1] in ("|", "&") or (index and parts[index - 1][1] == "|")
+    return not piped and all(s in ("&&", ";") for s in before) and all(s == "&&" for s in after)
+
+
 def on_tool(event: dict, sid: str, failed: bool = False, platform: str = "claude-code") -> list[dict]:
     """A tool call ended (PostToolUse, or PostToolUseFailure with `failed`): a shell command that verified, committed
-    or threw work away becomes an item of the open task. Subagents' calls and Athos's own commands are left out."""
+    or threw work away becomes an item of the open task. Subagents' calls, Athos's own commands and commands sent to
+    the background are left out."""
     from athos import capture, edits
-    if event.get("agent_id") or not edits.is_shell(event):
+    if event.get("agent_id") or not edits.is_shell(event) or background(event):
         return []
     cmd = (event.get("tool_input") or {}).get("command")
     cmd = " ".join(map(str, cmd)) if isinstance(cmd, list) else str(cmd or "")
@@ -332,25 +429,34 @@ def on_tool(event: dict, sid: str, failed: bool = False, platform: str = "claude
     shown = {} if public else {"cmd": redact(cmd)}
     added = []
     steps = classify(cmd, _task_checks(state))
+    output_text = _output_of(event)
     for step in steps:
         owned = step["owns_success"] if ok else step["owns_failure"] if ok is False else False
         strong = ok is not None and owned
+        why_weak = None if strong else ("exit status unknown" if ok is None else
+                                        "exit status not this command's (piped, or not last in its chain)")
+        if strong and ok and step["kind"] == "test" and tests_ran(output_text) is False:
+            strong, why_weak = False, "no test ran (the runner said so)"
+        # A chain with a verification in it failed and the failure cannot be pinned on anything: it counts against
+        # the work until a later verification passes, or `pytest && npm run build` failing would leave an earlier
+        # pass standing.
+        unattributed = ok is False and not owned
         header = f"$ {'(command not kept: public repository)' if public else redact(cmd)}\n# exit: " + \
                  {True: "0 (succeeded)", False: "non-zero (failed)", None: "unknown"}[ok]
-        output = _keep_output(task_id, _output_of(event), header) if strong else None
+        output = _keep_output(task_id, output_text, header) if (strong or unattributed) else None
         item = {"type": "verify", "kind": step["kind"], "label": step["label"], "ok": ok,
-                "strength": "strong" if strong else "weak",
-                "polarity": "positive" if ok and strong else "negative" if ok is False and strong else "neutral",
-                **({"check_of": step["check_of"]} if step["check_of"] else {}), **shown,
+                "strength": "strong" if (strong or unattributed) else "weak",
+                "polarity": "positive" if ok and strong else "negative" if ok is False else "neutral",
+                **({"check_of": step["check_of"]} if step["check_of"] and strong else {}), **shown,
                 **({"output": output} if output else {}),
-                **({} if strong else {"why_weak": "exit status unknown" if ok is None else
-                    "exit status not this command's (piped, or not last in its chain)"})}
+                **({"unattributed": True} if unattributed else {}),
+                **({} if strong or unattributed else {"why_weak": why_weak})}
         if add(task_id, item):
             added.append(item)
     if ok:
-        for seg, _sep in segments(cmd):
+        for n, (seg, _sep) in enumerate(segments(cmd)):
             bare = _bare(seg)
-            if _COMMIT.match(bare):
+            if _COMMIT.match(bare) and _owns_success(cmd, n):
                 item = {"type": "commit", "strength": "strong", "polarity": "positive",
                         **({"sha": sha} if (sha := _head_sha(event.get("cwd"))) else {})}
             elif _REVERT.match(bare):

@@ -163,11 +163,13 @@ class VerificationCommandsTest(unittest.TestCase):
         self.assertEqual(self.kinds("FOO=1 timeout 60 pytest -x"), [("test", "pytest", True, True)])
 
     def test_a_pieces_own_check_is_recognised(self):
-        checks = [("release", "built", "./scripts/smoke.sh --fast")]
+        # Only a Check that is itself a verification counts: a script of the project's own is not known to verify
+        # anything, so running it is no evidence.
         from athos import evidence
-        found = evidence.classify("./scripts/smoke.sh --fast --verbose", checks)
-        self.assertEqual((found[0]["kind"], found[0]["check_of"]), ("check", "release#built"))
+        self.assertEqual(evidence.classify("./scripts/smoke.sh --fast --verbose",
+                                           [("release", "built", "./scripts/smoke.sh --fast")]), [])
         self.assertEqual(evidence.classify("pytest -q", [("p", "s", "pytest -q")])[0]["check_of"], "p#s")
+        self.assertEqual(evidence.classify("pytest -q -x", [("p", "s", "pytest -q")])[0]["check_of"], "p#s")
 
     def test_secrets_are_blanked(self):
         from athos import evidence
@@ -350,7 +352,7 @@ class AutonomousSaveTest(_HookedTask):
         decisions = [(e["decision"], e["reason"]) for e in self.learns()]
         self.assertEqual(decisions, [("qualified", "strong_evidence"), ("saved", "strong_evidence")])
         self.assertEqual((self.learns()[0]["ask"], self.learns()[0]["guide"]), ("guide", True))
-        self.assertEqual(self.learns()[-1]["checks"], 2)
+        self.assertEqual(self.learns()[-1]["checks"], 1)              # `cat VERSION` proves nothing: not runnable
 
     def test_as_the_guide_says_the_model_saves_before_its_answer_and_the_stop_hook_stays_silent(self):
         self.task(stop=False)
