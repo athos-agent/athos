@@ -142,14 +142,13 @@ def _reset_counters(session_id: str, saved_id: str) -> None:
     ev.note_saved(session_id, saved_id)
 
 
-def _refresh_wiki() -> dict | None:
-    """Rebuild the wiki index (and the trajectory agents, when installed). None when the disk refused."""
+def _refresh_wiki(cwd: str | None = None) -> dict | None:
+    """Rebuild the wiki index, and the installed trajectory agents when the person installed them for one project
+    (never from a repository marked public: wiki.sync_installed). None when the disk refused."""
     from athos import wiki
     try:
         rebuilt = wiki.rebuild()
-        target = wiki.agents_target()
-        if target:
-            wiki.install_agents(target)
+        wiki.sync_installed(cwd)
     except OSError:
         return None
     return rebuilt
@@ -174,7 +173,7 @@ def save_text(text: str, session_id: str = "default", cwd: str | None = None,
     written = _write_piece(text, origin_for(session_id, transcript_path), paths.project_of(cwd))
     piece = written.piece
     _reset_counters(session_id, piece.id)
-    rebuilt = _refresh_wiki()
+    rebuilt = _refresh_wiki(cwd)
     summary = {"id": piece.id, "title": piece.title, "version": piece.version,
                "platforms": ["Claude Code", *sync_other_agents(piece.id)]}
     if written.improved:

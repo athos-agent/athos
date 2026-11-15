@@ -705,6 +705,16 @@ Each agent finds it where it already looks: `.claude/skills` and `CLAUDE.md` (Cl
 pieces this project used or is tagged with (`--piece ID` or `--all` to choose), and adds itself to `.gitignore`: your
 know-how stays yours even in someone else's repository, unless you share it with `--commit`. `athos project remove`
 takes it all out again.
+In a repository marked public it writes only the pages that may load there (this project's own and the profile pages
+you allowed in public), whatever `--all` or `--piece` asked.
+
+**Trajectory subagents.** `athos wiki agents --install` writes the subagents that walk this project's trajectories
+(its own pages and your profile, never another project's) into the repository's `.claude/agents` (or `--dir <folder>`),
+keeps them out of git on this machine (`.git/info/exclude`) and rewrites them after each save. It refuses in a
+repository marked public, and a save made in one never rewrites them. `athos wiki agents --uninstall [--dir <folder>]`
+removes them and stops the rewriting. Before 0.1.121 they went to `~/.claude/agents`, which Claude Code reads in every
+project, and walked the whole store, so their descriptions carried every project's page titles into every session; an
+install made that way is no longer kept in step after a save until you install again.
 
 ### Guilds: one way of working for the team
 
