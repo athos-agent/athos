@@ -207,7 +207,11 @@ def model_id(display: str) -> str | None:
 
 
 def _text_of(row: dict) -> str:
-    content = row.get("content") if row.get("type") == "system" else (row.get("message") or {}).get("content")
+    """The text of a transcript row. The layout is the host's: a `message` may be an object with `content`, or a
+    plain string (it once raised here and stopped the prompt hook for the session)."""
+    message = row.get("message")
+    content = row.get("content") if row.get("type") == "system" else \
+        (message.get("content") if isinstance(message, dict) else message)
     if isinstance(content, list):
         content = " ".join(str(x.get("text", "")) for x in content if isinstance(x, dict))
     return content if isinstance(content, str) else ""

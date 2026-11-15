@@ -109,3 +109,24 @@ class LogRotationTest(TempHome):
         rotated = paths.home() / "log.1.md"
         self.assertTrue(rotated.exists())
         self.assertGreaterEqual(rotated.stat().st_size, 3000)
+
+
+class TranscriptRowsTest(TempHome):
+    def test_a_row_whose_message_is_a_string_does_not_stop_the_prompt_hook(self):
+        import contextlib
+        import io
+        from unittest import mock
+        from athos import cli, eval as ev
+        transcript = Path(self.home) / "t.jsonl"
+        rows = [{"type": "user", "message": "a plain string message", "timestamp": "2026-11-15T10:00:00Z"},
+                {"type": "assistant", "message": {"model": "claude-opus-5-5", "content": []},
+                 "timestamp": "2026-11-15T10:00:01Z"},
+                {"type": "user", "message": "Set model to Fable 5.2", "timestamp": "2026-11-15T10:00:02Z"}]
+        transcript.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        self.assertEqual(session.prompt_entries(str(transcript), "abc"), 0)
+        session.models_in_tail(str(transcript))
+        payload = json.dumps({"session_id": "tx", "cwd": self.home, "prompt": "hello there",
+                              "transcript_path": str(transcript)})
+        with mock.patch("sys.stdin", io.StringIO(payload)), contextlib.redirect_stdout(io.StringIO()):
+            cli.hook("prompt")
+        self.assertEqual([e for e in ev.events() if e.get("type") == "hook_error"], [])
