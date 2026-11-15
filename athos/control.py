@@ -358,9 +358,12 @@ def select(pieces: list[store.Piece], cwd: str | None = None, prompt: str = "",
     mode = selection["mode"]
     found, mark = paths.locate(cwd) if cwd else (None, {})
     here = project or found
+    # "No folder" is decided by the folder, not by its name: the filesystem root's name is "", and it once put every
+    # piece in reach.
+    no_folder = not cwd and not project
     public = bool(mark.get("public")) if public is None else public
     why = {"mode": mode, "project": here, "reason": mode, "named": [], "marker": bool(mark), "public": public}
-    if mode == "auto" and here and public:
+    if mode == "auto" and not no_folder and public:
         # In a public repository another project is not named anywhere, not even in Athos's own log: only counted.
         pool, reason, named, held = _auto(pieces, here, prompt, public)
         return pool, {**why, "reason": reason, "named": [], "named_count": len(named), "private_held": held}
@@ -370,7 +373,7 @@ def select(pieces: list[store.Piece], cwd: str | None = None, prompt: str = "",
         return kept, {**why, "private_held": len(chosen) - len(kept)}
 
     if mode == "auto":
-        if not here:
+        if no_folder:
             return list(pieces), {**why, "reason": "auto:no-folder", "private_held": 0}
         pool, reason, named, held = _auto(pieces, here, prompt, public)
         return pool, {**why, "reason": reason, "named": named, "private_held": held}

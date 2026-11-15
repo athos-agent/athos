@@ -130,3 +130,17 @@ class NamedProjectsTest(TempHome):
                                      origin={"platform": "t", "model": "t"}))
         pool, why = control.select(store.all_pieces(), None, "the heat-v2 login", project="alpha")
         self.assertEqual(why["named"], ["heat-v2"])
+
+
+class RootFolderTest(TempHome):
+    def test_the_filesystem_root_is_a_folder_not_no_folder(self):
+        for pid, project, vis in (("b1", "beta", "private"), ("b2", "beta", ""), ("g1", "", "")):
+            store._write(store.Piece(id=pid, title=f"{pid} thing", when=f"{pid} work", body="b",
+                                     projects=[project] if project else [], created="2026-11-01",
+                                     last_used="2026-11-01", origin={"platform": "t", "model": "t"}, visibility=vis))
+        pool, why = control.select(store.all_pieces(), "/", "")
+        self.assertNotEqual(why["reason"], "auto:no-folder")
+        self.assertNotIn("b1", [p.id for p in pool])               # a private piece never outside its project
+        self.assertNotIn("b2", [p.id for p in pool])
+        pool, why = control.select(store.all_pieces(), None, "")   # no folder at all (Claude Desktop's chat)
+        self.assertEqual(why["reason"], "auto:no-folder")
