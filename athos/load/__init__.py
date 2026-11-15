@@ -569,9 +569,13 @@ def _session_of(event: dict) -> str:
     return event.get("session_id", "default")
 
 
-def on_prompt(event: dict, cmd: str = "athos") -> str:
+_PENDING: dict[str, tuple] = {}     # a route event held until the prompt hook knows everything it hands the model
+
+
+def on_prompt(event: dict, cmd: str = "athos", defer: bool = False) -> str:
     """UserPromptSubmit: the pieces that match the request, recorded as loaded in this session, with the words that
-    loaded each one (the band shows them, and [Didn't apply] remembers them)."""
+    loaded each one (the band shows them, and [Didn't apply] remembers them). The `route` event is written at once,
+    or, with `defer`, when the caller has added its own text and calls `finish_route` with the total."""
     prompt = event.get("prompt", "")
     sid = _session_of(event)
     started = time.perf_counter()
@@ -580,12 +584,15 @@ def on_prompt(event: dict, cmd: str = "athos") -> str:
     found, trace = decide(prompt, pool)
     ms = (time.perf_counter() - started) * 1000
     extra = ""
+    parts: dict[str, int] = {}
     if found:
         conn = note_connectors(sid, found, cmd)
         extra += "\n" + conn + "\n" if conn else ""
+        parts["connectors"] = len(conn or "")
         from athos import replay                 # a cheaper model proven on this piece: the person hears it once
         offer = replay.offer_text([p.id for p in found], cmd)
         extra += "\n" + offer + "\n" if offer else ""
+        parts["offer"] = len(offer or "")
     body, cut, left = fit(found, cmd, INJECT_CAP - len(extra))
     shown = [p for p in found if p.id not in left]
     if shown:
@@ -595,17 +602,40 @@ def on_prompt(event: dict, cmd: str = "athos") -> str:
         session.update(sid, task_route=[p.id for p in shown])     # best first: the edit detector credits the first
     mark_loaded(sid, [piece.id for piece in shown])
     text = body + extra if body else ""
-    trace = {**trace, "cut": cut, "left_out": left}
-    try:
-        note_route(sid, prompt, scope, trace, shown, len(everything), len(pool), len(text), ms)
-    except Exception as problem:  # noqa: BLE001 — the audit never costs the person the load
-        ev.hook_error("prompt", "load.note_route", problem, sid)
+    parts = {"pieces": len(body), **{k: v for k, v in parts.items() if v and body}}
+    trace = {**trace, "cut": cut, "left_out": left, "injected_parts": {k: v for k, v in parts.items() if v}}
+    args = (sid, prompt, scope, trace, shown, len(everything), len(pool), len(text), ms)
+    if defer:
+        _PENDING[sid] = args
+    else:
+        _write_route(args, len(text), {})
     return text
 
 
+def finish_route(sid: str, total: int, added: dict[str, int] | None = None) -> None:
+    """Write the route event `on_prompt(defer=True)` held, with `injected_total`: every character the prompt hook
+    handed the model, the router's text and whatever the caller added after it (`added`, by kind: an edit notice, a
+    share request, a rating). The router's own share stays in `injected_chars`."""
+    args = _PENDING.pop(sid, None)
+    if args is not None:
+        _write_route(args, total, added or {})
+
+
+def _write_route(args: tuple, total: int, added: dict[str, int]) -> None:
+    sid, prompt, scope, trace, shown, in_store, in_scope, injected, ms = args
+    trace = {**trace, "injected_parts": {**trace.get("injected_parts", {}), **{k: v for k, v in added.items() if v}}}
+    try:
+        note_route(sid, prompt, scope, trace, shown, in_store, in_scope, injected, ms, total=total)
+    except Exception as problem:  # noqa: BLE001 — the audit never costs the person the load
+        ev.hook_error("prompt", "load.note_route", problem, sid)
+
+
 def note_route(sid: str, prompt: str, scope: dict, trace: dict, found: list[store.Piece], in_store: int,
-               in_scope: int, injected: int, ms: float) -> None:
-    """The `route` audit event for one request, and its log.md line. Neither keeps any of the request's words."""
+               in_scope: int, injected: int, ms: float, total: int | None = None) -> None:
+    """The `route` audit event for one request, and its log.md line. Neither keeps any of the request's words.
+    `injected` is the router's own text; `total` everything the prompt hook handed the model (the router's text by
+    default)."""
+    total = injected if total is None else total
     from athos import tiers
     person, wrapper = origin_of(prompt)
     project = scope.get("project")
@@ -622,21 +652,22 @@ def note_route(sid: str, prompt: str, scope: dict, trace: dict, found: list[stor
               "public": bool(scope.get("public")), "private_held": scope.get("private_held", 0),
               "store_pieces": in_store, "in_scope": in_scope,
               **printed, "request_kind": kind, "wrapper": wrapper, **trace,
-              "thresholds": thresholds(), "injected_chars": injected, "ms": round(ms, 1)},
-             line=_route_line(kind, scope, found, injected), project=project)
+              "thresholds": thresholds(), "injected_chars": injected, "injected_total": total, "ms": round(ms, 1)},
+             line=_route_line(kind, scope, found, injected, total), project=project)
     session.update(sid, collaborates=tier["collaborates"], **({"project": project} if project else {}))
 
 
-def _route_line(kind: str, scope: dict, found: list[store.Piece], injected: int) -> str:
+def _route_line(kind: str, scope: dict, found: list[store.Piece], injected: int, total: int | None = None) -> str:
     """What log.md says about a request: what loaded (by id only when the piece is this project's or general), the
-    characters added and the scope's reason."""
+    characters added (and the hook's total when other text came along) and the scope's reason."""
     reason = f"scope {scope.get('reason')}"
+    more = f" · {total} chars in all" if total is not None and total != injected else ""
     if kind != "person":
-        return f"none · not the person's request ({kind}) · {reason}"
+        return f"none · not the person's request ({kind}){more} · {reason}"
     if not found:
-        return f"none · {reason}"
+        return f"none{more} · {reason}"
     marker = " · public repository" if scope.get("public") else ""
-    return f"loaded {loggable(found, scope.get('project'))} · {injected} chars · {reason}{marker}"
+    return f"loaded {loggable(found, scope.get('project'))} · {injected} chars{more} · {reason}{marker}"
 
 
 def nameable(piece: store.Piece, project: str | None) -> bool:
@@ -675,9 +706,13 @@ def _model_name(event: dict) -> str | None:
     return str(reported) if reported else None
 
 
+SESSION_PARTS: dict[str, dict[str, int]] = {}     # what each part of the session-start text cost, by session
+
+
 def on_session_start(event: dict, cmd: str = "athos") -> str:
     """SessionStart: remember the model, then give the catalogue, the project's recent tasks, the capture guide and
-    any cheaper-model offer, in that order."""
+    any cheaper-model offer, in that order. The characters of each part are kept in SESSION_PARTS for the `context`
+    audit event (`note_session_context`)."""
     sid = _session_of(event)
     model = _model_name(event)
     if model is not None:
@@ -688,28 +723,46 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
     from athos import capture
     here = enabled(event.get("cwd"))
     text = index_text(here, cmd, other_projects(here))
+    parts = {"index": len(text)}
     # Short-term memory: the project's recent tasks, next to its ways of working (the long-term memory).
     if event.get("cwd"):
         from athos import journal
         recent = journal.text(project)
         if recent:
             text = (text + "\n\n" if text else "") + recent
+            parts["journal"] = len(recent)
     # With the guide given here, the Stop hook only needs one line. With nothing in reach it is the whole opening: an
     # empty store, or a project with no pieces of its own (since these no longer see every other project's), whose
     # first tasks can be saved as its first ways of working (2026-11-01: a first run opened with nothing, so the
     # first task's trail stayed empty). "none" keeps Athos quiet.
     first_run = not text and control.get()["mode"] != "none"
     if (text or first_run) and capture.enabled():
-        text = (text + "\n\n" if text else "") + capture.guide(cmd)
+        guide = capture.guide(cmd)
+        text = (text + "\n\n" if text else "") + guide
+        parts["guide"] = len(guide)
         session.update(sid, guide=True)
     from athos import replay
     # A cheaper model proven on a piece in reach here: told once, at the session's start (never another project's).
     offer = replay.offer_text(None if not event.get("cwd") else [p.id for p in here], cmd)
     if offer:
         text = (text + "\n\n" if text else "") + offer
+        parts["offer"] = len(offer)
     if text:                                    # where Athos's own decisions are written down, for an agent to audit
-        text += "\n\n" + audit_hint(sid, cmd)
+        hint = audit_hint(sid, cmd)
+        text += "\n\n" + hint
+        parts["audit_hint"] = len(hint)
+    SESSION_PARTS[sid] = {k: v for k, v in parts.items() if v}
     return text
+
+
+def note_session_context(sid: str, project: str | None, total: int, added: dict[str, int] | None = None) -> None:
+    """The `context` audit event of a session start: every character the hook handed the model (`injected_total`)
+    and what each part cost (`injected_parts`: index, journal, guide, offer, audit_hint, and what the caller added,
+    such as the overnight review's offer)."""
+    parts = {**SESSION_PARTS.pop(sid, {}), **{k: v for k, v in (added or {}).items() if v}}
+    ev.audit({"type": "context", "hook": "session_start", "session_id": sid, "project": project,
+              "injected_total": total, "injected_parts": parts, "index_cap": INDEX_CAP},
+             line=f"session start · {total} chars" if total else None, project=project)
 
 
 def audit_hint(sid: str, cmd: str = "athos") -> str:

@@ -106,6 +106,30 @@ class RouteEventTest(HookCase):
         self.assertNotIn("zebra", json.dumps(t))
         self.assertIn("trigger | alpha | share · harness text <agent-message>", log_text())
 
+    def test_injected_total_counts_what_comes_after_the_router(self):
+        from athos import rating
+        ev_ = {"session_id": "s7", "cwd": str(self.alpha)}
+        with mock.patch.object(rating, "take_pending", return_value="The person rated the last task."):
+            out = self.hook("prompt", {**ev_, "prompt": "please ship the release of the app"})
+        told = out["hookSpecificOutput"]["additionalContext"]
+        (r,) = events("route")
+        self.assertEqual(r["injected_total"], len(told))           # everything the hook handed the model
+        self.assertLess(r["injected_chars"], r["injected_total"])  # the router's own text is a part of it
+        self.assertEqual(r["injected_parts"]["rating"], len("The person rated the last task.\n\n" + rating.POLICY))
+        self.assertGreater(r["injected_parts"]["pieces"], 0)
+        # The audit's cap rule reads the total.
+        big = {**r, "injected_chars": 100, "injected_total": load.INJECT_CAP + 1}
+        rule = next(x for x in audit.check("s7", [big])["rules"] if x["rule"] == "injected_over_cap")
+        self.assertEqual((rule["status"], rule["count"]), ("flagged", 1))
+
+    def test_session_start_records_what_it_hands_the_model(self):
+        out = self.hook("session-start", {"session_id": "s8", "cwd": str(self.alpha)})
+        told = out["hookSpecificOutput"]["additionalContext"]
+        (c,) = events("context")
+        self.assertEqual((c["hook"], c["injected_total"]), ("session_start", len(told)))
+        self.assertGreater(c["injected_parts"]["index"], 0)
+        self.assertNotIn("write-report", json.dumps(c))
+
     def test_the_save_button_records_a_trigger_from_the_person(self):
         self.hook("prompt", {"session_id": "s3", "cwd": str(self.alpha),
                              "prompt": "Athos · save: keep this task as a way of working"})
@@ -374,7 +398,13 @@ class RulesTest(TempHome):
         r = self.rule([start("t1"), routed("t1", chosen=["a1"], injected=9000)], "injected_over_cap")
         self.assertEqual((r["status"], r["count"]), ("flagged", 1))
         r = self.rule([start("t1"), routed("t1", chosen=["a1"], injected=900)], "injected_over_cap")
+        self.assertEqual(r["status"], "partial")             # before 0.1.114: only the router's own text
+        r = self.rule([start("t1"), {**routed("t1", chosen=["a1"], injected=900), "injected_total": 900}],
+                      "injected_over_cap")
         self.assertEqual(r["status"], "clean")
+        r = self.rule([start("t1"), {**routed("t1", chosen=["a1"], injected=900), "injected_total": 9000}],
+                      "injected_over_cap")
+        self.assertEqual((r["status"], r["count"]), ("flagged", 1))   # the edit notice, a share, a rating on top
         r = self.rule([start("t1"), end("t1", ["a1"])], "injected_over_cap")
         self.assertEqual(r["status"], "partial")             # estimated from today's pieces
 

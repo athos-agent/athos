@@ -180,11 +180,13 @@ def _quietly(fn, *args):
         return None
 
 
-def _trigger(event: dict, which: str) -> bool:
+def _trigger(event: dict, which: str, injected: int = 0) -> bool:
     """The `trigger` audit event: a special request path matched (save, adjust, gallery, share), whether the text
     read as the person's own or as the harness's (a subagent's report, a notification), which signal decided (the
     text's wrappers, the transcript's entry for the prompt, or both), and whether it acted. It acts only on the
-    person's own text: a subagent's report once fired the gallery's share path (2026-11-14). Returns whether to act."""
+    person's own text: a subagent's report once fired the gallery's share path (2026-11-14). `injected` is what the
+    path hands the model when it acts (`injected_total`; a share request is counted in its route event instead).
+    Returns whether to act."""
     prompt = event.get("prompt", "") or ""
     origin = load.trigger_origin(event)
     person, wrapper = origin["from_person"], origin["wrapper"]
@@ -200,15 +202,17 @@ def _trigger(event: dict, which: str) -> bool:
         printed.pop("request_sha")
     ev.audit({"type": "trigger", "session_id": sid, "task_id": session.load(sid).get("task_id") if sid else None,
               "trigger": which, "from_person": person, "acted": acted, "wrapper": wrapper, "project": project,
-              "origin_signal": origin["signal"], "transcript_origin": origin["transcript"], **printed},
+              "origin_signal": origin["signal"], "transcript_origin": origin["transcript"], **printed,
+              **({"injected_total": injected if acted else 0} if injected else {})},
              line=f"{which} · {said[person]} ({origin['signal']})" + ("" if acted else " · ignored"), project=project)
     return acted
 
 
-def _act_on(event: dict, which: str) -> bool:
+def _act_on(event: dict, which: str, injected: int = 0) -> bool:
     """Whether a special path that matched may act: only on the person's own text. The audit event is written
-    either way; if writing it fails, the same two signals decide."""
-    acted = _quietly(_trigger, event, which)
+    either way (with `injected`, the characters the path hands the model when it acts); if writing it fails, the
+    same two signals decide."""
+    acted = _quietly(_trigger, event, which, injected)
     return acted if acted is not None else load.trigger_origin(event)["from_person"] is True
 
 
@@ -224,12 +228,16 @@ def _on_session_start(event: dict, platform: str) -> None:
     intro = load.on_session_start(event, _cmd())
     from athos import consolidate, start
     dream = _quietly(consolidate.run) if consolidate.due() else None
+    offer = ""
     if dream and dream.get("proposals"):
         offer = (f"Athos's review of the last tasks proposes {len(dream['proposals'])} change(s) to the person's ways "
                  f"of working, from the stars they gave. In your first reply, offer them in one line, in their "
                  f"language; if they say yes, run `{_cmd()} dream` to list them and `{_cmd()} dream --apply N` for "
                  f"each one they choose, then do what it prints.")
         intro = (intro + "\n\n" + offer) if intro else offer
+    sid = event.get("session_id", "default")
+    project = paths.project_of(event["cwd"]) if event.get("cwd") else None
+    _quietly(load.note_session_context, sid, project, len(intro or ""), {"review": len(offer)})
     if intro:
         _add_context("SessionStart", intro)
 
@@ -238,27 +246,30 @@ def _on_prompt(event: dict, platform: str) -> None:
     """The person sent a request. A button's request is answered on its own; any other one starts a task, and the
     pieces it calls for (plus a rule learned from the person's hand edits) go in as context."""
     prompt, sid = event.get("prompt", ""), event.get("session_id")
-    if capture.is_save_prompt(prompt) and _act_on(event, "save"):
+    saving = capture.SAVE_CONTEXT.format(cmd=_cmd())
+    if capture.is_save_prompt(prompt) and _act_on(event, "save", len(saving)):
         # The person pressed [Save]: the save belongs to the task that just ended, so no new task starts
         # and nothing loads; the offer is spent.
         if sid:
             session.update(sid, offer=None)
-        _add_context("UserPromptSubmit", capture.SAVE_CONTEXT.format(cmd=_cmd()))
+        _add_context("UserPromptSubmit", saving)
         return
     from athos import gallery, share
-    if (ref := gallery.requested(prompt)) and _act_on(event, "gallery"):
+    ref = gallery.requested(prompt)
+    adding = (f"The person asked to add {ref!r} from Athos's gallery: run `{_cmd()} add {shlex.quote(ref)}` "
+              "now (it downloads only from the athos-agent/athos repository and never overwrites a page they "
+              "have), then tell them in one short line, in their language, what was added.") if ref else ""
+    if ref and _act_on(event, "gallery", len(adding)):
         # The person pasted [Use in Athos] from the gallery: the agent adds it, in sight, with one command.
-        _add_context("UserPromptSubmit", (
-            f"The person asked to add {ref!r} from Athos's gallery: run `{_cmd()} add {shlex.quote(ref)}` "
-            "now (it downloads only from the athos-agent/athos repository and never overwrites a page they "
-            "have), then tell them in one short line, in their language, what was added."))
+        _add_context("UserPromptSubmit", adding)
         return
-    if capture.is_adjust_prompt(prompt) and _act_on(event, "adjust"):
+    adjusting = capture.ADJUST_CONTEXT.format(cmd=_cmd())
+    if capture.is_adjust_prompt(prompt) and _act_on(event, "adjust", len(adjusting)):
         # The person pressed [Adjust] on a step of the pane and wrote the change: it improves that piece.
         # [Keep this rule] is an adjust too: the edit it names is kept, and its button goes away.
         if sid:
             _quietly(edits.kept, sid, prompt)
-        _add_context("UserPromptSubmit", capture.ADJUST_CONTEXT.format(cmd=_cmd()))
+        _add_context("UserPromptSubmit", adjusting)
         return
     from athos import start
     start.note_language(prompt)
@@ -268,21 +279,30 @@ def _on_prompt(event: dict, platform: str) -> None:
         ev.infer_mark(sid, prompt)     # before the new task replaces it
     ev.task_start(event, platform)
     capture.note_request(event)
-    context = load.on_prompt(event, _cmd())
-    if capture.enabled():
-        # The person's hand edits of files the agent wrote: a rule of their way of working, offered once.
-        learned = edits.on_prompt(event, _cmd())
-        context = (context + "\n" + learned) if context and learned else (context or learned)
-    if share.asked(prompt) and _act_on(event, "share"):
-        # The person asked to share a way of working with the gallery: a draft, anonymised by the agent in sight,
-        # sent through the gallery's form, filled in, on their yes.
-        sharing = share.SHARE_CONTEXT.format(cmd=_cmd(since=share.SINCE))
-        context = (sharing + "\n\n" + context) if context else sharing
-    # A rating the person gave in the panel since the last request: a plain fact, with what it means said openly.
-    from athos import rating
-    if sid and (fact := rating.take_pending(sid)):
-        told = fact + "\n\n" + rating.POLICY
-        context = (context + "\n\n" + told) if context else told
+    added: dict[str, int] = {}
+    context = load.on_prompt(event, _cmd(), defer=True)
+    try:
+        if capture.enabled():
+            # The person's hand edits of files the agent wrote: a rule of their way of working, offered once.
+            learned = edits.on_prompt(event, _cmd())
+            added["edit"] = len(learned or "")
+            context = (context + "\n" + learned) if context and learned else (context or learned)
+        if share.asked(prompt) and _act_on(event, "share"):
+            # The person asked to share a way of working with the gallery: a draft, anonymised by the agent in sight,
+            # sent through the gallery's form, filled in, on their yes.
+            sharing = share.SHARE_CONTEXT.format(cmd=_cmd(since=share.SINCE))
+            added["share"] = len(sharing)
+            context = (sharing + "\n\n" + context) if context else sharing
+        # A rating the person gave in the panel since the last request: a plain fact, with what it means said openly.
+        from athos import rating
+        if sid and (fact := rating.take_pending(sid)):
+            told = fact + "\n\n" + rating.POLICY
+            added["rating"] = len(told)
+            context = (context + "\n\n" + told) if context else told
+    finally:
+        # Everything this hook hands the model, not only the router's part: the edit notice, a share request and a
+        # rating came on top of it, uncounted (2026-11-15).
+        load.finish_route(event.get("session_id", "default"), len(context or ""), added)
     if context:
         _add_context("UserPromptSubmit", context)
 

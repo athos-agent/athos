@@ -38,7 +38,7 @@ RULES = (
     ("weak_evidence_learning", "a piece saved by autonomous learning with only the model's opinion as evidence"),
 )
 WEAK_EVIDENCE = {"", "model", "model_opinion", "self_report"}
-AUDIT_TYPES = {"route", "edit_seen", "model", "trigger", "hook_error", "learn", "grade", "ui"}
+AUDIT_TYPES = {"route", "edit_seen", "model", "trigger", "hook_error", "learn", "grade", "ui", "context"}
 
 
 # ------------------------------------------------------------------------------------------------ gathering
@@ -265,13 +265,22 @@ def _model_inconsistent(c: _Ctx, transcripts: bool) -> dict:
 
 
 def _injected_over_cap(c: _Ctx) -> dict:
+    """Since 0.1.114 a route event carries `injected_total`, everything the prompt hook handed the model (the edit
+    notice, a share request and a rating came on top of the router's text, uncounted); older route events only the
+    router's own `injected_chars`."""
     from athos import load
     if c.routes:
-        found = [{"task_id": r.get("task_id"), "injected_chars": r.get("injected_chars"),
-                  "cap": (r.get("thresholds") or {}).get("inject_cap", load.INJECT_CAP)} for r in c.routes
-                 if (r.get("injected_chars") or 0) > (r.get("thresholds") or {}).get("inject_cap", load.INJECT_CAP)]
-        return _result("injected_over_cap", _status(found, False), found,
-                       "route events (since 0.1.111 a page that doesn't fit is cut, and the cut is recorded)")
+        def cap(r: dict) -> int:
+            return (r.get("thresholds") or {}).get("inject_cap", load.INJECT_CAP)
+
+        def size(r: dict) -> int:
+            return r.get("injected_total", r.get("injected_chars")) or 0
+        found = [{"task_id": r.get("task_id"), "injected_total": size(r), "injected_chars": r.get("injected_chars"),
+                  "cap": cap(r)} for r in c.routes if size(r) > cap(r)]
+        older = not all("injected_total" in r for r in c.routes)
+        return _result("injected_over_cap", _status(found, older), found,
+                       "route events: everything the prompt hook handed the model (injected_total)" +
+                       ("; older route events count only the router's text (injected_chars)" if older else ""))
     found = []
     for e in c.ends:
         pieces = [c.byid[p] for p in e.get("pieces") or [] if p in c.byid]
@@ -371,7 +380,8 @@ def _summary(c: _Ctx) -> dict:
             "routes_person": sum(1 for r in routes if r.get("request_kind") == "person"),
             "tasks_with_loads": len({tid for tid, _, _ in loads}),
             "loads_other_project": len({tid for tid, pid, _ in loads if c.foreign(pid)}),
-            "injected_max": max((r.get("injected_chars") or 0 for r in routes), default=None),
+            "injected_max": max((r.get("injected_total", r.get("injected_chars")) or 0 for r in routes), default=None),
+            "session_start_chars": max((e.get("injected_total") or 0 for e in c.of("context")), default=None),
             "edits_to_person": (len([e for e in c.of("edit_seen") if e.get("decision") == "attributed"
                                      and e.get("attributed_to") == "person"])
                                 or len(c.of("learned_from_edit"))),
