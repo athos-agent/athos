@@ -225,6 +225,63 @@ def may_see(piece: store.Piece, here: str | None, public: bool = False) -> bool:
     return here in piece.projects
 
 
+NOT_HERE = ("no piece {id} here: this repository is marked public ({marker}), so only {project}'s own pieces are "
+            "named or used in it. From a folder outside it, `athos show {id}` reads any piece.")
+
+
+class Here:
+    """What a command run in a folder may name, print, write or act on. Outside a repository marked public: every
+    piece, as before. In one: only what may load there (`may_see`): this project's pieces that are not private, and the
+    profile pieces the person allowed in public; an id that is not in the store is treated the same as one that may
+    not be named, so the answer never says whether another project has it. Every command that prints piece ids or
+    titles goes through it (`cli.main` gates any command that takes a piece id), so a new command cannot forget it."""
+
+    def __init__(self, cwd: str | None = None):
+        import os
+        self.cwd = cwd or os.getcwd()
+        self.project, mark = paths.locate(self.cwd)
+        self.public = mark.get("public") is True
+        self.marker = mark.get("file") or paths.MARKER
+        self._byid: dict[str, store.Piece] | None = None
+
+    def _pieces(self) -> dict[str, store.Piece]:
+        if self._byid is None:
+            self._byid = {p.id: p for p in store.all_pieces()}
+        return self._byid
+
+    def may_name(self, piece: store.Piece | str | None) -> bool:
+        if not self.public:
+            return True
+        if isinstance(piece, str):
+            piece = self._pieces().get(piece)
+        return piece is not None and may_see(piece, self.project, True)
+
+    def pieces(self, pieces: list[store.Piece]) -> list[store.Piece]:
+        return [p for p in pieces if self.may_name(p)]
+
+    def ids(self, ids) -> list[str]:
+        return [i for i in ids if self.may_name(str(i))]
+
+    def hidden_ids(self) -> list[str]:
+        return [] if not self.public else [i for i, p in self._pieces().items() if not self.may_name(p)]
+
+    def mentions_hidden(self, text: str) -> bool:
+        """Whether a line names, as a whole word, a piece that may not be named here."""
+        if not self.public:
+            return False
+        return any(re.search(rf"(?<![\w-]){re.escape(i)}(?![\w-])", text) for i in self.hidden_ids())
+
+    def lines(self, lines) -> list[str]:
+        return [str(x) for x in lines if not self.mentions_hidden(str(x))]
+
+    def refuse(self, piece_id: str) -> str:
+        return NOT_HERE.format(id=piece_id, marker=self.marker, project=self.project)
+
+
+def here(cwd: str | None = None) -> Here:
+    return Here(cwd)
+
+
 def scope(pieces: list[store.Piece], cwd: str | None, prompt: str = "") -> list[store.Piece]:
     """One memory per project: the pieces of the project the session runs in, the profile, and another project's
     only when the request names it. No folder at all (Claude Desktop's chat) sees every piece. With every piece in one

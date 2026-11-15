@@ -98,8 +98,8 @@ def _status(found: list, partial: bool) -> str:
 class _Ctx:
     """One session's events, sorted by kind, plus the store as it is today."""
 
-    def __init__(self, sid: str, evs: list[dict], pieces: list[store.Piece], show: bool):
-        self.sid, self.evs, self.show = sid, evs, show
+    def __init__(self, sid: str, evs: list[dict], pieces: list[store.Piece], show: bool, here=None):
+        self.sid, self.evs, self.show, self.here = sid, evs, show, here
         self.of = lambda kind: [e for e in evs if e.get("type") == kind]
         self.starts, self.ends, self.routes = self.of("task_start"), self.of("task_end"), self.of("route")
         self.project = _project_of(evs)
@@ -112,6 +112,8 @@ class _Ctx:
     def name(self, pid: str) -> str:
         """A piece as the audit may print it: by id when it is this project's or general, or when asked to show."""
         p = self.byid.get(pid)
+        if self.here is not None:             # run in a repository marked public: only what may load there
+            return pid if self.here.may_name(pid) else "a piece of another project"
         if self.show or p is None or not p.projects or (self.project and self.project in p.projects):
             return pid
         return "a piece of another project"
@@ -587,11 +589,11 @@ def _marker_name_ignored(cwd: str | None) -> dict:
 
 def check(sid: str, evs: list[dict], pieces: list[store.Piece] | None = None, versions: dict | None = None,
           show: bool = False, transcripts: bool = True, cwd: str | None = None,
-          everything: list[dict] | None = None) -> dict:
+          everything: list[dict] | None = None, here=None) -> dict:
     """One session: its summary and every rule's result. `cwd`: the folder the audit runs in, for the rules that look
     at the repository itself. `everything`: the whole log, for the rules about the verifier and the grading, which run
     outside any session (read from the log when not given)."""
-    c = _Ctx(sid, evs, store.all_pieces() if pieces is None else pieces, show)
+    c = _Ctx(sid, evs, store.all_pieces() if pieces is None else pieces, show and here is None, here)
     everything = ev.events() if everything is None else everything
     rules = [_other_project_load(c), _load_without_own_pieces(c), _edit_without_basis(c),
              _model_inconsistent(c, transcripts), _injected_over_cap(c), _trigger_not_from_person(c),
@@ -603,11 +605,18 @@ def check(sid: str, evs: list[dict], pieces: list[store.Piece] | None = None, ve
 
 
 def run(session: str | None = None, project: str | None = None, last: int | None = None, show: bool = False,
-        versions: dict | None = None, transcripts: bool = True, cwd: str | None = None) -> dict:
+        versions: dict | None = None, transcripts: bool = True, cwd: str | None = None, here=None) -> dict:
+    """`here` (control.Here), when the audit runs in a repository marked public: only that project's sessions are
+    read, whatever was asked, and only what may load there is named."""
     events = ev.events()
-    chosen = pick(events, session, project, last)
+    if here is not None:
+        chosen = {s: evs for s, evs in pick(events, session, here.project, last if (last or session) else 1).items()
+                  if _project_of(evs) == here.project}
+    else:
+        chosen = pick(events, session, project, last)
     pieces = store.all_pieces()
-    return {"sessions": [check(s, evs, pieces, versions, show, transcripts, cwd, events) for s, evs in chosen.items()],
+    return {"sessions": [check(s, evs, pieces, versions, show, transcripts, cwd, events, here)
+                         for s, evs in chosen.items()],
             "rules": [{"rule": r, "means": m} for r, m in RULES]}
 
 

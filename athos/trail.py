@@ -160,18 +160,32 @@ def label(when: str, do: str, sid: str) -> str:
     return sid.replace("_", " ").replace("-", " ").capitalize()
 
 
-def view(state: dict) -> dict:
+def view(state: dict, here=None) -> dict:
     """What the pane draws: each piece the task walks, as a page (what it is for, its steps as a task list with what
     to do and why, the pages it leads to), the steps the agent reported (done, current, ahead), what happened beside
-    them, and the steps that were new."""
+    them, and the steps that were new. `here` (control.Here): only the pages that may be named where it is drawn (a
+    repository marked public), linked or handed over to included."""
     from athos import eval as ev, wiki
+    if here is not None:
+        ok = here.may_name
+    elif state.get("public") and state.get("project"):
+        # A session in a repository marked public (the hooks recorded it): wherever the pane is drawn (athos watch,
+        # Claude Desktop's panel), only what may load there.
+        from athos import control
+
+        def ok(q) -> bool:
+            q = store.get(q) if isinstance(q, str) else q
+            return q is not None and control.may_see(q, state["project"], True)
+    else:
+        def ok(_q) -> bool:
+            return True
     trail = state.get("trail") or []
     # The piece the agent reports steps of comes first, then the others by relevance (task_why keeps the ranking;
     # task_loaded is sorted by name, and put an unrelated piece first on screen, 2026-10-30).
     order: list[str] = []
     for pid in ([x["piece"] for x in trail if x.get("kind") == "step"] + list(state.get("task_why") or {})
                 + list(state.get("task_loaded") or []) + [x["piece"] for x in trail if x.get("piece")]):
-        if pid not in order:
+        if pid not in order and ok(pid):
             order.append(pid)
     why = state.get("task_why") or {}
     tasks = ev.tasks()
@@ -206,7 +220,7 @@ def view(state: dict) -> dict:
             # (a contract review → its data clause → the firm's clause format), never a page already on the path.
             for c in s.calls:
                 q = store.get(c["page"])
-                if not q or q.id in seen or depth >= 3:
+                if not q or q.id in seen or depth >= 3 or not ok(q):
                     continue
                 subs = wiki.statements(q)
                 if c["statement"]:
@@ -231,7 +245,8 @@ def view(state: dict) -> dict:
                 x["state"] = "skipped"
         opened = pid in (state.get("task_opened") or []) and pid not in (state.get("task_why") or {})
         how = "loaded" if pid in (state.get("task_loaded") or []) and not opened else "read"
-        see = [{"id": q, "title": store.get(q).title} for q in wiki.links_of(p)[:3] if store.get(q)]
+        see = [{"id": q, "title": store.get(q).title} for q in [q for q in wiki.links_of(p) if ok(q)][:3]
+               if store.get(q)]
         pieces.append({"id": pid, "title": p.title, "version": p.version, "when": p.when[:600], "how": how,
                        "why": why.get(pid, []), "record": ev.record(pid, tasks), "see": see, "steps": steps})
     beside = [{k: v for k, v in x.items() if k != "t"} for x in trail if x["kind"] in ("agent", "skill")]

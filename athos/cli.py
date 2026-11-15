@@ -545,13 +545,10 @@ def _here() -> tuple[str, dict]:
 def cmd_list(args: argparse.Namespace) -> int | None:
     """Every piece, most recently used first; ● marks the pieces allowed to load in this folder, ○ the others."""
     from athos import start
-    pieces = sorted(store.all_pieces(), key=lambda p: p.last_used, reverse=True)
+    everything = sorted(store.all_pieces(), key=lambda p: p.last_used, reverse=True)
     enabled = {p.id for p in load.enabled(os.getcwd())}
-    here, mark = paths.locate(os.getcwd())
-    hidden = 0
-    if mark.get("public"):                 # a public repository names only what may load in it
-        hidden = sum(1 for p in pieces if not control.may_see(p, here, True))
-        pieces = [p for p in pieces if control.may_see(p, here, True)]
+    pieces = control.here().pieces(everything)      # a public repository names only what may load in it
+    hidden = len(everything) - len(pieces)
     where, choice = paths.know_how(), control.describe(lang=start.lang())
     if start.lang() == "es":
         print(f"{len(pieces)} forma(s) de trabajar en {where} · se cargan: {choice}")
@@ -570,14 +567,14 @@ def cmd_show(args: argparse.Namespace) -> int | None:
     """Print one piece as stored. Reading writes nothing: no session, no event, not the piece's last-used date (a
     reader once marked pieces used in an old session, 2026-11-15). When the agent runs it inside a session, the tool
     hook sees the command and counts the piece as used for that task; `--use` counts it from here instead."""
+    here = control.here()
+    if here.public and not here.may_name(args.id):
+        # In a repository marked public another project's piece is not shown, not even to the agent that guessed it,
+        # and the answer is the same as for a piece that does not exist.
+        return _fail(here.refuse(args.id))
     piece = store.get(args.id)
     if piece is None:
         return _fail(f"no piece {args.id}")
-    here, mark = paths.locate(os.getcwd())
-    if mark.get("public") and not control.may_see(piece, here, True):
-        # In a repository marked public another project's piece is not shown, not even to the agent that guessed it.
-        return _fail(f"not shown here: this repository is marked public ({paths.MARKER}) and that piece is not "
-                     f"{here}'s. Read it from a folder outside this repository.")
     sid = _here()[1].get("session_id") if args.use else None
     if sid:
         load.mark_loaded(sid, [piece.id])
@@ -719,6 +716,13 @@ def cmd_wiki(args) -> int:
         return 0
     r = wiki.rebuild()
     lint = r["lint"]
+    here = control.here()
+    if here.public:                           # lines naming a piece that may not be named in this repository go
+        lint = r["lint"] = {k: (here.lines(v) if isinstance(v, list) else v) for k, v in lint.items()}
+        r = {k: (here.lines(v) if isinstance(v, list) else v) for k, v in r.items()}
+        r["lint"] = lint
+        r["agents"] = [a for a in r.get("agents", []) if not here.mentions_hidden(a.removesuffix(".md")
+                                                                               .removeprefix(wiki.AGENT_PREFIX))]
     if args.json:
         print(json.dumps(r, indent=1, ensure_ascii=False))
         return 0
@@ -811,6 +815,8 @@ def _export_skills(args: argparse.Namespace) -> int | None:
     target = codex.skills_dir() if not args.dir else Path(args.dir).expanduser()
     # ~/.agents/skills is read in every project: only the profile goes there (a folder the person names gets all).
     pieces = None if args.dir else control.profile_pieces()
+    if args.dir and getattr(args, "only", None) is not None:
+        pieces = args.only                    # a folder named from a public repository: only what may load there
     count, stale = codex.export_skills(target, pieces)
     who = "Codex and Muse Code" if args.muse else "Codex"
     print(f"exported {count} piece(s) as skills for {who} to {target}" + (f" (removed {stale} stale)" if stale else ""))
@@ -820,24 +826,42 @@ def _export_skills(args: argparse.Namespace) -> int | None:
               f"profile (`{_cmd()} profile`). `{_cmd()} project sync` gives a project its own pieces.")
 
 
-def _export_folder(folder: str | None) -> int | None:
-    """A plain copy of every piece file, for a backup or to read elsewhere."""
+def _export_folder(folder: str | None, only: list | None = None) -> int | None:
+    """A plain copy of every piece file (or of `only`, without their archive), for a backup or to read elsewhere."""
     if folder:
         target = Path(folder).expanduser()
+        if only is not None:
+            target.mkdir(parents=True, exist_ok=True)
+            for p in only:
+                paths.write_atomic(target / f"{p.id}.md", p.path.read_text())
+            print(f"exported {len(only)} piece(s) to {target} (only this project's: this repository is marked public)")
+            return None
         print(f"exported {store.export(target)} piece(s) to {target}")
         return None
     return _fail("name a folder to export to")
 
 
 def cmd_export(args: argparse.Namespace) -> int | None:
-    """Take the know-how out of the store, in the form the flags ask for (a plain folder copy without any)."""
+    """Take the know-how out of the store, in the form the flags ask for (a plain folder copy without any). In a
+    repository marked public only what may load there is exported, and the datasets (which hold requests) not at all."""
+    here = control.here()
+    if here.public:
+        if args.dataset:
+            return _fail(f"not here: this repository is marked public ({here.marker}); a dataset holds requests "
+                         "and other projects' pieces. Export it from a folder outside it.")
+        if args.guild and args.piece:
+            bad = [i for i in args.piece if not here.may_name(i)]
+            if bad:
+                return _fail(here.refuse(bad[0]))
+        args.piece = args.piece or [p.id for p in here.pieces(store.all_pieces())]
+        args.only = here.pieces(store.all_pieces())
     if args.guild:
         return _export_guild(args)
     if args.dataset:
         return _export_dataset(args)
     if args.codex or args.muse:
         return _export_skills(args)
-    return _export_folder(args.dir)
+    return _export_folder(args.dir, getattr(args, "only", None))
 
 
 def cmd_merge(args) -> int:
@@ -1087,6 +1111,10 @@ def cmd_report(args: argparse.Namespace) -> int | None:
     for failed in import_other_agents():              # Codex's and Muse Code's tasks are always in the report
         print(f"(sessions not imported: {failed})", file=sys.stderr)
     numbers = ev.report()
+    here = control.here()
+    if here.public:                           # only the pieces that may be named in this repository
+        numbers["pieces"] = [r for r in numbers["pieces"] if here.may_name(r["piece"])]
+        numbers["review"] = here.ids(numbers["review"])
     print(json.dumps(numbers, indent=1, ensure_ascii=False) if args.json else ev.render(numbers))
 
 
@@ -1288,13 +1316,14 @@ def _session_task(sid: str | None, state: dict, tasks: list[dict]) -> dict | Non
     return next((t for t in reversed(tasks) if t.get("task_id") == wanted), None)
 
 
-def _task_summary(task: dict | None) -> dict | None:
+def _task_summary(task: dict | None, here=None) -> dict | None:
     """The last task as the band shows it, with the pieces it saved split into new ones and improved ones."""
     if not task:
         return None
-    saved = task.get("saved", [])
+    saved = here.ids(task.get("saved", [])) if here else task.get("saved", [])
     improved = [pid for pid in saved if (piece := store.get(pid)) and piece.version > 1]
-    return {"task_id": task["task_id"], "result": task["result"], "pieces": task.get("pieces", []),
+    return {"task_id": task["task_id"], "result": task["result"],
+            "pieces": here.ids(task.get("pieces", [])) if here else task.get("pieces", []),
             "saved": [pid for pid in saved if pid not in improved], "improved": improved}
 
 
@@ -1306,6 +1335,9 @@ def status() -> dict:
     sid = noted.get("session_id")
     state, tasks, lang = (session.load(sid) if sid else {}), ev.tasks(), start.lang()
     current_offer = state.get("offer") if (state.get("offer") or {}).get("task_id") == state.get("task_id") else None
+    here = control.here(cwd)
+    if here.public:                           # only what may be named in this repository
+        state = _named_here(state, here)
     return {"pieces": len(store.all_pieces()), "lang": lang, "enabled": len(load.enabled(cwd)),
             "bars": ev.bars(paths.project_of(cwd)),
             "loading": control.describe(),
@@ -1318,19 +1350,38 @@ def status() -> dict:
                       for pid, words in (state.get("task_why") or {}).items()],
             "following": following(state),
             # A cheaper model that matched the person's approved answers on a piece (`athos shadow`).
-            "handoff": replay.handoffs(), "shadow": bool(replay.settings().get("on")),
+            "handoff": [h for h in replay.handoffs() if here.may_name(h["piece"])],
+            "shadow": bool(replay.settings().get("on")),
             "embed": bool((start.config().get("embed") or {}).get("on")),     # loads by meaning too (`athos embed on`)
             "learned_from_edit": learned_from_edit(state, lang),
-            "trail": trail.view(state), "greeting": trail.greeting(lang),
+            "trail": trail.view(state, here if here.public else None), "greeting": trail.greeting(lang),
             # One line when an agent runs an older Athos (`athos doctor`); file reads only, no command is run.
             "behind": _behind(lang),
             # Only recent tasks wait for a mark: an old backlog reads as debt, not help.
             "to_mark": sum(1 for t in tasks if t["result"] == "unevaluated" and ev.recent(t)),
-            "last": _task_summary(_session_task(sid, state, tasks)),
+            "last": _task_summary(_session_task(sid, state, tasks), here),
             # The model resolved for this session's latest request, its tier and the mode Athos works in with it.
             "model": _model_summary(state),
             # What the person sees: learning, collaborating or idle, and why (athos/indicator.py), and which interface.
             **indicator.observe(sid, state), "ui": indicator.mode()}
+
+
+def _named_here(state: dict, here) -> dict:
+    """A session's state with every piece that may not be named here left out (a repository marked public)."""
+    out = dict(state)
+    for key in ("loaded", "task_loaded", "task_route", "task_opened", "task_offered", "saved", "task_saved"):
+        if isinstance(out.get(key), list):
+            out[key] = here.ids(out[key])
+    out["task_why"] = {k: v for k, v in (out.get("task_why") or {}).items() if here.may_name(k)}
+    if isinstance(out.get("last_saved"), dict) and not here.may_name(str(out["last_saved"].get("id") or "")):
+        out["last_saved"] = None
+    if isinstance(out.get("offer"), dict) and here.mentions_hidden(json.dumps(out["offer"])):
+        out["offer"] = None
+    out["trail"] = [x for x in out.get("trail") or [] if not here.mentions_hidden(json.dumps(x))]
+    if isinstance(out.get("learned_from_edit"), dict):
+        files = [f for f in out["learned_from_edit"].get("files") or [] if here.may_name(str(f.get("piece") or ""))]
+        out["learned_from_edit"] = {**out["learned_from_edit"], "files": files}
+    return out
 
 
 def _model_summary(state: dict) -> dict | None:
@@ -1361,14 +1412,22 @@ def cmd_doctor(args) -> int:
 def cmd_audit(args) -> int:
     """`athos audit`: a session's summary from Athos's own log and the rules it broke; read-only."""
     from athos import audit, connect
+    here = control.here()
     session_id = args.session
+    if here.public:
+        # In a repository marked public the audit reads only this project's sessions and names only what may load
+        # here: other projects' sessions and pieces stay out, and --show is refused.
+        if args.show or (args.project and args.project != here.project):
+            return _fail(f"not here: this repository is marked public ({here.marker}); the audit shows only "
+                         f"{here.project}'s sessions and names only its pieces. Run it from a folder outside it.")
     if not (session_id or args.project or args.last):
         session_id = _here()[1].get("session_id")       # this folder's session, else the last one anywhere
     try:
         versions = connect.versions(ask_muse=False)
     except Exception:  # noqa: BLE001 — another agent's config never stops the audit
         versions = None
-    report = audit.run(session_id, args.project, args.last, show=args.show, versions=versions, cwd=os.getcwd())
+    report = audit.run(session_id, here.project if here.public else args.project, args.last, show=args.show,
+                       versions=versions, cwd=os.getcwd(), here=here if here.public else None)
     print(json.dumps(report, indent=1, ensure_ascii=False) if args.json else audit.render(report))
     return 0
 
@@ -1377,8 +1436,9 @@ def cmd_profile(args) -> int | None:
     """The pieces that apply in every project: list them, add or remove some, or (--untagged) report the pieces with
     no project, read-only."""
     from athos import privacy
+    here = control.here()
     if args.untagged:
-        r = privacy.untagged()
+        r = privacy.untagged(here.pieces(store.all_pieces()) if here.public else None)
         print(json.dumps(r, indent=1, ensure_ascii=False) if args.json else privacy.render_untagged(r, _cmd()))
         return 0
     action, ids = (args.what[0], args.what[1:]) if args.what else ("list", [])
@@ -1399,13 +1459,19 @@ def cmd_profile(args) -> int | None:
     except ValueError as refused:
         return _fail(refused)
     ids, public = control.profile_ids(), control.public_ids()
+    held = len(ids) - len(here.ids(ids))
+    ids = here.ids(ids)                       # in a public repository, only the pieces allowed there are named
     if args.json:
-        print(json.dumps({"profile": ids, "public": public, "max": control.PROFILE_MAX}))
+        print(json.dumps({"profile": ids, "public": public, "max": control.PROFILE_MAX,
+                          **({"not_named_here": held} if held else {})}))
         return 0
     print(f"profile: {len(ids)} of at most {control.PROFILE_MAX} pieces, loaded in every project"
           + (": " + ", ".join(i + (" (also in public repositories)" if i in public else "") for i in ids)
              if ids else f" (none yet; `{_cmd()} profile add <id>`)"))
-    if ids and not public:
+    if held:
+        print(f"({held} more not named here: this repository is marked public and they are not allowed in it; "
+              f"`{_cmd()} profile` from a folder outside it lists them)")
+    elif ids and not public:
         print(f"In a repository marked public none of them loads; `{_cmd()} profile allow-public <id>` allows one.")
     return 0
 
@@ -1505,7 +1571,8 @@ def cmd_tiers(args) -> int:
 def cmd_privacy(args) -> int:
     """Which pieces look private, for the person to review; read-only."""
     from athos import privacy
-    r = privacy.propose()
+    here = control.here()
+    r = privacy.propose(here.pieces(store.all_pieces()) if here.public else None)
     print(json.dumps(r, indent=1, ensure_ascii=False) if args.json else privacy.render_proposal(r, _cmd()))
     return 0
 
@@ -1704,8 +1771,12 @@ def cmd_step(args) -> int:
 def cmd_journal(args) -> int:
     """What happened lately in this project (or another one): the short-term memory a session starts with."""
     from athos import journal
-    project = args.project or paths.project_of(os.getcwd())
-    print(journal.text(project, paths.is_public(os.getcwd())) or f"Nothing yet in {project}.")
+    here = control.here()
+    project = args.project or here.project
+    if here.public and project != here.project:
+        return _fail(f"not here: this repository is marked public ({here.marker}); another project's journal is "
+                     f"read from a folder outside it")
+    print(journal.text(project, here.public) or f"Nothing yet in {project}.")
     return 0
 
 
@@ -2143,6 +2214,13 @@ def main(argv: list[str] | None = None) -> int:
         print(start.t("hello"))
         return 0
     args = _parser().parse_args(argv)
+    piece_id = getattr(args, "id", None)
+    if isinstance(piece_id, str) and piece_id:
+        # In a repository marked public a piece that may not be named there is not acted on or printed, by any
+        # command, and the answer is the same as for an id that does not exist (control.Here).
+        here = control.here()
+        if here.public and not here.may_name(piece_id):
+            return _fail(here.refuse(piece_id))
     return _HANDLERS[args.cmd](args) or 0           # a handler that ran to its end succeeded
 
 

@@ -250,9 +250,16 @@ repository with no marker at all, which Athos cannot know about (below).
 
 **In a public repository, everything else is private.** In a repository whose marker says `public = true`, only that
 project's own pages load (and none of them marked private). Every other page is treated as private there, whatever its
-`visibility`: it never loads and is never named, not in the session's index, a frontier request's index, `log.md`,
-the journal, `athos list` or `athos show` run there, or anything the hooks add, even when the request names its
-project, which elsewhere would bring it (the `route` event keeps only how many projects were named, `named_count`).
+`visibility`: it never loads and is never named, not in the session's index, a frontier request's index, a page
+handed over to, `log.md`, the journal, the pane, or anything the hooks add, even when the request names its project,
+which elsewhere would bring it (the `route` event keeps only how many projects were named, `named_count`). No command
+run there names one either: `athos list`, `profile` (and `--untagged`), `report`, `wiki`, `status --json`, `privacy`
+and `audit` leave them out or only count them; a command given the id of a page that may not be named there (`show`,
+`revert`, `test`, `share`, `route`, `verify`, `dismiss`, `delegate`, `merge`, `export --piece`) answers exactly as for
+an id that does not exist, so the answer does not say whether another project has it; `athos audit` reads only this
+project's sessions and refuses `--show` and `--project` of another one; `athos journal --project` of another project
+is refused; `athos export` to a folder writes only this project's pages, and `--dataset` (which holds requests) is
+refused. One check (`control.Here`) decides for all of them, and a test runs every command in a public repository.
 Profile pages are included in this: one loads in a public repository only once you allow it with `athos profile
 allow-public <id>`; by default none does. You do not need to mark pages one by one: the per-page `visibility` field
 stays available, and in a repository that is not marked public the usual rule holds.
