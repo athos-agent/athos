@@ -132,28 +132,42 @@ def from_person(text: str) -> bool:
     return origin_of(text)[0] is True
 
 
+ORIGIN_CHECKS = ("verify", "strict", "heuristic")
+
+
+def origin_check() -> str:
+    """How a special path decides while the transcript has no entry for the prompt yet (config `origin_check`):
+    `verify` (the default) acts on the text and checks the transcript at the next tool or stop hook, undoing what it
+    can if the harness wrote it; `strict` does not act; `heuristic` acts on the text and never looks again."""
+    from athos import start
+    chosen = start.config().get("origin_check")
+    return chosen if chosen in ORIGIN_CHECKS else "verify"
+
+
 def trigger_origin(event: dict) -> dict:
     """Whether a special path (save, adjust, gallery, share) may act on a prompt, from two signals: the wrappers the
     text carries (`origin_of`) and, when the hook gives a transcript path, the transcript's entry for the prompt
-    (`session.prompt_origin`). It acts only when the text reads as the person's and the transcript agrees; when they
-    disagree, or the transcript has no entry for the prompt yet, it does not act. `signal` says which one decided:
-    `heuristic` (no transcript path: Codex, Muse Code, OpenCode), `both`, `disagree` or `missing`. The config key
-    `"origin_check": "heuristic"` in `<home>/config.json` lets a missing entry fall back to the text alone."""
+    (`session.prompt_origin`). When both are there they must agree. Claude Code writes that entry only after the prompt
+    hook has run, so it is usually missing at prompt time: then `origin_check` decides (`verify`: act on the text and
+    check later; `strict`: hold back; `heuristic`: the text alone). `signal` says which way it went: `heuristic` (no
+    transcript path: Codex, Muse Code, OpenCode), `both`, `disagree`, `missing:verify`, `missing` (strict) or
+    `missing:heuristic`."""
     prompt = event.get("prompt", "") or ""
     person, wrapper = origin_of(prompt)
     out = {"from_person": person, "wrapper": wrapper, "transcript": None, "signal": "heuristic"}
     path = event.get("transcript_path")
     if not path:
         return out
-    seen = session.prompt_origin(path, event.get("prompt_id"))
+    seen = session.prompt_origin(path, event.get("prompt_id"))     # a fingerprint only when verifying, later
     out["transcript"] = seen
     if seen is None:
-        from athos import start
-        if start.config().get("origin_check") == "heuristic":
-            out["signal"] = "missing:heuristic"
-            return out
-        out.update(signal="missing", from_person=None if person else person)
-    elif (seen == "person") == (person is True):
+        mode = origin_check()
+        if mode == "strict":
+            out.update(signal="missing", from_person=None if person else person)
+        else:
+            out["signal"] = f"missing:{mode}"
+        return out
+    if (seen == "person") == (person is True):
         out["signal"] = "both"
     else:
         out.update(signal="disagree", from_person=False if person else person)

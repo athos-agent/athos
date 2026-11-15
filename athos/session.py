@@ -138,16 +138,35 @@ def _tail_rows(transcript_path: str | None, max_bytes: int = 512_000) -> list[di
     return rows
 
 
-def prompt_origin(transcript_path: str | None, prompt_id: str | None) -> str | None:
+def _sha(text: str) -> str:
+    import hashlib
+    return hashlib.sha256((text or "").strip().encode("utf-8", "ignore")).hexdigest()[:12]
+
+
+def prompt_entries(transcript_path: str | None, prompt_sha: str) -> int:
+    """How many user entries in the transcript's tail carry a prompt with this fingerprint (`prompt_origin` with a
+    fingerprint skips that many: the ones written before the prompt it verifies)."""
+    return sum(1 for r in _tail_rows(transcript_path) if r.get("type") == "user" and r.get("toolUseResult") is None
+               and _sha(_text_of(r)) == prompt_sha)
+
+
+def prompt_origin(transcript_path: str | None, prompt_id: str | None, prompt_sha: str | None = None,
+                  skip: int = 0) -> str | None:
     """Who wrote a prompt, as Claude Code's transcript records it on the prompt's entry (`promptId`): "person" for an
     entry whose `origin.kind` is `human` (typed, queued, a suggestion accepted), or Athos's own button pressed by the
     person (`origin.kind` `plugin`, `name` athos, `asUser`); "harness" for anything else the harness sent (a subagent's
     report, a task notification, a meta entry). None when there is no such entry: Claude Code 2.1 writes it only after
     the prompt hook has run, so at prompt time it is usually missing."""
-    if not (transcript_path and prompt_id):
+    if not (transcript_path and (prompt_id or prompt_sha)):
         return None
-    for row in _tail_rows(transcript_path):
-        if row.get("type") != "user" or row.get("promptId") != prompt_id or row.get("toolUseResult") is not None:
+    rows = _tail_rows(transcript_path)
+    if not prompt_id:                    # no id from the hook: the first entry with this text after `skip` older ones
+        rows = [r for r in rows if r.get("type") == "user" and r.get("toolUseResult") is None
+                and _sha(_text_of(r)) == prompt_sha][skip:skip + 1]
+    for row in rows:
+        if row.get("type") != "user" or row.get("toolUseResult") is not None:
+            continue
+        if prompt_id and row.get("promptId") != prompt_id:
             continue
         origin = row.get("origin") if isinstance(row.get("origin"), dict) else {}
         kind = origin.get("kind")

@@ -305,10 +305,17 @@ def _trigger_not_from_person(c: _Ctx) -> dict:
     # Since 0.1.111 a trigger event says whether the path acted; one that held back (`acted` false) did not fire.
     found = [{"task_id": t.get("task_id"), "trigger": t.get("trigger"), "wrapper": t.get("wrapper"),
               "from_person": t.get("from_person"), "signal": t.get("origin_signal")}
-             for t in triggers if t.get("from_person") is not True and t.get("acted", True)]
+             for t in triggers if t.get("stage") != "verify" and t.get("from_person") is not True
+             and t.get("acted", True)]
+    # Since 0.1.120 a path may act on text that reads as the person's and be checked against the transcript later:
+    # one the transcript then gave to the harness is an anomaly, even when what it changed was undone.
+    found += [{"task_id": t.get("task_id"), "trigger": t.get("trigger"), "verified": False, "hook": t.get("hook"),
+               "undone": ",".join(t.get("undone") or []) or "nothing"}
+              for t in triggers if t.get("stage") == "verify" and t.get("verified") is False]
     return _result("trigger_not_from_person", _status(found, False), found,
                    "trigger events that acted (from_person false, or unclear: an unknown leading tag, or no transcript "
-                   "entry for the prompt)")
+                   "entry for the prompt under origin_check strict), and those the transcript gave to the harness when "
+                   "checked afterwards")
 
 
 def _version_mismatch(c: _Ctx, versions: dict | None) -> dict:

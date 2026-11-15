@@ -142,12 +142,13 @@ class RouteEventTest(HookCase):
         path.write_text("".join(json.dumps(r) + "\n" for r in rows))
         return str(path)
 
-    def test_the_transcript_decides_with_the_text_and_a_missing_entry_means_no(self):
+    def test_the_transcript_decides_with_the_text_and_a_missing_entry_is_checked_later(self):
         save = "Athos · save: keep this task as a way of working"
         base = {"session_id": "s5", "cwd": str(self.alpha), "prompt": save, "prompt_id": "p2"}
         older = {"type": "user", "promptId": "p1", "origin": {"kind": "human"}, "message": {"content": "earlier"}}
         cases = [
-            (self.transcript(older), "missing", None, False),                  # Claude Code writes it after the hook
+            # Claude Code writes the prompt's entry after the hook: the text decides now, the transcript later.
+            (self.transcript(older), "missing:verify", None, True),
             (self.transcript(older, {"type": "user", "promptId": "p2", "origin": {"kind": "plugin", "name": "athos",
                                                                                  "asUser": True},
                                      "message": {"content": save}}), "both", "person", True),
@@ -160,11 +161,56 @@ class RouteEventTest(HookCase):
             self.assertEqual((t["origin_signal"], t["transcript_origin"], t["acted"]), (signal, seen, acted), signal)
         self.hook("prompt", {**base})                                          # no transcript: the text alone
         self.assertEqual((events("trigger")[-1]["origin_signal"], events("trigger")[-1]["acted"]), ("heuristic", True))
+        (Path(self.home) / "config.json").write_text(json.dumps({"origin_check": "strict"}))
+        self.hook("prompt", {**base, "transcript_path": cases[0][0]})          # the stricter way: hold back
+        self.assertEqual((events("trigger")[-1]["origin_signal"], events("trigger")[-1]["acted"]), ("missing", False))
+        self.assertIn("save · unclear (missing) · ignored", log_text())
         (Path(self.home) / "config.json").write_text(json.dumps({"origin_check": "heuristic"}))
-        self.hook("prompt", {**base, "transcript_path": cases[0][0]})          # the way back
+        self.hook("prompt", {**base, "transcript_path": cases[0][0]})          # the text alone, never checked
         self.assertEqual((events("trigger")[-1]["origin_signal"], events("trigger")[-1]["acted"]),
                          ("missing:heuristic", True))
-        self.assertIn("save · unclear (missing) · ignored", log_text())
+
+    def test_a_trigger_acted_on_is_verified_at_the_next_hook_and_undone_if_the_harness_wrote_it(self):
+        from athos import session
+        save = "Athos · save: keep this task as a way of working"
+        ev_ = {"session_id": "s6", "cwd": str(self.alpha)}
+        session.update("s6", offer={"task_id": "t0", "reason": "worth keeping"})
+        path = self.transcript({"type": "user", "promptId": "p1", "origin": {"kind": "human"},
+                                "message": {"content": "earlier"}})
+        out = self.hook("prompt", {**ev_, "prompt": save, "prompt_id": "p9", "transcript_path": path})
+        self.assertIn("[Save]", out["hookSpecificOutput"]["additionalContext"])       # it acted, on the text
+        self.assertEqual(session.load("s6")["offer"], None)
+        self.assertEqual(events("trigger")[-1]["verified"], None)
+        # A tool call before the transcript has the entry: nothing yet.
+        self.assertIsNone(self.hook("tool", {**ev_, "tool_name": "Read", "tool_input": {"file_path": "x"}}))
+        # Then the entry appears, and says the harness sent it: the offer comes back and the model is told.
+        Path(path).write_text(Path(path).read_text() + json.dumps(
+            {"type": "user", "promptId": "p9", "origin": {"kind": "task-notification"},
+             "message": {"content": save}}) + "\n")
+        told = self.hook("tool", {**ev_, "tool_name": "Read", "tool_input": {"file_path": "x"}})
+        self.assertIn("did not write", told["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(told["hookSpecificOutput"]["hookEventName"], "PostToolUse")
+        self.assertEqual(session.load("s6")["offer"], {"task_id": "t0", "reason": "worth keeping"})
+        v = events("trigger")[-1]
+        self.assertEqual((v["stage"], v["verified"], v["undone"]), ("verify", False, ["offer_restored", "model_told"]))
+        self.assertIn("save · verified at tool: not the person's", log_text())
+        rule = next(r for r in audit.check("s6", events())["rules"] if r["rule"] == "trigger_not_from_person")
+        self.assertEqual((rule["status"], rule["count"]), ("flagged", 1))
+        self.assertIsNone(session.load("s6").get("trigger_pending"))
+        self.assertIsNone(self.hook("tool", {**ev_, "tool_name": "Read", "tool_input": {"file_path": "x"}}))
+
+    def test_a_typed_trigger_and_the_athos_button_verify_as_the_persons(self):
+        save = "Athos · save: keep this task as a way of working"
+        for n, origin in enumerate(({"kind": "human"}, {"kind": "plugin", "name": "athos", "asUser": True})):
+            ev_ = {"session_id": f"s9{n}", "cwd": str(self.alpha)}
+            path = self.transcript()
+            self.hook("prompt", {**ev_, "prompt": save, "transcript_path": path})       # no prompt id: the text
+            Path(path).write_text(json.dumps({"type": "user", "origin": origin, "message": {"content": save}}) + "\n")
+            self.hook("stop", {**ev_, "transcript_path": path})
+            v = events("trigger")[-1]
+            self.assertEqual((v["stage"], v["verified"], v["hook"], v["undone"]), ("verify", True, "stop", []))
+        rule = next(r for r in audit.check("s90", events())["rules"] if r["rule"] == "trigger_not_from_person")
+        self.assertEqual(rule["status"], "clean")
 
     def test_a_project_without_pieces_says_so_in_the_scope(self):
         gamma = Path(self.home) / "gamma"
