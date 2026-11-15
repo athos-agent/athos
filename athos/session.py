@@ -79,6 +79,31 @@ def model_from_transcript(transcript_path: str | None) -> str:
     return UNKNOWN_MODEL
 
 
+def latest_model(transcript_path: str | None, max_bytes: int = 512_000) -> str | None:
+    """The model of the latest assistant message in the transcript's last `max_bytes`, or None. For the audit log
+    only: it reads a bounded tail, so a long session costs the same as a short one."""
+    if not transcript_path:
+        return None
+    try:
+        with open(transcript_path, "rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - max_bytes))
+            tail = fh.read().decode("utf-8", "ignore").splitlines()
+    except _UNREADABLE:
+        return None
+    if size > max_bytes and tail:
+        tail = tail[1:]                          # the first line of a cut tail is a fragment
+    for line in reversed(tail):
+        try:
+            found = _model_in(line)
+        except AttributeError:                   # a JSON line that is not an object
+            continue
+        if found is not None:
+            return found
+    return None
+
+
 def _last_lines(path: str) -> list[str]:
     """The final lines of a text file (undecodable bytes dropped), or [] when it cannot be opened."""
     try:

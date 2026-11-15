@@ -266,6 +266,60 @@ any request: this is what lets a Spanish request find an English piece. [Didn't 
 your machine. On the bench above it rescues cross-language and paraphrased requests without new wrong loads on the
 starters, but on the 300-page store it adds four wrong loads, so it stays opt-in.
 
+### The audit log: what Athos decided, for an agent to check
+
+Every decision the hooks make is written down on your machine, next to the task log (`~/.athos/events.jsonl`), and none
+of it keeps a request's words: only its length and a 12-character fingerprint (`request_chars`, `request_sha`).
+
+| event | written when | fields |
+|---|---|---|
+| `route` | every request the prompt hook sees, loaded or not | `task_id`, `mode`, `project`, `scope_reason`, `named_projects`, `store_pieces`, `in_scope`, `request_chars`, `request_sha`, `request_kind` (person, harness, empty), `wrapper`, `candidates` (up to 5: `piece`, `score`, `shared` (how many words it shares with the request, never which), `projects`, `kept`, `reason`), `scored`, `chosen`, `handed_over`, `meaning`, `thresholds`, `injected_chars`, `ms` |
+| `edit_seen` | the edit detector keeps a file the agent wrote, or gives a change to the person | `task_id`, `file_sha` (a hash of the path), `decision` (snapshot, attributed), `source` (agent_tool, outside), `basis` (the evidence that the person made the change), `attributed_to`, and for an attribution `detector`, `piece`, `piece_basis` (current_step, first_task_piece) |
+| `model` | a session starts, and every request | `task_id`, `model`, `source` (event, session, transcript, unknown), `seen_in_transcript` (the model of the transcript's latest reply), `tier` |
+| `trigger` | a special path fires: save, adjust, gallery, share | `task_id`, `trigger`, `from_person` (true; false for a harness wrapper such as a subagent's message; null when the text opens with another tag), `wrapper`, `project`, `request_chars`, `request_sha` |
+| `hook_error` | a hook swallows an exception so your session carries on | `hook`, `where`, `error` (the exception's kind), `line` (file and line inside Athos), never its message |
+| `learn`, `grade`, `ui` | reserved for autonomous learning, a piece's grade and the panel's state | not written yet |
+
+Every one of them also carries `at`, `session_id` and `v`, the version of Athos that wrote it. `candidates.reason`
+says why a piece did or didn't load: `chosen`, `runner_up_too_weak`, `over_budget`, `beyond_top_k`, `below_min_score`,
+`prefixes_only`, `no_head_match`, `dismissed` or `meaning`; `scope_reason` is the saved mode (`all`, `project`,
+`pieces`, `none`) or, in `auto`, `auto:project`, `auto:project+named`, `auto:project-without-pieces` (a folder no page
+belongs to sees every page) or `auto:no-folder`.
+
+`~/.athos/log.md` says the same in one line per operation, for a person or an agent to read with grep and tail:
+
+```
+grep '^## \[' ~/.athos/log.md | tail
+## [2026-11-15 09:21] route | my-app | loaded release-checklist · 1853 chars · scope auto:project
+## [2026-11-15 09:24] route | my-app | none · scope auto:project
+## [2026-11-15 09:30] trigger | my-app | share · harness text <agent-message>
+```
+
+Times are UTC. It names a piece only when the piece belongs to that project or to none (another project's are only
+counted), and it is moved to `log.1.md` once it passes 256 KB, so at most two files are kept. Each session starts with
+one hidden line telling the agent where the log is and that `athos audit --session <id>` summarizes it.
+
+`athos audit [--session <id> | --project <name> | --last N] [--show] [--json]` folds the log by session (by default
+the session of the folder you run it in) and checks each one against these rules:
+
+| rule | flags |
+|---|---|
+| `other_project_load` | a piece of another project loaded without the request naming that project |
+| `load_without_own_pieces` | a piece loaded in a project that has no pieces of its own |
+| `edit_without_basis` | an edit given to the person with no evidence that the person made it |
+| `model_inconsistent` | the model recorded for the session disagrees with itself or with Claude Code's transcript |
+| `injected_over_cap` | more characters added to one request than the router's cap (the best page is exempt by design, so a large page shows here) |
+| `trigger_not_from_person` | save, adjust, gallery or share fired on text the person didn't write |
+| `version_mismatch` | the session's events written by two versions, or Claude Code's plugin and the `athos` on your PATH differ now |
+| `private_piece_named` | a private piece named in any output (pages have no visibility yet, so it is reported as not checked) |
+| `weak_evidence_learning` | a piece learned with only the model's opinion as evidence (nothing writes `learn` yet) |
+
+Each rule says how it was judged: flagged, clean, partial (checked with older data, which is not a proof) or not
+evaluated (with what is missing). Sessions recorded before these events are checked as far as their task lines allow:
+the pieces each task used and the first 120 characters of its request, the pieces as they are tagged today, and, for
+the model, the replies in Claude Code's transcript when it is still on your machine. It only reads; requests are never
+shown, and another project's pieces are named only with `--show`.
+
 ### Learning from your own edits
 
 When the agent writes or edits a text file while following one of your pieces (a contract review, a report, code) and

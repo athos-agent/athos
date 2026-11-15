@@ -126,7 +126,20 @@ def on_tool(event: dict, session_id: str) -> None:
         entries = [e for e in entries if e["hash"] != h]
         entries.append({"path": str(path), "hash": h, "pieces": pieces, "statement": now,
                         "task_id": state.get("task_id"), "at": round(time.time(), 1), "size": len(text)})
+        _seen(session_id, state.get("task_id"), h, "snapshot", "agent_tool", [f"write_tool:{event.get('tool_name')}"],
+              "agent")
     _prune(session_id, entries)
+
+
+def _seen(session_id: str, task_id, file_hash: str, decision: str, source: str, basis: list[str],
+          attributed_to: str, **more) -> dict:
+    """The `edit_seen` audit event: what the detector decided about a file (by the hash of its path, never its name
+    or content), on what basis, and to whom it gave the change."""
+    from athos import eval as ev
+    event = {"type": "edit_seen", "session_id": session_id, "task_id": task_id, "file_sha": file_hash,
+             "decision": decision, "source": source, "basis": basis, "attributed_to": attributed_to, **more}
+    ev.audit(event)
+    return event
 
 
 def _prune(session_id: str, entries: list[dict]) -> None:
@@ -230,7 +243,28 @@ def on_prompt(event: dict, cmd: str = "athos") -> str:
     session.update(sid, learned_from_edit={"task_id": task_id, "files": notes})
     for n in notes:
         ev.append({"type": "learned_from_edit", "session_id": sid, "task_id": task_id, "at": ev._iso(ev.now()), **n})
+    try:
+        _audit_found(sid, task_id, found)
+    except Exception as problem:  # noqa: BLE001 — the audit never costs the person the offer
+        ev.hook_error("prompt", "edits.audit", problem, sid)
     return model_text(found, cmd)
+
+
+def _audit_found(sid: str, task_id, found: list[dict]) -> None:
+    """One `edit_seen` per change given to the person. Today's detector has no evidence of who changed the file (only
+    that it differs from the agent's copy), so `basis` is empty; the piece is the current step's, else the first of
+    the task's pieces in their stored order."""
+    from athos import load
+    project = session.load(sid).get("project")
+    for f in found:
+        piece_basis = "current_step" if f.get("statement") else "first_task_piece"
+        _seen(sid, task_id, hashlib.sha1(str(f["file"]).encode()).hexdigest()[:16], "attributed", "outside", [],
+              "person", detector="snapshot_differs", piece=f.get("piece"), piece_basis=piece_basis)
+        piece = store.get(f.get("piece") or "")
+        named = load.loggable([piece], project) if piece else "no piece"
+        from athos import eval as ev
+        ev.log_line("edit_seen", project, f"a file change given to the person (basis: none; detector: snapshot "
+                                          f"differs) · piece {named} ({piece_basis})")
 
 
 def kept(session_id: str, prompt: str) -> None:

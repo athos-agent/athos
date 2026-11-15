@@ -13,6 +13,23 @@ Kinds of line written to the log:
     test_run    `athos test` replaying a piece's recorded corrections on its latest version (athos/replay.py)
     shadow      `athos shadow` running an approved task again on a cheaper model and scoring the result
 
+The audit log (`athos audit` reads it; none of these lines keeps any text of a request, only its length and a short
+hash):
+
+    route       one per request the prompt hook sees, loaded or not: the scope that applied and why, the best
+                candidates with their scores, what was chosen, the characters added and the time it took
+    edit_seen   the edit detector: a file the agent wrote (snapshot) or one found changed and given to the person
+    model       the model the hook recorded for a session or task, where it read it, and what the transcript says
+    trigger     a special request path fired (save, adjust, gallery, share) and whether the text was the person's
+    hook_error  an exception a hook swallowed so the session carried on
+    learn       (reserved) a piece saved or skipped by autonomous learning, with its evidence
+    grade       (reserved) a piece moving between candidate, verified and retired, with its basis
+    ui          (reserved) the state a panel shows (learning, collaborating, idle)
+
+Next to it, `<home>/log.md` gets one header line per operation (`## [YYYY-MM-DD HH:MM] kind | project | what`, UTC),
+for a person or an agent to read with grep and tail; it never holds a request or a piece's content, and names a piece
+only when it belongs to that project or to none. It is rotated to `log.1.md` past LOG_CAP bytes.
+
 Comparisons: the task that first saved a piece ran without it, so it is that piece's baseline. Every later task
 that loaded the piece is measured against the baseline on time, tokens and request length.
 """
@@ -89,6 +106,86 @@ def append(event: Event) -> None:
     line = json.dumps(event, ensure_ascii=False)
     with log.open("a") as out:
         out.write(line + "\n")
+
+
+# ================================================================================================ the audit log
+LOG_CAP = 256_000           # log.md past this many bytes is moved to log.1.md (the previous one is dropped)
+LOG_PREFIX = "## ["         # every header line starts so: `grep '^## \[' log.md | tail`
+
+
+def log_file() -> Path:
+    return paths.home() / "log.md"
+
+
+def request_sha(text: str | None) -> str:
+    """A short fingerprint of a request, so two lines about the same request can be matched without keeping it."""
+    import hashlib
+    return hashlib.sha256((text or "").strip().encode("utf-8", "ignore")).hexdigest()[:12]
+
+
+def request_print(text: str | None) -> dict:
+    """What the audit events keep of a request: its length and its fingerprint, never its words."""
+    return {"request_chars": len((text or "").strip()), "request_sha": request_sha(text)}
+
+
+_VERSION: list[str] = []
+
+
+def version() -> str:
+    """The version of the Athos this code belongs to (its plugin manifest), read once."""
+    if not _VERSION:
+        manifest = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
+        try:
+            _VERSION.append(str(json.loads(manifest.read_text())["version"]))
+        except (OSError, ValueError, KeyError):
+            _VERSION.append("unknown")
+    return _VERSION[0]
+
+
+def _one_line(text: str) -> str:
+    return " ".join(str(text).split())
+
+
+def log_line(kind: str, project: str | None, what: str, at: Moment | None = None) -> None:
+    """One header line in log.md, rotating it first when it has grown past LOG_CAP."""
+    target = log_file()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if target.stat().st_size > LOG_CAP:
+            target.replace(target.with_name("log.1.md"))
+    except OSError:
+        pass
+    stamp = (at or now()).astimezone(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M")
+    with target.open("a") as out:
+        out.write(f"{LOG_PREFIX}{stamp}] {_one_line(kind)} | {_one_line(project or '-')} | {_one_line(what)}\n")
+
+
+def audit(event: Event, line: str | None = None, project: str | None = None) -> None:
+    """Record one audit event (and, with `line`, its log.md header). It never raises: the audit trail must not cost
+    the person the load or the capture it describes."""
+    try:
+        event.setdefault("at", _iso(now()))
+        event.setdefault("v", version())
+        append(event)
+        if line is not None:
+            log_line(event.get("type", "?"), project if project is not None else event.get("project"), line)
+    except Exception as problem:  # noqa: BLE001
+        import sys
+        print(f"athos: audit log: {type(problem).__name__}", file=sys.stderr)
+
+
+def hook_error(hook: str, where: str, problem: BaseException, session_id: str | None = None,
+               project: str | None = None) -> None:
+    """A hook swallowed an exception: its kind and where it was raised (file and line inside Athos), never its
+    message, which may quote a request or a file."""
+    import traceback
+    frames = [f for f in traceback.extract_tb(problem.__traceback__) if "/athos/" in f.filename.replace("\\", "/")]
+    last = frames[-1] if frames else None
+    place = f"{Path(last.filename).name}:{last.lineno}" if last else ""
+    audit({"type": "hook_error", "session_id": session_id, "hook": hook, "where": where,
+           "error": type(problem).__name__, "line": place},
+          line=f"{hook}: {where} raised {type(problem).__name__}" + (f" at {place}" if place else ""),
+          project=project)
 
 
 def _decoded(lines: Iterable[str]) -> Iterator[Any]:
@@ -226,18 +323,37 @@ def _is_scratch(cwd) -> bool:
 def task_start(event: Event, platform: str = "claude-code") -> TaskId:
     """Open a task for a new request: reset the session's per-task state and log a task_start. Returns its id."""
     sid, state = _hook_session(event)
+    source = "event" if _sent_model(event) else "session" if state.get("model") else "transcript"
     if _sent_model(event):
         state["model"] = _sent_model(event)      # Codex repeats the model on every hook event
     new_id, opened_at = _new_id(), _iso(now())
     model = state.get("model") or _transcript_model(event)
     prompt = str(event.get("prompt") or "")
-    session.save(sid, {**state, "platform": platform, **_fresh_task_state(new_id, opened_at, prompt)})
-    opened = _start_event(new_id, sid, platform, model, paths.project_of(event.get("cwd")), opened_at,
-                          event.get("prompt"))
+    project = paths.project_of(event.get("cwd"))
+    seen = session.latest_model(event.get("transcript_path"))
+    told = [model, seen]
+    session.save(sid, {**state, "platform": platform, **_fresh_task_state(new_id, opened_at, prompt),
+                       "audit_model": told})
+    opened = _start_event(new_id, sid, platform, model, project, opened_at, event.get("prompt"))
     if _is_scratch(event.get("cwd")):
         opened["scratch"] = True                 # a test or rehearsal: curating ignores it
     append(opened)
+    note_model(sid, new_id, model, source if model != session.UNKNOWN_MODEL else "unknown", seen, project,
+               changed=state.get("audit_model") != told)
     return new_id
+
+
+def note_model(sid: str, task_id: TaskId | None, model: str | None, source: str, seen: str | None,
+               project: str | None, changed: bool = True) -> None:
+    """The `model` audit event: the model Athos records, where it read it (`event`: the hook said so; `session`: kept
+    from an earlier hook; `transcript`: the transcript's last reply; `unknown`), and the model of the transcript's
+    latest reply when it could be read. The log.md line is written only when either one changes."""
+    differs = bool(seen and model and seen != model)
+    line = None
+    if changed:
+        line = f"{model or 'unknown'} (from {source})" + (f"; the transcript's last reply is {seen}" if differs else "")
+    audit({"type": "model", "session_id": sid, "task_id": task_id, "model": model, "source": source,
+           "seen_in_transcript": seen, "tier": None}, line=line, project=project)
 
 
 def _settle_model(sid: str, state: dict, event: Event) -> None:

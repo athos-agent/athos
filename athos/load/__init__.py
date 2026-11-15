@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 import unicodedata
 
 from athos import control, eval as ev, paths, session, store
@@ -91,6 +92,28 @@ def _head(piece: store.Piece) -> str:
 
 # The harness's own messages are not the person's requests: a subagent's report loaded an unrelated page (2026-10-31).
 NOT_A_REQUEST = re.compile(r"^\s*<(task-notification|system-reminder|agent-message)[\s>]")
+
+# For the audit log only (nothing is decided on it): the wrappers the harness puts around text it sends as a prompt,
+# and the leading tag of any text that opens with one.
+HARNESS_TAGS = {"task-notification", "system-reminder", "agent-message", "teammate-message", "local-command-stdout",
+                "local-command-stderr", "local-command-caveat", "command-name", "command-message", "command-args",
+                "user-prompt-submit-hook", "bash-input", "bash-stdout", "bash-stderr"}
+_LEADING_TAG = re.compile(r"^\s*<([A-Za-z][\w:-]*)[\s>/]")
+_HARNESS_INSIDE = re.compile(r"<(task-notification|system-reminder|agent-message|teammate-message)[\s>]")
+
+
+def origin_of(text: str) -> tuple[bool | None, str | None]:
+    """Whether a prompt reads as the person's own text: (True, None) for plain text; (False, tag) when it opens with,
+    or carries early on, a wrapper the harness uses; (None, tag) when it opens with some other tag (pasted markup, or
+    a wrapper not known yet). A heuristic for the audit: the hook is not told who wrote the prompt."""
+    lead = _LEADING_TAG.match(text or "")
+    tag = lead.group(1).lower() if lead else None
+    if tag in HARNESS_TAGS:
+        return False, tag
+    inside = _HARNESS_INSIDE.search((text or "")[:400])
+    if inside:
+        return False, inside.group(1)
+    return (None, tag) if tag else (True, None)
 
 
 def enabled(cwd: str | None = None, prompt: str = "") -> list[store.Piece]:
@@ -237,23 +260,40 @@ def rank(prompt: str, pieces: list[store.Piece]) -> list[tuple[float, store.Piec
     A page earns the weight of each request token found in its title or "when", and a quarter of that for tokens
     found only in its body. It is kept when it shares at least one head token, scores MIN_SCORE or more, shares
     real words (not just prefixes) with the request, and the person has not turned the same match down before."""
+    return _rank_traced(prompt, pieces)[0]
+
+
+def _rank_traced(prompt: str, pieces: list[store.Piece]) -> tuple[list[tuple[float, store.Piece]], list[dict]]:
+    """`rank`, plus every piece that scored at all, with why it was kept or not (for the `route` audit event). The
+    shared words are counted, never listed: they are the request's own words."""
     asked = set(tokens(prompt))
     if not asked or not pieces or NOT_A_REQUEST.match(prompt):
-        return []
+        return [], []
     pool = _Pool(pieces)
     request_words = _base_words(prompt)
     turned_down = misfires()
     kept: list[tuple[float, store.Piece]] = []
+    seen: list[dict] = []
     for i, piece in enumerate(pieces):
         head, body = pool.head_tokens[i], pool.body_tokens[i]
         in_head = asked & head
         only_in_body = (asked & body) - head
         score = sum(pool.weight(t) for t in in_head) + 0.25 * sum(pool.weight(t) for t in only_in_body)
         if _dismissed(request_words, pool.head_words[i], turned_down.get(piece.id, [])):
-            continue
-        if in_head and score >= MIN_SCORE and pool.same_words_enough(request_words, i):
+            reason = "dismissed"
+        elif not in_head:
+            reason = "no_head_match"
+        elif score < MIN_SCORE:
+            reason = "below_min_score"
+        elif not pool.same_words_enough(request_words, i):
+            reason = "prefixes_only"
+        else:
+            reason = "ranked"
             kept.append((score, piece))
-    return _by_score(kept)
+        if score > 0:
+            seen.append({"piece": piece.id, "score": round(score, 2), "shared": len(request_words & pool.head_words[i]),
+                         "projects": list(piece.projects), "kept": False, "reason": reason})
+    return _by_score(kept), seen
 
 
 def sure(ranked: list[tuple[float, store.Piece]]) -> bool:
@@ -297,14 +337,64 @@ def _within_budget(ranked: list[tuple[float, store.Piece]]) -> tuple[list[store.
 def relevant(prompt: str, pieces: list[store.Piece], meaning=None) -> list[store.Piece]:
     """The pieces to load for this request. `meaning(prompt, pieces) -> {id: closeness} | None` is the optional second
     opinion (`athos embed on`); None follows the person's setting, False is words only."""
-    ranked = rank(prompt, pieces)
+    return decide(prompt, pieces, meaning)[0]
+
+
+CANDIDATES = 5          # the route event keeps this many candidates
+
+
+def thresholds() -> dict:
+    """The numbers the router decided with, as the route event records them."""
+    return {"min_score": MIN_SCORE, "runner_up": RUNNER_UP, "top_k": TOP_K, "one_word_df": ONE_WORD_DF,
+            "stem": STEM, "inject_cap": INJECT_CAP}
+
+
+def decide(prompt: str, pieces: list[store.Piece], meaning=None) -> tuple[list[store.Piece], dict]:
+    """`relevant`, plus how it got there: the best candidates (each with its score, the number of words it shares
+    with the request, its projects, whether it loaded and why), what was chosen, what came along through a hand-over,
+    and whether meaning was asked."""
+    ranked, seen = _rank_traced(prompt, pieces)
     if meaning is None:
         from athos.load import embed
         meaning = embed.scores if embed.enabled() else False
-    if meaning and not sure(ranked) and words(prompt) and not NOT_A_REQUEST.match(prompt):
+    asked_meaning = bool(meaning and not sure(ranked) and words(prompt) and not NOT_A_REQUEST.match(prompt))
+    if asked_meaning:
+        before = {p.id for _, p in ranked}
         ranked = rerank(prompt, pieces, ranked, meaning(prompt, pieces) or {})
+        for score, p in ranked:
+            if p.id not in before:
+                seen = [c for c in seen if c["piece"] != p.id]
+                seen.append({"piece": p.id, "score": round(score, 2), "shared": 0, "projects": list(p.projects),
+                             "kept": False, "reason": "meaning"})
     chosen, used = _within_budget(ranked)
-    return chosen + _handed_over(chosen, used)
+    extra = _handed_over(chosen, used)
+    _budget_reasons(ranked, chosen, seen)
+    picked = {p.id for p in chosen}
+    top = [c for c in seen if c["piece"] in picked] + sorted(
+        (c for c in seen if c["piece"] not in picked), key=lambda c: (-c["score"], c["piece"]))
+    trace = {"candidates": top[:max(CANDIDATES, len(picked))], "scored": len(seen),
+             "chosen": [p.id for p in chosen], "handed_over": [p.id for p in extra], "meaning": asked_meaning}
+    return chosen + extra, trace
+
+
+def _budget_reasons(ranked: list[tuple[float, store.Piece]], chosen: list[store.Piece], seen: list[dict]) -> None:
+    """Why each ranked piece did or didn't make it past `_within_budget`, written into its candidate entry."""
+    picked = {p.id for p in chosen}
+    best = ranked[0][0] if ranked else 0.0
+    why: dict[str, str] = {}
+    for pos, (score, p) in enumerate(ranked):
+        if p.id in picked:
+            why[p.id] = "chosen"
+        elif pos >= TOP_K:
+            why[p.id] = "beyond_top_k"
+        elif score < RUNNER_UP * best:
+            why[p.id] = "runner_up_too_weak"
+        else:
+            why[p.id] = "over_budget"
+    for c in seen:
+        if c["piece"] in why:
+            c["reason"] = why[c["piece"]]
+            c["kept"] = c["piece"] in picked
 
 
 def _handed_over(loaded: list[store.Piece], used: int) -> list[store.Piece]:
@@ -411,7 +501,11 @@ def on_prompt(event: dict, cmd: str = "athos") -> str:
     loaded each one (the band shows them, and [Didn't apply] remembers them)."""
     prompt = event.get("prompt", "")
     sid = _session_of(event)
-    found = relevant(prompt, enabled(event.get("cwd"), prompt))
+    started = time.perf_counter()
+    everything = store.all_pieces()
+    pool, scope = control.select(everything, event.get("cwd"), prompt)
+    found, trace = decide(prompt, pool)
+    ms = (time.perf_counter() - started) * 1000
     if found:
         session.update(sid, task_why={p.id: why(prompt, p) for p in found})
     mark_loaded(sid, [piece.id for piece in found])
@@ -422,7 +516,46 @@ def on_prompt(event: dict, cmd: str = "athos") -> str:
         from athos import replay
         offer = replay.offer_text([p.id for p in found], cmd)
         text += "\n" + offer + "\n" if offer else ""
+    try:
+        note_route(sid, prompt, scope, trace, found, len(everything), len(pool), len(text), ms)
+    except Exception as problem:  # noqa: BLE001 — the audit never costs the person the load
+        ev.hook_error("prompt", "load.note_route", problem, sid)
     return text
+
+
+def note_route(sid: str, prompt: str, scope: dict, trace: dict, found: list[store.Piece], in_store: int,
+               in_scope: int, injected: int, ms: float) -> None:
+    """The `route` audit event for one request, and its log.md line. Neither keeps any of the request's words."""
+    person, wrapper = origin_of(prompt)
+    project = scope.get("project")
+    kind = "empty" if not prompt.strip() else "harness" if person is False else "person"
+    ev.audit({"type": "route", "session_id": sid, "task_id": session.load(sid).get("task_id"),
+              "mode": scope.get("mode"), "project": project, "scope_reason": scope.get("reason"),
+              "named_projects": scope.get("named", []), "store_pieces": in_store, "in_scope": in_scope,
+              **ev.request_print(prompt), "request_kind": kind, "wrapper": wrapper, **trace,
+              "thresholds": thresholds(), "injected_chars": injected, "ms": round(ms, 1)},
+             line=_route_line(kind, scope, found, injected), project=project)
+    if project:
+        session.update(sid, project=project)
+
+
+def _route_line(kind: str, scope: dict, found: list[store.Piece], injected: int) -> str:
+    """What log.md says about a request: what loaded (by id only when the piece is this project's or general), the
+    characters added and the scope's reason."""
+    reason = f"scope {scope.get('reason')}"
+    if kind != "person":
+        return f"none · not the person's request ({kind}) · {reason}"
+    if not found:
+        return f"none · {reason}"
+    return f"loaded {loggable(found, scope.get('project'))} · {injected} chars · {reason}"
+
+
+def loggable(pieces: list[store.Piece], project: str | None) -> str:
+    """Pieces as log.md may name them: by id when they belong to `project` or to none, else only counted."""
+    own = [p.id for p in pieces if not p.projects or (project and project in p.projects)]
+    other = len(pieces) - len(own)
+    parts = own + ([f"{other} piece(s) of another project"] if other else [])
+    return ", ".join(parts)
 
 
 def note_connectors(session_id: str, pieces: list[store.Piece], cmd: str = "athos") -> str:
@@ -452,13 +585,15 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
     model = _model_name(event)
     if model is not None:
         session.update(sid, model=model)
+    project = paths.project_of(event["cwd"]) if event.get("cwd") else None
+    ev.note_model(sid, None, model, "event" if model else "unknown", None, project)
     from athos import capture
     here = enabled(event.get("cwd"))
     text = index_text(here, cmd, other_projects(here))
     # Short-term memory: the project's recent tasks, next to its ways of working (the long-term memory).
     if event.get("cwd"):
         from athos import journal
-        recent = journal.text(paths.project_of(event["cwd"]))
+        recent = journal.text(project)
         if recent:
             text = (text + "\n\n" if text else "") + recent
     # With the guide given here, the Stop hook only needs one line. On an empty store it is the whole opening: the
@@ -472,4 +607,16 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
     offer = replay.offer_text(None, cmd)        # a cheaper model proven on a piece: told once, at the session's start
     if offer:
         text = (text + "\n\n" if text else "") + offer
+    if text:                                    # where Athos's own decisions are written down, for an agent to audit
+        text += "\n\n" + audit_hint(sid, cmd)
     return text
+
+
+def audit_hint(sid: str, cmd: str = "athos") -> str:
+    """One line for the model: where the audit log is and the command that summarizes this session."""
+    from pathlib import Path
+    where, home = str(ev.log_file()), str(Path.home())
+    if where.startswith(home + "/"):
+        where = "~" + where[len(home):]
+    return (f"Athos logs what it decides (loads and why, edits it attributes, triggers, errors) in `{where}`; "
+            f"`{cmd} audit --session {sid}` summarizes this session.")

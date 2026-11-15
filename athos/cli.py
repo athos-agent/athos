@@ -40,6 +40,7 @@ Everyday commands (`athos <command> --help` has the details of each):
                                        checked by what it left behind; `athos bench --list`, `athos bench report`
     athos bench route [--router lexical,hybrid] [--scale 300] [--from-store]   how well the router picks the know-how
     athos bench route --replay FILE [--show]   a session's requests again, through the scope the hooks apply
+    athos audit [--session ID | --project P | --last N] [--json]   what Athos decided in a session, and what it got wrong
     athos embed [on|off] [--model M]   also load know-how by meaning (local embeddings, Ollama); off by default
     athos test <id> [--backend meta]   re-check a piece against the corrections you made on it before
     athos shadow [--limit N] | on|off  compare a cheaper model with the answers you approved (Ollama by default)
@@ -160,13 +161,33 @@ def _folder_session_id(event: dict, sid: str | None) -> str | None:
 
 
 # ==================================================================== hooks
+_HOOK_NOW = {"hook": "", "session_id": None}     # which hook is running, for the hook_error audit events
+
+
 def _quietly(fn, *args):
     """Cases and shadowing are extras: their failure must not cost the person the capture or the load."""
     try:
         return fn(*args)
     except Exception as e:  # noqa: BLE001
         print(f"athos: {fn.__module__}.{fn.__name__}: {e}", file=sys.stderr)
+        if _HOOK_NOW["hook"]:
+            ev.hook_error(_HOOK_NOW["hook"], f"{fn.__module__}.{fn.__name__}", e, _HOOK_NOW["session_id"])
         return None
+
+
+def _trigger(event: dict, which: str) -> None:
+    """The `trigger` audit event: a special request path fired (save, adjust, gallery, share), and whether the text
+    read as the person's own or as the harness's (a subagent's report, a notification). Nothing is decided on it."""
+    prompt = event.get("prompt", "") or ""
+    person, wrapper = load.origin_of(prompt)
+    sid = event.get("session_id")
+    project = session.load(sid).get("project") if sid else None
+    if not project and event.get("cwd"):
+        project = paths.project_of(event["cwd"])
+    said = {True: "the person's text", False: f"harness text <{wrapper}>", None: f"unclear, opens with <{wrapper}>"}
+    ev.audit({"type": "trigger", "session_id": sid, "task_id": session.load(sid).get("task_id") if sid else None,
+              "trigger": which, "from_person": person, "wrapper": wrapper, "project": project,
+              **ev.request_print(prompt)}, line=f"{which} · {said[person]}", project=project)
 
 
 def _add_context(hook_event: str, text: str) -> None:
@@ -198,6 +219,7 @@ def _on_prompt(event: dict, platform: str) -> None:
     if capture.is_save_prompt(prompt):
         # The person pressed [Save]: the save belongs to the task that just ended, so no new task starts
         # and nothing loads; the offer is spent.
+        _quietly(_trigger, event, "save")
         if sid:
             session.update(sid, offer=None)
         _add_context("UserPromptSubmit", capture.SAVE_CONTEXT.format(cmd=_cmd()))
@@ -205,6 +227,7 @@ def _on_prompt(event: dict, platform: str) -> None:
     from athos import gallery, share
     if ref := gallery.requested(prompt):
         # The person pasted [Use in Athos] from the gallery: the agent adds it, in sight, with one command.
+        _quietly(_trigger, event, "gallery")
         _add_context("UserPromptSubmit", (
             f"The person asked to add {ref!r} from Athos's gallery: run `{_cmd()} add {shlex.quote(ref)}` "
             "now (it downloads only from the athos-agent/athos repository and never overwrites a page they "
@@ -213,6 +236,7 @@ def _on_prompt(event: dict, platform: str) -> None:
     if capture.is_adjust_prompt(prompt):
         # The person pressed [Adjust] on a step of the pane and wrote the change: it improves that piece.
         # [Keep this rule] is an adjust too: the edit it names is kept, and its button goes away.
+        _quietly(_trigger, event, "adjust")
         if sid:
             _quietly(edits.kept, sid, prompt)
         _add_context("UserPromptSubmit", capture.ADJUST_CONTEXT.format(cmd=_cmd()))
@@ -233,6 +257,7 @@ def _on_prompt(event: dict, platform: str) -> None:
     if share.asked(prompt):
         # The person asked to share a way of working with the gallery: a draft, anonymised by the agent in sight,
         # sent through the gallery's form, filled in, on their yes.
+        _quietly(_trigger, event, "share")
         sharing = share.SHARE_CONTEXT.format(cmd=_cmd(since=share.SINCE))
         context = (sharing + "\n\n" + context) if context else sharing
     # A rating the person gave in the panel since the last request: a plain fact, with what it means said openly.
@@ -294,11 +319,15 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
         # tool hook would point the folder at a session with no task, and `athos step` lost its task (2026-10-30).
         if event_name in ("session-start", "prompt"):
             _remember_session(event)
+        _HOOK_NOW.update(hook=event_name, session_id=event.get("session_id"))
         if event.get("session_id"):
             session.update(event["session_id"], platform=platform)
         _HOOK_HANDLERS[event_name](event, platform)
     except Exception as problem:  # noqa: BLE001 — whatever it is, the session must not see it
         print(f"athos hook {event_name}: {problem}", file=sys.stderr)
+        ev.hook_error(event_name, f"hook {event_name}", problem, _HOOK_NOW["session_id"])
+    finally:
+        _HOOK_NOW.update(hook="", session_id=None)
     return 0
 
 
@@ -1047,6 +1076,21 @@ def cmd_doctor(args) -> int:
     return 1 if v["behind"] else 0
 
 
+def cmd_audit(args) -> int:
+    """`athos audit`: a session's summary from Athos's own log and the rules it broke; read-only."""
+    from athos import audit, connect
+    session_id = args.session
+    if not (session_id or args.project or args.last):
+        session_id = _here()[1].get("session_id")       # this folder's session, else the last one anywhere
+    try:
+        versions = connect.versions(ask_muse=False)
+    except Exception:  # noqa: BLE001 — another agent's config never stops the audit
+        versions = None
+    report = audit.run(session_id, args.project, args.last, show=args.show, versions=versions)
+    print(json.dumps(report, indent=1, ensure_ascii=False) if args.json else audit.render(report))
+    return 0
+
+
 def cmd_gallery(args) -> int:
     from athos import gallery
     for f in gallery.build(Path(args.out) if args.out else None):
@@ -1535,6 +1579,12 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--json", action="store_true", help="everything the status line and band draw, as JSON")
     s = sub.add_parser("doctor", help="which Athos each of your agents runs, and which are behind")
     s.add_argument("--json", action="store_true")
+    s = sub.add_parser("audit", help="read Athos's own log back: a session's summary and what Athos did wrong")
+    s.add_argument("--session", help="a session id (a unique prefix is enough); default: this folder's session")
+    s.add_argument("--project", help="the sessions of a project")
+    s.add_argument("--last", type=int, help="the last N sessions (with --project, that project's last N)")
+    s.add_argument("--show", action="store_true", help="name other projects' pieces too (never requests)")
+    s.add_argument("--json", action="store_true", help="the summary and every rule's result as JSON")
     s = sub.add_parser("gallery", help="build the gallery's gallery.json and index.html")
     s.add_argument("action", choices=["build"])
     s.add_argument("--out", help="the folder to write to (default: the gallery folder)")
@@ -1562,7 +1612,7 @@ _HANDLERS = {
     "report": cmd_report, "bench": cmd_bench, "embed": cmd_embed, "wiki": cmd_wiki, "mcp": cmd_mcp,
     "watch": cmd_watch, "connector": cmd_connector, "desktop": cmd_desktop, "step": cmd_step, "test": cmd_test,
     "shadow": cmd_shadow, "status": cmd_status, "doctor": cmd_doctor, "gallery": cmd_gallery, "add": cmd_add, "share": cmd_share,
-    "hook": cmd_hook,
+    "hook": cmd_hook, "audit": cmd_audit,
 }
 
 
