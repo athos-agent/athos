@@ -707,18 +707,41 @@ other projects' names. `athos save --auto` then saves it without asking you, as 
 `learned_by`, the evidence summary, `confidence: 0.3` and the risk the detector finds, after two checks: the task's
 evidence must still qualify, and the private-data detector of `athos share` must find nothing (emails, phone and ID
 numbers, links, folders of this computer, another project's name, your name); if it finds something the piece is not
-saved and the model is told which kinds, never the text. It never changes an existing piece. A candidate does not
+saved and the model is told which kinds, never the text. It never changes your own pieces (no `status`) or a retired
+one; a learned piece of this project it may improve, under the same checks, and the new version is a candidate with its
+own verifier run (a verified piece improved this way is verified again from scratch). A candidate does not
 reach an apply model until it is verified. Every decision is a `learn` event: qualified (`ask: guide`), asked (`ask:
 stop`), saved, or skipped with its reason (no strong evidence, a failed last verification, private data, an apply
 model, or the model stopping without saving).
 
-On an apply model nothing is ever offered or asked for, and `athos save` (with or without `--auto`) refuses with a line
-saying why: apply models never create or change a piece. A model Athos could not resolve at all keeps the person's own
-save path as before, but never saves on its own. Another agent's models (Codex, Muse Code, OpenCode) are apply models
-until you name them frontier with `athos tiers add frontier <pattern>`. `"autolearn": {"on": false}` in
-`~/.athos/config.json` turns autonomous learning off: a frontier session is then offered [Save] (or asked) as before,
-in the classic interface; in the minimal one nothing is offered or asked in sight (a headless `claude -p` run, or
-`ATHOS_ASK=model`, still asks the model), and the guide only says how to save when you ask for it.
+**Who may save.** Every save or change of a piece is either yours or the model's, and in doubt it is the model's:
+
+- **yours**: you pressed [Save] (or [Adjust], [Keep this rule]), or typed a request that opens with `Athos · save:` or
+  `Athos · adjust`, and the who-wrote-the-prompt check reads it as your text (the text's own wrappers, and Claude
+  Code's transcript entry for the prompt when it is there: should the transcript say the harness sent it, the
+  permission is withdrawn). The `athos save` the model then runs in that task, from any folder of the project, is
+  yours: it works on any model and stores a piece you own (no `status`), as before autonomous learning. It lasts until
+  your next request (30 minutes at most). An `athos save` you run in your own terminal, where no agent runs it and no
+  session works in that folder or above it, is yours too.
+- **the model's**: anything else. A command an agent runs (Claude Code's shell sets `CLAUDECODE` and the session's id,
+  `CLAUDE_CODE_SESSION_ID`, which also tells which session it is when two work in one folder), a command in a folder
+  where a session worked in the last 30 minutes (or in a folder above it: a subfolder belongs to the project's
+  session), a subagent's `athos save` (its model is not the session's), and every `athos_save` through `athos mcp`
+  (an MCP server cannot tell who wrote the request).
+
+A save the model starts, with or without `--auto`, goes through the autonomous pipeline above: on a frontier model it
+gives a candidate, on strong evidence, after the private-data check, then the verifier; on an apply model, or one Athos
+could not resolve, nothing is saved or changed at all, from any folder, through the CLI or MCP (`athos save`, `athos
+revert`, `athos merge --apply`, `athos curate apply|restore`, `athos_save` and `athos_merge` with `apply`), and the
+refusal says how you can save it yourself. No session found while an agent runs the command counts as a model Athos
+could not resolve. In Claude Desktop's chat the model is not known, so its `athos_save` saves nothing.
+
+On an apply model nothing is ever offered or asked for. Another agent's models (Codex, Muse Code, OpenCode) are apply
+models until you name them frontier with `athos tiers add frontier <pattern>`. `"autolearn": {"on": false}` in
+`~/.athos/config.json` turns autonomous learning off, and with it every save the model starts: a frontier session is
+then offered [Save] as before, in the classic interface; in the minimal one nothing is offered in sight, and the guide
+only says how to save when you ask for it. (A headless `claude -p` run, `ATHOS_ASK=model`, Codex, Muse Code and
+OpenCode still have the Stop hook ask the model to save; that save is the model's, so it is refused unless you asked.)
 
 **The worker never grades its own work.** Whether the work was right is decided by an independent verifier, not by
 the model that did it. Right after an autonomous save Athos writes a folder for it, `~/.athos/verify/<id>-v<n>-<task>/`:
@@ -957,7 +980,8 @@ shows under its prompt, marked with g / c / f.
 
 Muse Code runs the same plugin as Claude Code: the pieces that match each request are loaded, every task is recorded
 with the model that answered and its tokens (from Muse's own session log), and after a turn that changed something or
-followed a checklist Athos asks once whether to save or improve a piece. `athos watch` and `/athos:report` show Muse Code beside Claude
+followed a checklist Athos asks once whether to save or improve a piece (the model's save is refused unless you asked
+with `Athos · save:`: see "Who may save"). `athos watch` and `/athos:report` show Muse Code beside Claude
 Code and Codex. Keep Muse Code's Contributor mode off (`muse` → `/settings`) unless you want Meta to train on your
 sessions; Athos warns when a task ran with it.
 

@@ -313,7 +313,17 @@ def _call(name: str, args: dict, session_id: str = SESSION) -> str:
     if name == "athos_list":
         return "\n".join(f"- `{p.id}` {p.title}. When: {p.when}" for p in store.all_pieces()) or "No pieces yet."
     if name == "athos_save":
-        piece, diff = capture.save_text(args.get("text", ""), session_id)
+        # The MCP server cannot tell who wrote a request: every athos_save is the model's. On a model that is not a
+        # frontier one (in Claude Desktop the model is not known) nothing is saved; on a frontier one it goes
+        # through the autonomous pipeline, which needs evidence the hooks gather and a project.
+        from athos import autolearn
+        refused = autolearn.refuse_model_save(session_id)
+        if refused:
+            raise ValueError(refused)
+        piece, line, failed = autolearn.save_model(args.get("text", ""), session_id, None, None)
+        if failed:
+            raise ValueError(line)
+        diff = piece.version > 1
         out = f"improved {piece.id} → v{piece.version}" if diff else f"saved {piece.id}"
         from athos import rating
         rating.note_learned(session_id, piece, bool(diff), args.get("text", ""))
@@ -339,6 +349,10 @@ def _call(name: str, args: dict, session_id: str = SESSION) -> str:
         if not r["changed"]:
             return out
         if args.get("apply"):
+            from athos import autolearn
+            refused = autolearn.refuse_model_save(session_id, "merge")
+            if refused:
+                raise ValueError(refused.replace("not saved", "not changed"))
             piece, _ = guild.apply(r)
             return out + f"\n\nSaved as {piece.id} v{piece.version}; the previous version is kept."
         return out + f"\n\nProposal in {guild.write_proposal(r)}. Nothing changed yet: ask the person, then call " \

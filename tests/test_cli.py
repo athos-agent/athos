@@ -52,7 +52,9 @@ class CliTest(ThroughTheLauncher):
             self.send("tool", dict(first, tool_name=tool))
         # Claude Code shows the request to save as feedback for the model, not as a "hook error".
         self.assertIn("athos save", self.context(self.send("stop", first)))
-        # The model saves from the session's folder; the page records the model that wrote it.
+        # The person presses [Save] (a model's own save is never the person's), and the model saves from the
+        # session's folder; the page records the model that wrote it.
+        self.send("prompt", dict(first, prompt="Athos · save: keep this task as a way of working"))
         saved = self.run_athos("save", stdin="---\ntitle: Bump a version\nwhen: releasing a new version of a "
                                              "package\n---\nEdit pyproject.")
         self.assertEqual(saved.returncode, 0, saved.stderr)
@@ -157,6 +159,7 @@ class CliTest(ThroughTheLauncher):
         self.send("session-start", folder)
         self.send("prompt", dict(folder, prompt="release a new version"))
         page = "---\ntitle: Release\nwhen: release a new version\n---\nBump the version, then tag it."
+        self.send("prompt", dict(folder, prompt="Athos · save: keep this task as a way of working"))   # the person's
         self.assertEqual(self.run_athos("save", stdin=page).returncode, 0)
         self.send("stop", folder)
         before = snapshot()

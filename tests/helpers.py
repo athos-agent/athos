@@ -13,6 +13,10 @@ _SANDBOXED_ENV = {
 }
 
 
+_OUTER_SESSION = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "ATHOS_SESSION_ID",
+                  "CODEX_THREAD_ID", "CODEX_SANDBOX", "MUSE_PLUGIN_ID", "OPENCODE")
+
+
 class TempHome(unittest.TestCase):
     """Base class that runs every test against a fresh temporary ATHOS_HOME (available as `self.home`), with the
     other agents' folders redirected under it too. Whatever the environment held before is put back afterwards."""
@@ -20,7 +24,12 @@ class TempHome(unittest.TestCase):
     def setUp(self):
         self._home_dir = tempfile.TemporaryDirectory()
         self.home = self._home_dir.name
-        self._saved_env = {name: os.environ.get(name) for name in (*_SANDBOXED_ENV, "ATHOS_SPAWN", "ATHOS_UI")}
+        self._saved_env = {name: os.environ.get(name) for name in (*_SANDBOXED_ENV, "ATHOS_SPAWN", "ATHOS_UI",
+                                                                   *_OUTER_SESSION)}
+        # A test runs as no agent's command unless it says so: the variables an agent session sets in its shell
+        # (when the suite itself runs inside one) would make every `athos save` a model's.
+        for name in _OUTER_SESSION:
+            os.environ.pop(name, None)
         for name, sub in _SANDBOXED_ENV.items():
             os.environ[name] = self.home if sub is None else os.path.join(self.home, sub)
         # The interface the person gets is the default one (minimal) unless a test asks for the classic one.

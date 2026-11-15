@@ -423,7 +423,7 @@ class AutonomousSaveTest(_HookedTask):
         self.task()
         done = self.cli.run_athos("save", "--auto", stdin=PIECE.replace("---\ntitle", f"---\nid: {old.id}\ntitle"),
                                   cwd=self.work)
-        self.assertIn("new pieces only", done.stderr)
+        self.assertIn("the person's own", done.stderr)                     # a model never rewrites it
         self.assertEqual(store.get(old.id).version, 1)
 
     def test_the_session_guide_is_the_autonomous_one_on_a_frontier_model(self):

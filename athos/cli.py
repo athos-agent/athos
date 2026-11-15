@@ -240,11 +240,13 @@ def _hold_for_verification(event: dict, which: str, sid: str, project: str | Non
     held = {"trigger": which, "prompt_id": event.get("prompt_id"), "transcript_path": event.get("transcript_path"),
             "task_id": state.get("task_id"), "at": ev._iso(ev.now()), "saved_before": list(state.get("saved") or []),
             "project": project}
-    if not event.get("prompt_id") and not paths.is_public(event.get("cwd")):
-        # Without the prompt's id the transcript entry is found by a fingerprint of the text; in a repository marked
-        # public no hash of a request is stored, so there the check finds nothing and the trigger stays unverified.
+    if not paths.is_public(event.get("cwd")):
+        # The transcript entry is found by the prompt's id and, among several entries of that id, by a fingerprint of
+        # the text (without the id, by the fingerprint alone); in a repository marked public no hash of a request is
+        # stored, so there the id alone decides, or the trigger stays unverified.
         sha = ev.request_sha(event.get("prompt", ""))
-        held.update(prompt_sha=sha, skip=session.prompt_entries(event.get("transcript_path"), sha))
+        held.update(prompt_sha=sha, skip=0 if event.get("prompt_id") else
+                    session.prompt_entries(event.get("transcript_path"), sha))
     if which == "save":
         held["offer_before"] = state.get("offer")
     if which == "adjust":
@@ -272,6 +274,9 @@ def _verify_trigger(event: dict, sid: str | None, hook: str) -> str:
     which, undone, told = held.get("trigger"), [], ""
     saved = sorted(set(state.get("saved") or []) - set(held.get("saved_before") or []))
     if seen == "harness":
+        if state.get("person_asked"):
+            session.update(sid, person_asked=None)       # the model's saves are its own again
+            undone.append("person_asked_withdrawn")
         if which == "save":
             session.update(sid, offer=held.get("offer_before"))
             undone.append("offer_restored")
@@ -339,9 +344,9 @@ def _on_prompt(event: dict, platform: str) -> None:
     saving = capture.SAVE_CONTEXT.format(cmd=_cmd())
     if capture.is_save_prompt(prompt) and _act_on(event, "save", len(saving)):
         # The person pressed [Save]: the save belongs to the task that just ended, so no new task starts
-        # and nothing loads; the offer is spent.
+        # and nothing loads; the offer is spent. The save the model now runs is the person's (`_who`).
         if sid:
-            session.update(sid, offer=None)
+            session.update(sid, offer=None, person_asked=_person_asked(sid, "save", event))
         _add_context("UserPromptSubmit", saving)
         return
     from athos import gallery, share
@@ -359,6 +364,7 @@ def _on_prompt(event: dict, platform: str) -> None:
         # [Keep this rule] is an adjust too: the edit it names is kept, and its button goes away.
         if sid:
             _quietly(edits.kept, sid, prompt)
+            session.update(sid, person_asked=_person_asked(sid, "adjust", event))
         _add_context("UserPromptSubmit", adjusting)
         return
     from athos import start
@@ -412,6 +418,14 @@ def _on_prompt(event: dict, platform: str) -> None:
         load.finish_route(event.get("session_id", "default"), len(context or ""), added)
     if context:
         _add_context("UserPromptSubmit", context)
+
+
+def _person_asked(sid: str, which: str, event: dict) -> dict:
+    """The person asked, in their own words or with their button, for a save or a change in this task: what lets the
+    model's `athos save` be theirs until the next request (or PERSON_ASK_S). Withdrawn when the transcript says the
+    harness wrote the prompt (`_verify_trigger`)."""
+    return {"trigger": which, "task_id": session.load(sid).get("task_id"), "prompt_id": event.get("prompt_id"),
+            "at": time.time()}
 
 
 def _late_guide(sid: str | None) -> str:
@@ -567,10 +581,72 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
 # Each `cmd_*` handler receives the parsed arguments. A handler returns an exit status when it has one to give (1 on
 # failure, through `_fail`); one that simply runs to its end has succeeded, and `main` turns that into 0.
 
+# The variables an agent's shell sets for the commands it runs (Claude Code: CLAUDECODE and the session's id). With
+# one of them, a command is the agent's, never the person's typing.
+_AGENT_ENV = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "ATHOS_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SANDBOX",
+              "MUSE_PLUGIN_ID", "OPENCODE")
+LIVE_SESSION_S = 30 * 60        # a session whose state moved this recently is working: a save run here is its model's
+PERSON_ASK_S = 30 * 60          # how long the person's [Save] or `Athos · save:` request lets the model save for them
+
+
 def _here() -> tuple[str, dict]:
-    """The folder a command runs in, and the session the hooks last noted for it."""
+    """The folder a command runs in, and the session it belongs to: the one the agent's shell names
+    (CLAUDE_CODE_SESSION_ID), else the one the hooks last noted for this folder or the nearest folder above it (a
+    command run from a subfolder belongs to the project's session). `via` says which ("env", "folder" or none)."""
     folder = os.getcwd()
-    return folder, _current_session(folder)
+    noted: dict = {}
+    here = Path(folder)
+    for up in [here, *list(here.parents)[:40]]:
+        found = _current_session(str(up))
+        if found.get("session_id"):
+            noted = {**found, "via": "folder", "folder": str(up)}
+            break
+    named = os.environ.get("CLAUDE_CODE_SESSION_ID") or os.environ.get("ATHOS_SESSION_ID")
+    if named:
+        same = noted.get("session_id") == named
+        noted = {"session_id": named, "transcript_path": noted.get("transcript_path") if same else None, "via": "env",
+                 **({"folder": noted["folder"]} if same else {})}
+    # A save from a subfolder belongs to the project of the session's folder, not to the subfolder's name.
+    return noted.get("folder") or folder, noted
+
+
+def _agent_env() -> bool:
+    return any(os.environ.get(name) for name in _AGENT_ENV)
+
+
+def _who(noted: dict) -> tuple[str, str | None, str]:
+    """Who starts a write: ("person" or "model", the session id when Athos knows that session, why). The person when
+    they asked for it in this task (their [Save] or `Athos · save:` request, `person_asked`), or when no agent runs the
+    command and no session works here (their own terminal). Anything else is the model's: a command an agent runs, a
+    session working in this folder or above it, a subagent's `athos save`. In doubt, the model's."""
+    sid = noted.get("session_id")
+    known = bool(sid) and session._file(sid).exists()
+    state = session.peek(sid) if known else {}
+    asked = state.get("person_asked") or {}
+    if known and asked.get("task_id") == state.get("task_id") and time.time() - float(asked.get("at") or 0) \
+            < PERSON_ASK_S:
+        return "person", sid, "person_asked"
+    if known and any(c.get("athos_save") and c.get("agent") for c in session.live(sid).values()):
+        return "model", sid, "subagent"
+    try:
+        fresh = known and time.time() - session._file(sid).stat().st_mtime < LIVE_SESSION_S
+    except OSError:
+        fresh = False
+    if _agent_env() or fresh or noted.get("via") == "env":
+        return "model", sid if known else None, "agent"
+    return "person", sid if known else None, "terminal"
+
+
+def _model_may_not(sid: str | None, why: str, what: str = "save") -> str | None:
+    """Why the model may not save or change a piece here ("" for none): a subagent (its model is not the session's),
+    no session Athos knows, or an apply or unknown model (a `learn` event says so)."""
+    if why == "subagent":
+        return (f"not saved: a subagent ran this {what}; its model is not the session's, so it may not {what} a piece. "
+                f"Leave it to the main conversation.")
+    if not sid:
+        return ("not saved: no Athos session was found for this folder, so the model running this is not known, and "
+                "an unknown model never saves or changes a piece.")
+    return autolearn.refuse_model_save(sid, what)
 
 
 def cmd_list(args: argparse.Namespace) -> int | None:
@@ -633,21 +709,34 @@ def cmd_save(args: argparse.Namespace) -> int | None:
 
 def _save_auto(text: str) -> int | None:
     """`athos save --auto`: autonomous learning on a frontier model (athos/autolearn.py). It refuses, saying why, on an
-    apply model, without objective evidence, or when the piece looks like it carries private data."""
+    apply or unknown model, from a subagent, without objective evidence, or when the piece looks like it carries
+    private data."""
     folder, noted = _here()
-    sid = noted.get("session_id", "default")
+    _by, sid, why = _who(noted)
+    return _save_by_model(text, folder, noted, sid, "subagent" if why == "subagent" else "agent")
+
+
+def _save_by_model(text: str, folder: str, noted: dict, sid: str | None, why: str) -> int | None:
+    """A save the model started: the same pipeline as an autonomous save (a candidate, on strong evidence, after the
+    private-data check, then the independent verifier), and never on an apply or unknown model."""
+    refused = _model_may_not(sid, why)
+    if refused:
+        return _fail(refused)
     try:
-        piece, line, refused = autolearn.save_auto(text, sid, folder, noted.get("transcript_path"))
+        piece, line, refused = autolearn.save_model(text, sid, folder, noted.get("transcript_path"))
     except PermissionError:
         return _fail(_unwritable_store_hint())
     if refused:
         return _fail(line)
     print(line)
+    if piece.status != "candidate":
+        return None
     from athos import verify
     started = _quietly(verify.after_save, piece, session.load(sid), folder, ME)
     if started:
         session.update(sid, verifying_since=time.time())     # the indicator shows learning while it runs
         print("An independent check of the work starts in the background; it decides whether the piece is verified.")
+    return None
 
 
 def _save_from_audio(args: argparse.Namespace) -> int | None:
@@ -676,11 +765,13 @@ def _save_from_audio(args: argparse.Namespace) -> int | None:
 
 
 def _save(text: str) -> int | None:
+    """`athos save`: the person's save (their [Save] or `Athos · save:` request in this task, or their own terminal)
+    stores the piece as theirs on any model; any other is the model's and goes through the autonomous pipeline."""
     folder, noted = _here()
-    sid = noted.get("session_id", "default")
-    refused = autolearn.refuse_apply_save(noted.get("session_id"))
-    if refused:                                    # an apply model never creates or changes a piece
-        return _fail(refused)
+    by, known, why = _who(noted)
+    if by == "model":
+        return _save_by_model(text, folder, noted, known, why)
+    sid = known or "default"
     try:
         piece, diff = capture.save_text(text, sid, folder, noted.get("transcript_path"))
     except (PermissionError, ValueError) as refused:          # a sandboxed store, or a page that doesn't parse
@@ -930,6 +1021,8 @@ def cmd_merge(args) -> int:
     if not r["changed"]:
         return 0
     if args.apply:
+        if (refused := _refuse_model_change("merge")) is not None:
+            return refused
         piece, _ = guild.apply(r)
         print(f"\nsaved as {piece.id} v{piece.version}; v{r['version']} stays in its history (`athos revert "
               f"{piece.id}` puts it back).")
@@ -1003,8 +1096,20 @@ def cmd_dismiss(args) -> int:
     return 0
 
 
+def _refuse_model_change(what: str) -> int | None:
+    """A command that changes pieces, run by a model that may not (apply, unknown, a subagent, no session): refused."""
+    _folder, noted = _here()
+    by, sid, why = _who(noted)
+    if by == "person":
+        return None
+    refused = _model_may_not(sid, why, what)
+    return _fail(refused.replace("not saved", "not changed")) if refused else None
+
+
 def cmd_revert(args: argparse.Namespace) -> int | None:
     """Bring back an earlier version of a piece. The history only grows: the old text returns as a new version."""
+    if (refused := _refuse_model_change("revert")) is not None:
+        return refused
     try:
         piece = store.revert(args.id, args.to)
     except (KeyError, FileNotFoundError) as missing:
@@ -1838,6 +1943,8 @@ def cmd_curate(args) -> int:
     """Tidy the memory as it grows: proposals, applied only when the person names them."""
     from athos import curate
     if args.action == "restore":
+        if (refused := _refuse_model_change("restore")) is not None:
+            return refused
         try:
             print(curate.restore(args.which[0]))
         except (IndexError, KeyError, FileExistsError) as e:
@@ -1850,6 +1957,8 @@ def cmd_curate(args) -> int:
             print(f"{project}: a test or a rehearsal from now on; it proposes nothing")
         return 0
     props = curate.proposals()
+    if args.action == "apply" and (refused := _refuse_model_change("curate")) is not None:
+        return refused
     if args.action in ("apply", "dismiss"):
         for n in args.which:
             try:

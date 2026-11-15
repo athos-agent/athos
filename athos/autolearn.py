@@ -267,7 +267,7 @@ def save_auto(text: str, sid: str, cwd: str | None, transcript_path: str | None 
     project = paths.project_of(cwd) if cwd else None
     task_id = state.get("task_id")
     items = evidence.of_task(task_id)
-    if (state.get("auto_ask") or {}).get("task_id") == task_id:
+    if task_id and (state.get("auto_ask") or {}).get("task_id") == task_id:
         session.update(sid, auto_ask={**state["auto_ask"], "answered": True})
 
     def refuse(reason: str, message: str, **more):
@@ -318,11 +318,78 @@ def save_auto(text: str, sid: str, cwd: str | None, transcript_path: str | None 
     return piece, (f"saved {piece.id} as a candidate of {project} ({piece.path}).{after}"), False
 
 
-def refuse_apply_save(sid: str | None) -> str | None:
-    """The plain `athos save` on an apply model: refused, with a `learn` event. None when the save may go on."""
-    if not sid or session_mode(sid) != APPLY:
+def refuse_model_save(sid: str | None, what: str = "save") -> str | None:
+    """A save or change the model started, on a model that may not make one: an apply model, or one Athos could not
+    resolve. Refused with a `learn` event. None when it may go on (a frontier model)."""
+    state = session.load(sid) if sid else {}
+    mode = mode_for(state.get("model"))
+    if mode == LEARN:
         return None
+    note(sid, state, "skipped", "apply_model" if mode == APPLY else "model_unknown", action=what)
+    model = state.get("model") or "unknown"
+    kind = "an apply model" if mode == APPLY else "a model that is not known"
+    return (f"not saved: this session runs on {model}, {kind}. Apply models and models Athos could not resolve never "
+            f"create or change a piece (`athos tiers` lists which models learn); the person can save it with "
+            f"their [Save] button or an `Athos · save:` request.")
+
+
+def refuse_apply_save(sid: str | None) -> str | None:
+    """Kept for callers of before 0.1.158: `refuse_model_save`."""
+    return refuse_model_save(sid)
+
+
+def save_model(text: str, sid: str, cwd: str | None, transcript_path: str | None = None):
+    """A save the model started, with or without `--auto`: a new piece goes through `save_auto`; an existing one
+    through `improve_auto`. (piece or None, the line to print, refused)."""
+    from athos import capture, store
+    _meta, _title, _when, piece_id, _body = capture._fields(text)
+    existing = store.get(piece_id) if piece_id else None
+    if existing is not None:
+        return improve_auto(text, sid, cwd, transcript_path, existing)
+    return save_auto(text, sid, cwd, transcript_path)
+
+
+def improve_auto(text: str, sid: str, cwd: str | None, transcript_path: str | None, existing):
+    """The model improves a piece it may improve: a learned one (candidate or verified) of this project, on this
+    task's strong evidence, after the private-data check. The new version is a candidate, so it gets its own bundle
+    and verifier run; the person's own pieces (no status) and retired ones are never changed by a model."""
+    from athos import capture, evidence, paths, store
     state = session.load(sid)
-    note(sid, state, "skipped", "apply_model")
-    return (f"not saved: this session runs on {state.get('model')}, an apply model. Apply models never create or "
-            f"change a piece; Athos learns only on frontier models (`athos tiers` lists them).")
+    mode = mode_for(state.get("model"))
+    project = paths.project_of(cwd) if cwd else None
+    items = evidence.of_task(state.get("task_id"))
+
+    def refuse(reason: str, message: str, **more):
+        note(sid, state, "skipped", reason, items, cwd, piece=existing.id, **more)
+        return None, f"not saved: {message}", True
+
+    if mode != LEARN:
+        return refuse("apply_model" if mode == APPLY else "model_unknown", "only a frontier model improves a piece")
+    if settings().get("on") is False:
+        return refuse("off", "autonomous learning is off (`autolearn.on` in config.json)")
+    if store.legacy(existing):
+        return refuse("persons_piece", "this piece is the person's own: a model changes it only when they ask for "
+                                       "it (their [Adjust], [Save] or an `Athos · save:` request)")
+    if existing.status == "retired":
+        return refuse("retired", "this piece was retired; `athos revert` brings it back first")
+    if not project or project not in existing.projects:
+        return refuse("other_project", "a learned piece is improved only from its own project")
+    ok, reason = evidence.qualifies(items)
+    if not ok:
+        return refuse(reason, "this task has no objective evidence that the work was right (a verification that "
+                              "passed, a commit); the model's own word is not enough")
+    found = private_findings(text, project)
+    if found:
+        return refuse("private_data", "it looks like it carries private data (" + ", ".join(found) + "). Rewrite "
+                      "it without them and save again, or stop.", private=found)
+    try:
+        piece, _diff = capture.save_text(text, sid, cwd, transcript_path)
+    except ValueError as problem:
+        return refuse("invalid", str(problem))
+    if piece.status == "verified":
+        piece = store.set_status(piece.id, "candidate", "improved on its own: to be verified again") or piece
+    store.set_meta(piece.id, evidence=evidence.summary(items, state.get("task_id")))
+    piece = store.get(piece.id)
+    note(sid, state, "saved", reason, items, cwd, piece=piece.id, version=piece.version, risk=piece.risk,
+         checks=runnable_checks(piece), improved=True)
+    return piece, f"improved {piece.id} → v{piece.version}, a candidate of {project} again ({piece.path}).", False

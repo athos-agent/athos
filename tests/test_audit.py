@@ -192,7 +192,8 @@ class RouteEventTest(HookCase):
         self.assertEqual(told["hookSpecificOutput"]["hookEventName"], "PostToolUse")
         self.assertEqual(session.load("s6")["offer"], {"task_id": "t0", "reason": "worth keeping"})
         v = events("trigger")[-1]
-        self.assertEqual((v["stage"], v["verified"], v["undone"]), ("verify", False, ["offer_restored", "model_told"]))
+        self.assertEqual((v["stage"], v["verified"], v["undone"]), ("verify", False, ["person_asked_withdrawn", "offer_restored",
+                                                                              "model_told"]))
         self.assertIn("save · verified at tool: not the person's", log_text())
         rule = next(r for r in audit.check("s6", events())["rules"] if r["rule"] == "trigger_not_from_person")
         self.assertEqual((rule["status"], rule["count"]), ("flagged", 1))

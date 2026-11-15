@@ -33,10 +33,13 @@ class McpTest(TempHome):
                      {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                       "params": {"name": "athos_save", "arguments": {"text": "no frontmatter"}}},
                      {"jsonrpc": "2.0", "id": 3, "method": "nope"})
-        self.assertEqual(r[0]["result"]["content"][0]["text"], "saved tag-a-release")
+        # The MCP server cannot tell who wrote the request, so the save is the model's, and in Claude Desktop the
+        # model is not known: nothing is saved (tests/test_who_saves.py has the rest).
+        self.assertTrue(r[0]["result"]["isError"])
+        self.assertIn("not saved", r[0]["result"]["content"][0]["text"])
         self.assertTrue(r[1]["result"]["isError"])
         self.assertEqual(r[2]["error"]["code"], -32601)
-        self.assertIsNotNone(store.get("tag-a-release"))
+        self.assertIsNone(store.get("tag-a-release"))
 
 
 class McpAppTest(TempHome):
@@ -149,13 +152,16 @@ class McpAppTest(TempHome):
                          "ui://athos/trail")                                     # the receipt is drawn at the end
         text = "---\ntitle: Release the greet package\nwhen: releasing greet with a new option\nid: release\n" \
                "note: rated 2/5\n---\n" + BODY + "\n## #push-tag\n**Do:** push, never force.\n"
-        r = self.rpc(self.call(1, "athos_find", request="release greet 0.3.0"),
-                     self.call(2, "athos_step", step="release#tag"),
-                     self.call(3, "athos_save", text=text),
-                     self.call(4, "athos_done", outcome="greet 0.3.0 tagged and pushed"),
-                     self.call(5, "athos_trail"))
+        first = self.rpc(self.call(1, "athos_find", request="release greet 0.3.0"),
+                         self.call(2, "athos_step", step="release#tag"))
+        # A save that reached the store during the task (the person's own; the chat's model may not save there).
+        from athos import capture, rating
+        piece, diff = capture.save_text(text, mcp.SESSION)
+        rating.note_learned(mcp.SESSION, piece, bool(diff), text)
+        r = first + self.rpc(self.call(3, "athos_done", outcome="greet 0.3.0 tagged and pushed"),
+                             self.call(4, "athos_trail"))
         self.assertIn("athos_done", r[0]["result"]["content"][0]["text"])
-        s = r[4]["result"]["structuredContent"]
+        s = r[3]["result"]["structuredContent"]
         self.assertEqual(s["ended"]["outcome"], "greet 0.3.0 tagged and pushed")
         self.assertEqual(s["learned"], [{"id": "release", "title": "Release the greet package", "version": 2,
                                          "before": 1, "note": "rated 2/5"}])

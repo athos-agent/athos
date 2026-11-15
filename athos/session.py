@@ -160,34 +160,43 @@ def prompt_entries(transcript_path: str | None, prompt_sha: str) -> int:
                and _sha(_text_of(r)) == prompt_sha)
 
 
+def _origin_of_row(row: dict) -> str:
+    origin = row.get("origin") if isinstance(row.get("origin"), dict) else {}
+    kind = origin.get("kind")
+    if row.get("isMeta"):
+        return "harness"
+    if kind == "human" or (kind is None and row.get("turnOrigin") == "human"):
+        return "person"
+    if kind == "plugin" and origin.get("name") == "athos" and origin.get("asUser"):
+        return "person"
+    return "harness"
+
+
 def prompt_origin(transcript_path: str | None, prompt_id: str | None, prompt_sha: str | None = None,
                   skip: int = 0) -> str | None:
     """Who wrote a prompt, as Claude Code's transcript records it on the prompt's entry (`promptId`): "person" for an
     entry whose `origin.kind` is `human` (typed, queued, a suggestion accepted), or Athos's own button pressed by the
     person (`origin.kind` `plugin`, `name` athos, `asUser`); "harness" for anything else the harness sent (a subagent's
     report, a task notification, a meta entry). None when there is no such entry: Claude Code 2.1 writes it only after
-    the prompt hook has run, so at prompt time it is usually missing."""
+    the prompt hook has run, so at prompt time it is usually missing.
+
+    Several entries can carry one prompt's id, and the person's is not always the first (a command's own entry may come
+    before it). With the prompt's fingerprint, the entry whose text is that prompt decides; without it, the prompt is
+    the person's when any non-meta entry of that id is theirs."""
     if not (transcript_path and (prompt_id or prompt_sha)):
         return None
-    rows = _tail_rows(transcript_path)
+    rows = [r for r in _tail_rows(transcript_path) if r.get("type") == "user" and r.get("toolUseResult") is None]
     if not prompt_id:                    # no id from the hook: the first entry with this text after `skip` older ones
-        rows = [r for r in rows if r.get("type") == "user" and r.get("toolUseResult") is None
-                and _sha(_text_of(r)) == prompt_sha][skip:skip + 1]
-    for row in rows:
-        if row.get("type") != "user" or row.get("toolUseResult") is not None:
-            continue
-        if prompt_id and row.get("promptId") != prompt_id:
-            continue
-        origin = row.get("origin") if isinstance(row.get("origin"), dict) else {}
-        kind = origin.get("kind")
-        if row.get("isMeta"):
-            return "harness"
-        if kind == "human" or (kind is None and row.get("turnOrigin") == "human"):
-            return "person"
-        if kind == "plugin" and origin.get("name") == "athos" and origin.get("asUser"):
-            return "person"
-        return "harness"
-    return None
+        rows = [r for r in rows if _sha(_text_of(r)) == prompt_sha][skip:skip + 1]
+        return _origin_of_row(rows[0]) if rows else None
+    mine = [r for r in rows if r.get("promptId") == prompt_id]
+    if not mine:
+        return None
+    if prompt_sha:
+        same = [r for r in mine if _sha(_text_of(r)) == prompt_sha]
+        if same:
+            return _origin_of_row(same[0])
+    return "person" if any(_origin_of_row(r) == "person" for r in mine) else "harness"
 
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
