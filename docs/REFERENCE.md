@@ -77,8 +77,9 @@ What Athos decides still goes to its log (`athos audit`), and every change of th
 (`gathering_evidence`, `task_with_work`, `save_asked`, `verifying`, `piece_delivered`, `piece_opened`, `nothing_in_use`,
 `between_tasks`, `no_task`, `off`, …); `athos status --ui` is what the hooks module polls (only that, in this
 interface). Reading it writes nothing, except the one `ui` event and `sessions/ui/<session>.json` when the state
-changes. A task whose session has not moved in 20 minutes is shown as idle (an interrupted turn never reaches the Stop
-hook).
+changes. An interrupted turn never reaches the Stop hook, so a task is shown as idle as soon as Claude Code's transcript
+notes that you interrupted it (`interrupted`), or once its session has not moved in 6 minutes with no tool call
+running; a tool call that started and has not ended keeps the square on however long it runs.
 
 **The classic interface.** `ATHOS_UI=classic` in the environment Claude Code starts with, or `"ui": "classic"` in
 `~/.athos/config.json` (which also reaches Desktop's chat and the hooks module however Claude Code was started), brings

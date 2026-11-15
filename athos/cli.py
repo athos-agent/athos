@@ -387,7 +387,7 @@ def _on_prompt(event: dict, platform: str) -> None:
         _quietly(evidence.note_reaction, previous, reaction)
     ev.task_start(event, platform)
     if sid:
-        session.update(sid, task_prompt_id=event.get("prompt_id"))
+        session.update(sid, task_prompt_id=event.get("prompt_id"), transcript_path=event.get("transcript_path"))
     capture.note_request(event)
     added: dict[str, int] = {}
     context = load.on_prompt(event, _cmd(), defer=True)

@@ -29,8 +29,9 @@ from athos import session
 LEARNING, COLLABORATING, IDLE = "learning", "collaborating", "idle"
 MINIMAL, CLASSIC = "minimal", "classic"
 MODES = (MINIMAL, CLASSIC)
-STALE_S = 20 * 60          # a task whose session has not moved for this long is not shown as in progress (an
-#                            interrupted turn never reaches the Stop hook)
+STALE_S = 6 * 60           # a task whose session has not moved for this long, with no tool call running, is not
+#                            shown as in progress (an interrupted turn never reaches the Stop hook); a tool call that
+#                            started and has not ended keeps it on however long it runs
 
 
 def mode() -> str:
@@ -62,6 +63,31 @@ def _fresh(sid: str) -> bool:
         return False
 
 
+def _interrupted(state: dict) -> bool:
+    """Whether the transcript's last entry of the person is Claude Code's note that they interrupted the turn (no
+    Stop hook comes then). A few kilobytes from the end of the file, so the poll stays cheap."""
+    path = state.get("transcript_path")
+    if not path:
+        return False
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, 2)
+            fh.seek(max(0, fh.tell() - 16_384))
+            lines = fh.read().decode("utf-8", "ignore").splitlines()
+    except OSError:
+        return False
+    for line in reversed(lines):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict) or row.get("type") != "user" or row.get("isSidechain") \
+                or row.get("toolUseResult") is not None:
+            continue
+        return session._text_of(row).lstrip().startswith("[Request interrupted by user")
+    return False
+
+
 def compute(sid: str | None, state: dict | None = None) -> tuple[str, str]:
     """The state and a short machine-readable reason: (`learning`|`collaborating`|`idle`, why)."""
     if _off():
@@ -71,7 +97,9 @@ def compute(sid: str | None, state: dict | None = None) -> tuple[str, str]:
     state = session.peek(sid) if state is None else state
     task = state.get("task_id")
     ended = (state.get("task_end") or {}).get("task_id") == task
-    working = bool(task) and not ended and _fresh(sid)
+    if task and not ended and _interrupted(state):
+        return IDLE, "interrupted"
+    working = bool(task) and not ended and (_fresh(sid) or bool(session.live(sid)))
     if working and state.get("task_loaded"):
         delivered = state.get("task_delivery") == "piece" and any(
             p not in (state.get("task_opened") or []) for p in state["task_loaded"])
@@ -86,7 +114,7 @@ def compute(sid: str | None, state: dict | None = None) -> tuple[str, str]:
                 return LEARNING, "task_with_work"
         asked = state.get("auto_ask") or {}
         if asked.get("task_id") == task and asked.get("ask") == "stop" and not asked.get("answered") \
-                and not asked.get("closed") and _fresh(sid):
+                and not asked.get("closed") and (_fresh(sid) or bool(session.live(sid))):
             return LEARNING, "save_asked"
         since = state.get("verifying_since")
         if since:
