@@ -1018,7 +1018,9 @@ in `~/.athos/config.json`), opens its **trail panel** in the conversation (MCP A
 the panel does not open on its own. The panel: a greeting, the piece the task walks with each step ✓ done, ▶ now and ○ ahead as the model
 reports it (`athos_step`), the steps your know-how lacks, and two buttons: **Change this step** (you write how the step
 changes; the piece is improved) and **Save as a way of working**. **Keep beside** pins the panel where the host allows it. In a
-chat without MCP Apps, the same tools answer as text.
+chat without MCP Apps, the same tools answer as text. The chat's model is not known to Athos and an MCP server cannot
+tell who wrote a request, so the model's `athos_save` (and `athos_merge` with `apply`) saves and changes nothing there
+(see "Who may save").
 
 Step by step, for people who don't program: [docs/guides/claude-desktop-en.md](guides/claude-desktop-en.md)
 (en español: [docs/guides/claude-desktop.md](guides/claude-desktop.md)).

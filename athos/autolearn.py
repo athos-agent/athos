@@ -333,11 +333,6 @@ def refuse_model_save(sid: str | None, what: str = "save") -> str | None:
             f"their [Save] button or an `Athos · save:` request.")
 
 
-def refuse_apply_save(sid: str | None) -> str | None:
-    """Kept for callers of before 0.1.158: `refuse_model_save`."""
-    return refuse_model_save(sid)
-
-
 def save_model(text: str, sid: str, cwd: str | None, transcript_path: str | None = None):
     """A save the model started, with or without `--auto`: a new piece goes through `save_auto`; an existing one
     through `improve_auto`. (piece or None, the line to print, refused)."""
