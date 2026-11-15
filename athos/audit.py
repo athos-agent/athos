@@ -343,16 +343,22 @@ def _trigger_not_from_person(c: _Ctx) -> dict:
                    "checked afterwards")
 
 
+OLDER_REWRITES = ("an older Athos that rewrites a piece drops the frontmatter lines it does not know (visibility, "
+                  "status, risk, confidence, evidence): a private piece becomes visible again and a learned one loses "
+                  "its status. Update every agent's Athos (`athos doctor`) before saving")
+
+
 def _version_mismatch(c: _Ctx, versions: dict | None) -> dict:
     found = []
     written = sorted({e.get("v") for e in c.evs if e.get("type") in AUDIT_TYPES and e.get("v")})
     if len(written) > 1:
-        found.append({"what": "the session's events were written by more than one version", "versions": written})
+        found.append({"what": "the session's events were written by more than one version", "versions": written,
+                      "risk": OLDER_REWRITES})
     agents = (versions or {}).get("agents") or {}
     hooks, cli = agents.get("claude-code"), agents.get("path")
     if hooks and cli and hooks != cli:
         found.append({"what": "checked now on this machine: Claude Code's plugin and the `athos` on PATH differ",
-                      "plugin": hooks, "cli": cli})
+                      "plugin": hooks, "cli": cli, "risk": OLDER_REWRITES})
     basis = "the version on each audit event" + (", and the installed versions now" if versions else "")
     partial = not written
     if not written and not versions:

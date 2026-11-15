@@ -494,6 +494,13 @@ class RulesTest(TempHome):
         installed = {"agents": {"claude-code": "0.1.110", "path": "0.1.96"}}
         r = self.rule([start("t1"), end("t1")], "version_mismatch", versions=installed)
         self.assertEqual((r["status"], r["count"]), ("flagged", 1))
+        # What it costs is said where the person reads it: an older Athos drops the frontmatter lines it doesn't know.
+        self.assertIn("visibility", r["found"][0]["risk"])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            print(audit.render({"sessions": [{"summary": audit._summary(audit._Ctx("s", [], [], False)),
+                                              "rules": [r], "anomalies": 1}]}))
+        self.assertIn("private piece", out.getvalue())
         same = {"agents": {"claude-code": "0.1.110", "path": "0.1.110"}}
         r = self.rule([start("t1"), routed("t1")], "version_mismatch", versions=same)
         self.assertEqual(r["status"], "clean")
