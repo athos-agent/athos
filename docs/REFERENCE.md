@@ -824,7 +824,9 @@ waiting. `athos verify <id>` runs it by hand, in the foreground; `athos verify -
 
 A reuse is judged when your next request arrives, once your reaction and your edits are known: a `reuse` event per piece
 the task used (opened, on a frontier model; given, on an apply model), never in the session that saved or improved
-it. On a frontier model it is **clean** when the task's evidence has a strong item for the work and nothing against
+it. A message the harness sends in the middle of the work (a background task's `<task-notification>`, a subagent's
+report: text in one of the harness's wrappers) does not start a task: the open task goes on (a `task_continued`
+event), so one piece of work is judged once. On a frontier model it is **clean** when the task's evidence has a strong item for the work and nothing against
 it, **corrected** on strong evidence tied to the piece (an edit of yours credited to it, one of its Checks failing
 last), and **unverified** (not counted) when nothing proved the work, when something was against the work without
 naming this piece (a revert, an edit of yours credited to another piece or to none, a failed verification that is not

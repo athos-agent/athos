@@ -367,6 +367,14 @@ def _on_prompt(event: dict, platform: str) -> None:
             session.update(sid, person_asked=_person_asked(sid, "adjust", event))
         _add_context("UserPromptSubmit", adjusting)
         return
+    if sid and _continues_task(event, session.load(sid)):
+        # A message the harness sends in the middle of the work (a background task's notification, a subagent's
+        # report) is not a new request: the task goes on, and is graded once, at the person's next request.
+        state = session.load(sid)
+        ev.audit({"type": "task_continued", "session_id": sid, "task_id": state.get("task_id"),
+                  "same_prompt_id": bool(event.get("prompt_id")) and event.get("prompt_id") == state.get(
+                      "task_prompt_id"), "wrapper": load.origin_of(prompt)[1], "project": state.get("project")})
+        return
     from athos import start
     start.note_language(prompt)
     previous = session.load(sid).get("task_id") if sid else None
@@ -378,6 +386,8 @@ def _on_prompt(event: dict, platform: str) -> None:
         reaction = ev.infer_mark(sid, prompt)     # before the new task replaces it
         _quietly(evidence.note_reaction, previous, reaction)
     ev.task_start(event, platform)
+    if sid:
+        session.update(sid, task_prompt_id=event.get("prompt_id"))
     capture.note_request(event)
     added: dict[str, int] = {}
     context = load.on_prompt(event, _cmd(), defer=True)
@@ -418,6 +428,14 @@ def _on_prompt(event: dict, platform: str) -> None:
         load.finish_route(event.get("session_id", "default"), len(context or ""), added)
     if context:
         _add_context("UserPromptSubmit", context)
+
+
+def _continues_task(event: dict, state: dict) -> bool:
+    """Whether a prompt continues the open task instead of starting one: the harness wrote it (its wrapper says so),
+    while a task is open. In doubt (plain text) it is a new request, as before."""
+    if not state.get("task_id"):
+        return False
+    return load.origin_of(event.get("prompt", "") or "")[0] is False
 
 
 def _person_asked(sid: str, which: str, event: dict) -> dict:
