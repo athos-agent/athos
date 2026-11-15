@@ -110,20 +110,29 @@ HARNESS_TAGS = {"task-notification", "system-reminder", "agent-message", "teamma
                 "local-command-stderr", "local-command-caveat", "command-name", "command-message", "command-args",
                 "user-prompt-submit-hook", "bash-input", "bash-stdout", "bash-stderr"}
 _LEADING_TAG = re.compile(r"^\s*</?([A-Za-z][\w:-]*)[\s>/]")      # a closing tag too: the tail of a cut wrapper
-_HARNESS_INSIDE = re.compile(r"</?(" + "|".join(sorted(map(re.escape, HARNESS_TAGS))) + r")[\s>/]")
+_HARNESS_INSIDE = re.compile(r"</?(" + "|".join(sorted(map(re.escape, HARNESS_TAGS))) + r")[\s>/]", re.I)
+_HARNESS_WHOLE = re.compile(r"<(" + "|".join(sorted(map(re.escape, HARNESS_TAGS))) + r")[\s>][\s\S]*?</\1\s*>", re.I)
 
 
-def origin_of(text: str) -> tuple[bool | None, str | None]:
+def origin_of(text: str, opens_with_trigger: bool = False) -> tuple[bool | None, str | None]:
     """Whether a prompt reads as the person's own text: (True, None) for plain text; (False, tag) when it opens with,
-    or carries early on, a wrapper the harness uses; (None, tag) when it opens with some other tag (pasted markup, or
-    a wrapper not known yet). A heuristic for the audit: the hook is not told who wrote the prompt."""
+    or carries anywhere, a wrapper the harness uses (in any case: a long plain report with a wrapper after its first
+    400 characters once read as the person's); (None, tag) when it opens with some other tag (pasted markup, or a
+    wrapper not known yet). `opens_with_trigger`: the text opens with a special path's own words ("Athos · save:"),
+    so a wrapper tag it merely mentions does not make it the harness's; a whole wrapped element still does. A heuristic
+    for the audit: the hook is not told who wrote the prompt."""
     lead = _LEADING_TAG.match(text or "")
     tag = lead.group(1).lower() if lead else None
     if tag in HARNESS_TAGS:
         return False, tag
-    inside = _HARNESS_INSIDE.search((text or "")[:400])
+    if opens_with_trigger and tag is None:
+        # Opening with the path's own words: the person's, unless a whole wrapper (an opening tag and its closing
+        # one) came with it; a tag the person merely mentions ("when you see <system-reminder>") is not one.
+        whole = _HARNESS_WHOLE.search(text or "")
+        return (False, whole.group(1).lower()) if whole else (True, None)
+    inside = _HARNESS_INSIDE.search(text or "")
     if inside:
-        return False, inside.group(1)
+        return False, inside.group(1).lower()
     return (None, tag) if tag else (True, None)
 
 
@@ -144,7 +153,7 @@ def origin_check() -> str:
     return chosen if chosen in ORIGIN_CHECKS else "verify"
 
 
-def trigger_origin(event: dict) -> dict:
+def trigger_origin(event: dict, which: str | None = None) -> dict:
     """Whether a special path (save, adjust, gallery, share) may act on a prompt, from two signals: the wrappers the
     text carries (`origin_of`) and, when the hook gives a transcript path, the transcript's entry for the prompt
     (`session.prompt_origin`). When both are there they must agree. Claude Code writes that entry only after the prompt
@@ -153,7 +162,10 @@ def trigger_origin(event: dict) -> dict:
     transcript path: Codex, Muse Code, OpenCode), `both`, `disagree`, `missing:verify`, `missing` (strict) or
     `missing:heuristic`."""
     prompt = event.get("prompt", "") or ""
-    person, wrapper = origin_of(prompt)
+    from athos import capture
+    prefixed = (which == "save" and capture.is_save_prompt(prompt)) or \
+        (which == "adjust" and capture.is_adjust_prompt(prompt))
+    person, wrapper = origin_of(prompt, opens_with_trigger=prefixed)
     out = {"from_person": person, "wrapper": wrapper, "transcript": None, "signal": "heuristic"}
     path = event.get("transcript_path")
     if not path:

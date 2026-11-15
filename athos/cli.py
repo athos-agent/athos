@@ -196,7 +196,7 @@ def _trigger(event: dict, which: str, injected: int = 0) -> bool:
     path hands the model when it acts (`injected_total`; a share request is counted in its route event instead).
     Returns whether to act."""
     prompt = event.get("prompt", "") or ""
-    origin = load.trigger_origin(event)
+    origin = load.trigger_origin(event, which)
     person, wrapper = origin["from_person"], origin["wrapper"]
     acted = person is True
     sid = event.get("session_id")
@@ -299,7 +299,7 @@ def _act_on(event: dict, which: str, injected: int = 0) -> bool:
     either way (with `injected`, the characters the path hands the model when it acts); if writing it fails, the
     same two signals decide."""
     acted = _quietly(_trigger, event, which, injected)
-    return acted if acted is not None else load.trigger_origin(event)["from_person"] is True
+    return acted if acted is not None else load.trigger_origin(event, which)["from_person"] is True
 
 
 def _add_context(hook_event: str, text: str) -> None:

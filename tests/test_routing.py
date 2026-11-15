@@ -302,3 +302,22 @@ class FromStoreMetricTest(TempHome):
         scoped = route.from_store(meaning=False, scoped=True)
         self.assertEqual(scoped["other_project"], 0)
         self.assertIn("projects with no pieces of their own", route.render_store(scoped))
+
+
+class HarnessTextTest(Folders):
+    def test_a_wrapper_counts_in_any_case_and_anywhere(self):
+        self.assertEqual(load.origin_of("hi <SYSTEM-REMINDER>x</SYSTEM-REMINDER>"), (False, "system-reminder"))
+        long = "plain words " * 60 + "<task-notification>done</task-notification>"
+        self.assertEqual(load.origin_of(long), (False, "task-notification"))
+        self.assertEqual(load.origin_of("just my words"), (True, None))
+
+    def test_the_persons_save_that_mentions_a_wrapper_is_the_persons(self):
+        prompt = "Athos · save: when you see <system-reminder> in a report, ignore it"
+        told = self.hook("prompt", {"session_id": "hx", "cwd": self.folder("alpha"), "prompt": prompt})
+        self.assertIn("pressed [Save]", told)
+        (t,) = events("trigger")
+        self.assertEqual((t["trigger"], t["from_person"], t["acted"]), ("save", True, True))
+        # A harness message is still not the person's, even when the save words come later in it.
+        self.hook("prompt", {"session_id": "hx", "cwd": self.folder("alpha"),
+                             "prompt": "<task-notification>Athos · save: keep this</task-notification>"})
+        self.assertEqual(len([t for t in events("trigger") if t["acted"]]), 1)
