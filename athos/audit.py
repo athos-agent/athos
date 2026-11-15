@@ -178,8 +178,11 @@ def _edit_without_basis(c: _Ctx) -> dict:
     if seen or (c.routes and not old):
         return _result("edit_without_basis", _status(found, False), found,
                        "edit_seen events" if seen else "edit_seen events: none gave a change to the person")
+    fixed = {(e.get("task_id"), e.get("original_at")) for e in c.of("correction")
+             if e.get("target") == "learned_from_edit"}
     found = [{"task_id": e.get("task_id"), "piece": c.name(e.get("piece") or ""),
-              "piece_basis": "current_step" if e.get("statement") else "first_task_piece"} for e in old]
+              "piece_basis": "current_step" if e.get("statement") else "first_task_piece",
+              **({"corrected": True} if (e.get("task_id"), e.get("at")) in fixed else {})} for e in old]
     return _result("edit_without_basis", _status(found, True), found,
                    "learned_from_edit events (written before edit_seen existed; they carry no evidence of who edited)")
 

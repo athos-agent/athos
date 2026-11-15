@@ -22,9 +22,13 @@ hash):
     model       the model the hook recorded for a session or task, where it read it, and what the transcript says
     trigger     a special request path fired (save, adjust, gallery, share) and whether the text was the person's
     hook_error  an exception a hook swallowed so the session carried on
-    learn       (reserved) a piece saved or skipped by autonomous learning, with its evidence
-    grade       (reserved) a piece moving between candidate, verified and retired, with its basis
+    learn       autonomous learning asked, saved, skipped or graded a piece, with its evidence (athos/autolearn.py)
+    grade       a piece moving between candidate, verified and retired, or staying, with its basis (athos/grade.py)
+    reuse       how a task went for a piece it used, judged at the next request (athos/grade.py)
+    verify      the independent verifier's outcome (athos/verify.py); model_run: any model run Athos started
     ui          (reserved) the state a panel shows (learning, collaborating, idle)
+    correction  `athos repair`: a line written earlier was wrong (a use counted by mistake, an edit given to the
+                person without evidence); the statistics skip it, the line itself stays
 
 Next to it, `<home>/log.md` gets one header line per operation (`## [YYYY-MM-DD HH:MM] kind | project | what`, UTC),
 for a person or an agent to read with grep and tail; it never holds a request or a piece's content, and names a piece
@@ -611,12 +615,20 @@ def tasks() -> list[Task]:
     """The log folded into one dict per finished task (one that has stopped at least once), in the order the
     tasks first appear: its start, its stops, and its latest verdict (`unevaluated` when there is none)."""
     folded: dict[TaskId, Task] = {}
+    wrong: set[tuple] = set()
     for line in filter(lambda e: e.get("task_id"), events()):
+        if line.get("type") == "correction":
+            if line.get("target") == "task_pieces":
+                wrong.add((line["task_id"], line.get("piece")))     # `athos repair`: a use counted by mistake
+            continue
         task = folded.setdefault(line["task_id"],
                                  {"task_id": line["task_id"], "result": UNMARKED, "pieces": [], "saved": []})
         handler = _FOLD.get(line.get("type"))
         if handler:
             handler(task, line)
+    for tid, pid in wrong:
+        if tid in folded:
+            folded[tid]["pieces"] = [p for p in folded[tid]["pieces"] if p != pid]
     return [task for task in folded.values() if "ended" in task]
 
 

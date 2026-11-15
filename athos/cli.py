@@ -1556,6 +1556,20 @@ def cmd_shadow(args) -> int:
     return 0
 
 
+def cmd_repair(args) -> int:
+    """`athos repair --session <id> [--apply]`: correction events for a session's polluted statistics (athos/repair.py);
+    a dry run unless --apply."""
+    from athos import repair
+    try:
+        found = repair.plan(args.session, args.pieces)
+    except (LookupError, ValueError) as problem:
+        return _fail(f"athos repair: {problem}")
+    applied = repair.apply(found) if args.apply else None
+    print(json.dumps({**found, "applied": applied}, indent=1) if args.json else
+          repair.render(found, applied, show=args.show))
+    return 0
+
+
 def cmd_verify(args) -> int:
     """`athos verify <id> [--bundle DIR] | --pending`: run the independent verifier on a candidate (Athos starts it in
     the background after an autonomous save; by hand it runs in the foreground and prints the outcome)."""
@@ -1936,6 +1950,15 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--carry", action="append", metavar="ID[,ID…]",
                    help="ways of working to put inside the skill, so Claude follows them even without the connector "
                         "(they are then kept in your Claude account too)")
+    s = sub.add_parser("repair", help="correct a session's polluted statistics (uses counted by mistake, edits given "
+                       "to the person without evidence) with correction events; a dry run unless --apply")
+    s.add_argument("--session", required=True, help="the session's id (a unique prefix is enough)")
+    s.add_argument("--pieces", default="mistaken", choices=["mistaken", "foreign", "all", "none"],
+                   help="which task uses to correct (default: other projects' pieces, and every piece when the "
+                        "project has none of its own)")
+    s.add_argument("--apply", action="store_true", help="write the correction events")
+    s.add_argument("--show", action="store_true", help="name other projects' pieces")
+    s.add_argument("--json", action="store_true")
     s = sub.add_parser("verify", help="run the independent verifier on a candidate piece (Athos starts it after an "
                        "autonomous save); read-only tools, another frontier model, paths only")
     s.add_argument("id", nargs="?")
@@ -2016,7 +2039,7 @@ _HANDLERS = {
     "library": cmd_library, "delegate": cmd_delegate, "route": cmd_route, "mark": cmd_mark, "import": cmd_import,
     "report": cmd_report, "bench": cmd_bench, "embed": cmd_embed, "wiki": cmd_wiki, "mcp": cmd_mcp,
     "watch": cmd_watch, "connector": cmd_connector, "desktop": cmd_desktop, "step": cmd_step, "verify": cmd_verify,
-    "test": cmd_test,
+    "repair": cmd_repair, "test": cmd_test,
     "shadow": cmd_shadow, "status": cmd_status, "doctor": cmd_doctor, "gallery": cmd_gallery, "add": cmd_add, "share": cmd_share,
     "hook": cmd_hook, "audit": cmd_audit, "profile": cmd_profile, "privacy": cmd_privacy,
     "tiers": cmd_tiers, "public": cmd_public,

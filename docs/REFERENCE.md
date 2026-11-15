@@ -691,6 +691,23 @@ piece. Both runs count against the same daily cap.
 | `reuse` | the next request after a task that used a piece, or a replay | `piece`, `version`, `task_id`, `tier` (frontier, apply), `model`, `outcome` (clean, corrected, failed, unverified, replay_pass, replay_fail), `basis` (strong_positive, no_correction, check_passed, check_failed, person_edit, revert, reaction_corrected, no_check_ran, nothing_proved_the_work, replay, score), `status` |
 | `reverify` | an old piece is checked against the environment | `piece`, `version`, `age_days`, `checked`, `missing` (files, commands, scripts, targets: counts), `stale` |
 
+**Repairing polluted statistics.** Sessions recorded before 0.1.111 counted pieces of other projects as used (a
+project with no pieces of its own then saw every piece), and before 0.1.112 the edit detector gave the agent's own
+edits to you. Those lines stay as they were; `athos repair --session <id>` appends `correction` events instead, and the
+statistics (`athos report`, the bars, curating, grading) stop counting what they name:
+
+```
+athos repair --session <id> [--pieces mistaken|foreign|all|none] [--apply] [--show] [--json]
+```
+
+It corrects the session's `learned_from_edit` events with no evidence (no `basis`), and the task uses of pieces that
+were only injected: other projects' pieces, and, when the session's project has no pieces of its own, every piece
+(`--pieces mistaken`, the default; `foreign` keeps general pieces; `all`; `none` touches no use). A piece the model
+opened itself (`piece_opened`) stays a use. It is a dry run unless `--apply`; running it again writes nothing new. The
+`correction` event has `target` (learned_from_edit, task_pieces), `task_id`, `piece`, `original_at` and `reason`
+(no_evidence_the_person_edited, another_project, project_without_own_pieces, asked_all); `athos audit` still lists the
+old edits, marked `corrected`.
+
 **Risk lanes.** A step is high risk when its When or Do publishes (`npm publish`, `git push`, `docker push`, `gh
 release create`, the word publish), merges (`gh pr merge`, `git merge`, merge), deploys (deploy, `kubectl apply`,
 `terraform apply|destroy`, `helm install|upgrade`, `vercel --prod`), deletes (`rm -r`, `rm -f`, delete, `DROP TABLE`,

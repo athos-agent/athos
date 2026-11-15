@@ -920,3 +920,64 @@ class CandidateReplayTest(TempHome):
         out = replay.run_candidate(self.piece.id, runner)
         self.assertEqual(out["outcome"], "skipped")
         self.assertEqual(len(runner.calls), 1)                              # the answer ran, the judge could not
+
+
+class RepairTest(TempHome):
+    """F13 on synthetic data: a session in a project with no pieces of its own that loaded other projects' pieces, and
+    edits given to the person by the old detector."""
+
+    def setUp(self):
+        super().setUp()
+        from athos import eval as ev
+        store.create("Other a", "a", "x", projects=["shop"], piece_id="other-a")
+        store.create("General", "g", "x", piece_id="general-g")
+        lines = [
+            {"type": "task_start", "task_id": "k1", "session_id": "sess-1234", "project": "newproj", "at": "2026-11-14T10:00:00"},
+            {"type": "task_end", "task_id": "k1", "session_id": "sess-1234", "pieces": ["other-a", "general-g"], "saved": [], "at": "2026-11-14T10:01:00"},
+            {"type": "task_start", "task_id": "k2", "session_id": "sess-1234", "project": "newproj", "at": "2026-11-14T10:02:00"},
+            {"type": "piece_opened", "task_id": "k2", "session_id": "sess-1234", "piece": "general-g", "at": "2026-11-14T10:02:30"},
+            {"type": "task_end", "task_id": "k2", "session_id": "sess-1234", "pieces": ["general-g"], "saved": [], "at": "2026-11-14T10:03:00"},
+            {"type": "learned_from_edit", "task_id": "k1", "session_id": "sess-1234", "piece": "other-a", "at": "2026-11-14T10:01:30"},
+            {"type": "learned_from_edit", "task_id": "k2", "session_id": "sess-1234", "piece": "general-g", "basis": ["changed_after_turn_end"], "at": "2026-11-14T10:03:30"},
+        ]
+        for line in lines:
+            ev.append(line)
+
+    def test_a_dry_run_writes_nothing(self):
+        from athos import eval as ev, repair
+        before = len(ev.events())
+        found = repair.plan("sess-12")
+        self.assertEqual(len(ev.events()), before)
+        self.assertEqual(sorted((c["target"], c["task_id"], c["piece"]) for c in found["corrections"]),
+                         [("learned_from_edit", "k1", "other-a"), ("task_pieces", "k1", "general-g"),
+                          ("task_pieces", "k1", "other-a")])                   # k2 opened its piece itself: kept
+
+    def test_apply_corrects_the_statistics_without_editing_history_and_is_idempotent(self):
+        from athos import eval as ev, paths, repair
+        log_before = paths.events_file().read_text()
+        uses = {r["piece"]: r["uses"] for r in ev.report()["pieces"]}
+        self.assertEqual((uses["other-a"], uses["general-g"]), (1, 2))
+        self.assertEqual(repair.apply(repair.plan("sess-1234")), 3)
+        self.assertTrue(paths.events_file().read_text().startswith(log_before))       # only appended
+        uses = {r["piece"]: r["uses"] for r in ev.report()["pieces"]}
+        self.assertEqual((uses["other-a"], uses["general-g"]), (0, 1))
+        again = repair.plan("sess-1234")
+        self.assertEqual((again["corrections"], again["already"]), ([], 3))
+
+    def test_the_audit_marks_corrected_edits(self):
+        from athos import audit, eval as ev, repair
+        repair.apply(repair.plan("sess-1234"))
+        report = audit.check("sess-1234", [e for e in ev.events() if e.get("session_id") == "sess-1234"])
+        rule = next(r for r in report["rules"] if r["rule"] == "edit_without_basis")
+        self.assertTrue(rule["found"][0].get("corrected"))
+
+    def test_through_the_command(self):
+        from tests.test_cli import ThroughTheLauncher
+        cli = ThroughTheLauncher()
+        cli.home = self.home
+        done = cli.run_athos("repair", "--session", "sess-1234")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("Dry run: nothing written", done.stdout)
+        self.assertIn("a piece of another project", done.stdout)
+        self.assertNotIn("other-a", done.stdout)
+        self.assertIn("3 correction event(s) written", cli.run_athos("repair", "--session", "sess-1234", "--apply").stdout)
