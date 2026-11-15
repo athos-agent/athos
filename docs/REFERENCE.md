@@ -803,7 +803,7 @@ waiting. `athos verify <id>` runs it by hand, in the foreground; `athos verify -
 | event | written when | fields |
 |---|---|---|
 | `verify` | a verifier run ends, or is refused | `piece`, `version`, `task_id`, `outcome` (pass, fail, error, skipped, stale), `model`, `worker_model`, `same_model_fallback`, `verdict` (per criterion, true or false), `why` (one line per criterion), `error`, `cost_usd`, `bundle`, `inputs` (the file names it was given), `prompt_file`, `paths_only`, `bundle_clean`, `attempts`, `body_sha` (the text it read) |
-| `model_run` | any model run Athos starts, or refuses to start for the cap | `purpose` (verify, replay), `piece`, `version`, `model`, `run_id`, `started` (false for one that never started), `refused` (why), `ok`, `error`, `cost_usd`, `cost_estimated`, `cost_counted` (what the day's budget counts for it), `usd_cap_run`, `usd_per_day`, `runs_per_day`, `duration_s` |
+| `model_run` | before a model run starts (`phase` reserved, with `usd_reserved`), when it ends (`phase` settled), or when the cap refuses it (`phase` refused); a run with a reservation and no settled event (killed) counts its whole reservation | `phase`, `purpose` (verify, replay), `piece`, `version`, `model`, `run_id`, `started` (false for one that never started), `refused` (why), `ok`, `error`, `cost_usd`, `cost_estimated`, `cost_counted` (what the day's budget counts for it), `usd_cap_run`, `usd_per_day`, `runs_per_day`, `duration_s` |
 
 **Promotion and demotion.** Each move is a `grade` event with its basis, and so is a decision not to move:
 

@@ -202,6 +202,19 @@ class CapsTest(_Fake):
         verify.settle(run_id, {"ok": False, "started": True, "cost_usd": None})
         self.assertEqual(verify.spent_today(), (1, cap))                         # no cost reported: its whole cap
 
+    def test_a_killed_run_still_shows_what_it_held(self):
+        from athos import audit
+        ok, _why, cap, run_id = verify.reserve("verify", self.piece, "fable")   # the process dies here
+        reserved = [e for e in self.events("model_run") if e.get("phase") == "reserved"]
+        self.assertEqual([(e["run_id"], e["usd_reserved"]) for e in reserved], [(run_id, cap)])
+        self.assertEqual(verify.spent_today(), (1, cap))
+        from athos import start
+        start.config_file().write_text(json.dumps({"autolearn": {"budget": {"usd_per_day": 0.3}}}))
+        ev.audit({"type": "model_run", "phase": "reserved", "run_id": "x2", "usd_reserved": 0.3,
+                  "usd_per_day": 0.3, "runs_per_day": 6})
+        rule = audit._verifier_over_cap(ev.events())
+        self.assertEqual(rule["status"], "flagged")                          # 0.5 + 0.3 held on a US$0.30 day
+
     def test_concurrent_reservations_never_pass_the_cap(self):
         from athos import start
         start.config_file().write_text(json.dumps({"autolearn": {"budget": {"runs_per_day": 2}}}))

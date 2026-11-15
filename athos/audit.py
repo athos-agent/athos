@@ -522,7 +522,18 @@ def _verifier_saw_summary(c: _Ctx, everything: list[dict]) -> dict:
 def _verifier_over_cap(everything: list[dict]) -> dict:
     """Per UTC day, each model run Athos started against the caps it recorded (a cap raised during the day applies to
     the runs after it)."""
-    runs = [e for e in everything if e.get("type") == "model_run" and e.get("started", True)]
+    # One entry per run: its settled event, or only its reservation when no settled event came (a killed run, which
+    # counts the whole cap it held); a run that never started counts nothing.
+    settled = {e.get("run_id") for e in everything if e.get("type") == "model_run" and e.get("phase") == "settled"}
+    runs = []
+    for e in everything:
+        if e.get("type") != "model_run":
+            continue
+        if e.get("phase") == "reserved":
+            if e.get("run_id") not in settled:
+                runs.append({**e, "cost_counted": e.get("usd_reserved") or 0.0})
+        elif e.get("started", True) and e.get("phase") != "refused":
+            runs.append(e)
     if not runs:
         return _result("verifier_over_cap", "not_evaluated", [], "Athos started no model run")
     days: dict[str, list[dict]] = {}

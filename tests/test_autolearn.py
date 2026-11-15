@@ -550,7 +550,7 @@ class VerifierTest(TempHome):
         again = store.get(self.piece.id)
         self.assertIn("verifier:pass", again.evidence)
         self.assertEqual((again.confidence, again.last_verified), ("0.50", store.today()))
-        [run] = self.events("model_run")
+        [run] = [e for e in self.events("model_run") if e.get("phase") == "settled"]
         self.assertEqual((run["purpose"], run["cost_usd"], run["model"]), ("verify", 0.04, "fable"))
         self.assertEqual(self.events("grade")[-1]["basis"],
                          "verifier_passed; waiting for 2 clean frontier reuses or a pass on an apply model")
@@ -947,7 +947,7 @@ class CandidateReplayTest(TempHome):
         self.assertEqual(out["replay"]["outcome"], "replay_pass")
         self.assertEqual([c["model"] for c in runner.calls], ["fable", "haiku", "fable"])
         self.assertEqual(store.get(self.piece.id).status, "verified")
-        runs = [e for e in ev.events() if e.get("type") == "model_run"]
+        runs = [e for e in ev.events() if e.get("type") == "model_run" and e.get("phase") == "settled"]
         self.assertEqual([r["purpose"] for r in runs], ["verify", "replay", "replay"])
 
     def test_the_cap_stops_a_replay(self):

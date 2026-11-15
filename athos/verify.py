@@ -358,6 +358,12 @@ def reserve(purpose: str, piece: store.Piece | None, model: str, **more) -> tupl
     if not allowed:
         note_run(purpose, piece, model, None, 0.0, refused=why, **more)
         return False, why, 0.0, None
+    # Recorded before the run starts, so a run that is killed (no settled event ever comes) still shows what it held.
+    ev.audit({"type": "model_run", "phase": "reserved", "run_id": run_id, "purpose": purpose,
+              "piece": piece.id if piece else None, "model": model, "usd_reserved": cap,
+              "usd_per_day": autolearn.settings()["budget"].get("usd_per_day"),
+              "runs_per_day": autolearn.settings()["budget"].get("runs_per_day"),
+              "project": piece.projects[0] if piece and piece.projects else None, **more})
     return True, "", cap, run_id
 
 
@@ -384,7 +390,8 @@ def note_run(purpose: str, piece: store.Piece | None, model: str, result: dict |
     cost = (result or {}).get("cost_usd")
     started = not refused and (result or {}).get("started", True) is not False
     reported = isinstance(cost, (int, float))
-    event = {"type": "model_run", "purpose": purpose, "piece": piece.id if piece else None,
+    event = {"type": "model_run", "phase": "refused" if refused else "settled", "purpose": purpose,
+             "piece": piece.id if piece else None,
              "version": piece.version if piece else None, "model": model, "started": started,
              "refused": refused or None, "ok": bool(result and result.get("ok")),
              "error": (result or {}).get("error"), "cost_usd": cost if reported else None,
