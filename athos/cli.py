@@ -696,9 +696,9 @@ def cmd_wiki(args) -> int:
             return 0
         r = wiki.rebuild()
         if args.install:
-            if paths.is_public(cwd):
-                return _fail(f"not installed: this repository is marked public ({paths.MARKER}); trajectory agents "
-                             "are never written in or from one")
+            if paths.is_public(cwd) or paths.is_public(target):
+                return _fail(f"not installed: this repository, or the folder named, is marked public ({paths.MARKER}); "
+                             "trajectory agents are never written in or from one")
             project = paths.project_of(cwd)
             n = wiki.install_agents(target, project)
             wiki.remember_install(target, project)

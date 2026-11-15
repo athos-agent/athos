@@ -467,9 +467,10 @@ def install_agents(dest: Path, project: str) -> int:
 
 def sync_installed(cwd: str | None = None) -> int | None:
     """After a save: rewrite the installed trajectory agents, only when the person installed them for one project with
-    this Athos (`agents_install`), and never from a repository marked public. Returns how many were written, or None
-    when nothing was synced."""
+    this Athos (`agents_install`), never from a repository marked public, and never into one (the folder they were
+    installed in may belong to a repository declared public since). Returns how many were written, or None when
+    nothing was synced."""
     chosen = agents_install()
-    if not chosen or (cwd and paths.is_public(cwd)):
+    if not chosen or (cwd and paths.is_public(cwd)) or paths.is_public(chosen["target"]):
         return None
     return install_agents(chosen["target"], chosen["project"])

@@ -227,3 +227,34 @@ class SaveByIdTest(Folders):
         code, out = self.save(body.format(id="alpha-release"))             # its own piece: improved as usual
         self.assertEqual(code, 0, out)
         self.assertEqual(store.get("alpha-release").version, 2)
+
+
+class ElsewhereTest(Folders):
+    def test_installed_agents_are_never_synced_into_a_public_repository(self):
+        from athos import capture, wiki
+        piece("beta-one", "Beta one", "beta work", ["beta"],
+              body="## #b\n**When:** b.\n**Do:** b.\n**Links:** [[beta-two#c]]\n")
+        piece("beta-two", "Beta two", "more beta work", ["beta"], body="## #c\n**When:** c.\n**Do:** c.\n")
+        repo = Path(self.folder("alpha"))
+        target = repo / ".claude" / "agents"
+        wiki.remember_install(target, "beta")              # installed there once; the repository is public now
+        (repo / paths.MARKER).write_text('name = "alpha"\npublic = true\n')
+        capture.save_text("---\ntitle: Beta three\nwhen: beta three work\n---\n## #d\n**When:** d.\n**Do:** d.\n",
+                          "e1", self.folder("beta"))      # saved from a folder that is not public
+        self.assertFalse(list(target.glob("athos-*.md")))
+
+    def test_events_in_a_public_repository_name_no_other_project(self):
+        piece("alpha-release", "Ship the alpha release", "shipping the alpha release", ["alpha"])
+        piece("habit-ship", "Ship carefully", "shipping the alpha release carefully", ["beta", "gamma"])
+        control.profile_add(["habit-ship"])
+        control.profile_allow_public(["habit-ship"])
+        root = Path(self.folder("alpha"))
+        (root / paths.MARKER).write_text('name = "alpha"\npublic = true\n')
+        e = {"session_id": "ev1", "cwd": str(root)}
+        self.hook("prompt", {**e, "prompt": "ship the alpha release carefully"})
+        self.hook("tool", {**e, "tool_name": "Bash", "tool_input": {"command": "athos show habit-ship"}})
+        (r,) = events("route")
+        self.assertIn("habit-ship", [c["piece"] for c in r["candidates"]])
+        for row in [*r["candidates"], *events("piece_opened")]:
+            self.assertFalse({"beta", "gamma"} & set(row.get("projects") or []), row)
+        self.assertNotIn("gamma", log_text())

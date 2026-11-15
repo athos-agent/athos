@@ -751,8 +751,9 @@ def note_opened(session_id: str, piece: store.Piece, via: str, cwd: str | None =
                    task_opened=opened + ([piece.id] if piece.id not in opened else []))
     project = state.get("project") or (paths.project_of(cwd) if cwd else None)
     public = bool(state.get("public"))
+    tags = [q for q in piece.projects if q == project] if public else list(piece.projects)   # no other name there
     ev.audit({"type": "piece_opened", "session_id": session_id, "task_id": state.get("task_id"), "piece": piece.id,
-              "projects": list(piece.projects), "via": via, "offered": offered, "again": already, "project": project},
+              "projects": tags, "via": via, "offered": offered, "again": already, "project": project},
              line=f"opened {loggable([piece], project, public)} ({via})" + (" · offered in the index" if offered else ""),
              project=project)
 
@@ -939,6 +940,9 @@ def note_route(sid: str, prompt: str, scope: dict, trace: dict, found: list[stor
     printed = ev.request_print(prompt)
     if scope.get("public"):
         printed.pop("request_sha")               # a public repository: not even a fingerprint of the request
+        # nor another project's name: a profile piece allowed there keeps only this project among its tags
+        trace = {**trace, "candidates": [{**c, "projects": [q for q in c.get("projects") or [] if q == project]}
+                                         for c in trace.get("candidates") or []]}
     ev.audit({"type": "route", "session_id": sid, "task_id": state.get("task_id"),
               "model": state.get("model"), **tier, "mode": scope.get("mode"), "project": project,
               "scope_reason": scope.get("reason"),
