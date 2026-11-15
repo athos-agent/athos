@@ -181,9 +181,10 @@ def _quietly(fn, *args):
     try:
         return fn(*args)
     except Exception as e:  # noqa: BLE001
-        print(f"athos: {fn.__module__}.{fn.__name__}: {e}", file=sys.stderr)
+        name = f"{getattr(fn, '__module__', '?')}.{getattr(fn, '__name__', '?')}"
+        print(f"athos: {name}: {ev.problem_line(e)}", file=sys.stderr)        # never the message: it may quote a request
         if _HOOK_NOW["hook"]:
-            ev.hook_error(_HOOK_NOW["hook"], f"{fn.__module__}.{fn.__name__}", e, _HOOK_NOW["session_id"])
+            ev.hook_error(_HOOK_NOW["hook"], name, e, _HOOK_NOW["session_id"])
         return None
 
 
@@ -525,7 +526,7 @@ def hook(event_name: str, platform: str = "claude-code") -> int:
         # What the person sees may have changed: recorded only when it did (athos/indicator.py).
         _quietly(_observe, event)
     except Exception as problem:  # noqa: BLE001 — whatever it is, the session must not see it
-        print(f"athos hook {event_name}: {problem}", file=sys.stderr)
+        print(f"athos hook {event_name}: {ev.problem_line(problem)}", file=sys.stderr)   # never the message
         ev.hook_error(event_name, f"hook {event_name}", problem, _HOOK_NOW["session_id"])
     finally:
         _HOOK_NOW.update(hook="", session_id=None)

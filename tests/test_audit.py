@@ -237,6 +237,18 @@ class RouteEventTest(HookCase):
         self.assertNotIn("zebra", json.dumps(e))
         self.assertNotIn("zebra", log_text())
 
+    def test_a_swallowed_exception_prints_only_its_kind_and_place(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            with mock.patch.object(load, "on_prompt", side_effect=KeyError(SECRET)):
+                self.hook("prompt", {"session_id": "s6", "cwd": str(self.alpha), "prompt": "hello there"})
+            with mock.patch("athos.cases.note_prompt", side_effect=ValueError(SECRET)):    # through _quietly
+                self.hook("prompt", {"session_id": "s6", "cwd": str(self.alpha), "prompt": "hello there"})
+        text = err.getvalue()
+        self.assertIn("KeyError", text)
+        self.assertIn("ValueError", text)
+        self.assertNotIn("zebra", text)
+
     def test_model_events_say_where_the_model_was_read(self):
         self.hook("session-start", {"session_id": "s6", "cwd": str(self.alpha), "model": "model-a"})
         self.hook("prompt", {"session_id": "s6", "cwd": str(self.alpha), "prompt": "ship the release"})

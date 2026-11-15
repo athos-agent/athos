@@ -182,14 +182,26 @@ def audit(event: Event, line: str | None = None, project: str | None = None) -> 
         print(f"athos: audit log: {type(problem).__name__}", file=sys.stderr)
 
 
+def _place(problem: BaseException) -> str:
+    """Where an exception was raised inside Athos: `file.py:line`, or "" when no frame of Athos is in it."""
+    import traceback
+    frames = [f for f in traceback.extract_tb(problem.__traceback__) if "/athos/" in f.filename.replace("\\", "/")]
+    last = frames[-1] if frames else None
+    return f"{Path(last.filename).name}:{last.lineno}" if last else ""
+
+
+def problem_line(problem: BaseException) -> str:
+    """An exception as a hook may print it: its kind and where it was raised, never its message, which may quote a
+    request, a file's content or a path."""
+    place = _place(problem)
+    return type(problem).__name__ + (f" at {place}" if place else "")
+
+
 def hook_error(hook: str, where: str, problem: BaseException, session_id: str | None = None,
                project: str | None = None) -> None:
     """A hook swallowed an exception: its kind and where it was raised (file and line inside Athos), never its
     message, which may quote a request or a file."""
-    import traceback
-    frames = [f for f in traceback.extract_tb(problem.__traceback__) if "/athos/" in f.filename.replace("\\", "/")]
-    last = frames[-1] if frames else None
-    place = f"{Path(last.filename).name}:{last.lineno}" if last else ""
+    place = _place(problem)
     audit({"type": "hook_error", "session_id": session_id, "hook": hook, "where": where,
            "error": type(problem).__name__, "line": place},
           line=f"{hook}: {where} raised {type(problem).__name__}" + (f" at {place}" if place else ""),
