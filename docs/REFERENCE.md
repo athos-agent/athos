@@ -379,7 +379,8 @@ of it keeps a request's words: only its length and a 12-character fingerprint (`
 | `context` | a session starts | `hook` (session_start), `project`, `injected_total` (everything the hook handed the model), `injected_parts` (`index`, `journal`, `guide`, `offer`, `audit_hint`, `review`), `index_cap` |
 | `piece_opened` | the tool hook sees the agent run `athos show <id>` | `task_id`, `piece`, `projects`, `via` (show), `offered` (the frontier index of this request listed it), `again` (it was already in use for the task), `project` |
 | `hook_error` | a hook swallows an exception so your session carries on | `hook`, `where`, `error` (the exception's kind), `line` (file and line inside Athos), never its message |
-| `learn`, `grade`, `ui` | reserved for autonomous learning, a piece's grade and the panel's state | not written yet |
+| `learn` | autonomous learning decides about a task: it asks the model to keep what it taught, saves, or skips (every decision, with its reason) | `task_id`, `decision` (asked, saved, skipped), `reason` (strong_evidence, no_strong_evidence, last_verification_failed, correction_after_success, apply_model, model_unknown, private_data, no_project, off, invalid, model_saved_nothing), `model`, `tier`, `work_mode`, `mode` (learn, apply, unknown), `project`, `strong`, `weak`, `positive`, `negative` (the task's evidence counted), `evidence` (its short summary), `grounds`, and for a save `piece`, `version`, `risk`, `checks` (runnable Check lines), `confidence`; for a private-data refusal `private` (the kinds found, never the text) |
+| `grade`, `ui` | reserved for a piece's grade and the panel's state | not written yet |
 
 Every one of them also carries `at`, `session_id` and `v`, the version of Athos that wrote it. `candidates.reason`
 says why a piece did or didn't load: `chosen`, `runner_up_too_weak`, `over_budget`, `beyond_top_k`, `below_min_score`,
@@ -450,7 +451,7 @@ differ, and the next request starts from it. `athos status --json` has `model` (
 Each model has a tier. **frontier** models may learn new ways of working (mode `learn`); **apply** models use what is
 already known (mode `collaborate`), and a frontier session also collaborates when a piece loaded for the request. A
 model no pattern matches counts as apply. Since 0.1.116 the tier decides how the router's choice is delivered (see
-"Pull instead of push" below); it does not change what is saved.
+"Pull instead of push" below), and since 0.1.124 what is saved: only a frontier model learns (see "Autonomous learning"), and on an apply model `athos save` refuses and no save is ever offered or asked for.
 
 ```
 athos tiers [--json]                              the patterns of each tier
@@ -558,6 +559,40 @@ Code and OpenCode unless the event carries an exit code) only produce weak items
 are left out, and in a repository marked public the command itself is not kept, only what kind it was. With
 autonomous learning on (below), and always on an apply model, an edit of yours is only evidence: the agent is no longer
 told about it and asked to propose a rule.
+
+**Saving on its own, on a frontier model.** When a task on a frontier model ends with grounds to keep it (the same
+rule that used to ask: an edit within three tool calls, five commands that changed something, or a checklist
+followed, and nothing saved yet), Athos looks at its evidence. At least one strong item for the work (a verification
+that passed, a commit), no failed verification as the last one, and no revert or edit of yours after the last success:
+then the Stop hook says one short line to the model, which you also see (Claude Code shows it as "Stop hook feedback"):
+
+```
+Athos: if this task taught something reusable, keep it as one piece with Check lines (`athos save --auto`, as the session guide says); otherwise just stop.
+```
+
+Otherwise nothing is said. The session guide (hidden, at session start) tells a frontier model how: one new piece,
+every step with a Check, no secrets, emails, links, folders of this computer or other projects' names. `athos save
+--auto` then saves it without asking you, as a `candidate` of the current project only (`visibility: project`), with
+`learned_by`, the evidence summary, `confidence: 0.3` and the risk the detector finds, after two checks: the task's
+evidence must still qualify, and the private-data detector of `athos share` must find nothing (emails, phone and ID
+numbers, links, folders of this computer, another project's name, your name); if it finds something the piece is not
+saved and the model is told which kinds, never the text. It never changes an existing piece. A candidate does not
+reach an apply model until it is verified. Every decision is a `learn` event: asked, saved, or skipped with its reason
+(no strong evidence, a failed last verification, private data, an apply model, or the model stopping without saving).
+
+On an apply model nothing is ever offered or asked for, and `athos save` (with or without `--auto`) refuses with a line
+saying why: apply models never create or change a piece. A model Athos could not resolve at all keeps the person's own
+save path as before, but never saves on its own. Another agent's models (Codex, Muse Code, OpenCode) are apply models
+until you name them frontier with `athos tiers add frontier <pattern>`. `"autolearn": {"on": false}` in
+`~/.athos/config.json` turns autonomous learning off: a frontier session is then offered [Save] (or asked) as before.
+
+**Risk lanes.** A step is high risk when its When or Do publishes (`npm publish`, `git push`, `docker push`, `gh
+release create`, the word publish), merges (`gh pr merge`, `git merge`, merge), deploys (deploy, `kubectl apply`,
+`terraform apply|destroy`, `helm install|upgrade`, `vercel --prod`), deletes (`rm -r`, `rm -f`, delete, `DROP TABLE`,
+`git branch -D`, `git clean -f`), force-pushes (`--force`, `-f`, `--force-with-lease`) or touches production (prod,
+production), in English or Spanish. The detector is conservative on purpose: in doubt a step is high risk, which only
+makes promotion stricter and, on an apply model, asks you before the step runs. A piece with any such step is saved
+with `risk: high`.
 
 ### Per-step models
 

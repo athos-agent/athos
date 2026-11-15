@@ -292,3 +292,168 @@ class EditsAreEvidenceTest(TempHome):
         self.assertEqual([autolearn.tells_edits(s) for s in "abc"], [False, False, True])
         with mock.patch.object(autolearn, "settings", return_value={**autolearn.DEFAULTS, "on": False}):
             self.assertTrue(autolearn.tells_edits("a"))
+
+
+PIECE = """---
+title: Change the parser safely
+when: changing the parser of this project
+---
+""" + BODY
+
+
+class _HookedTask(TempHome):
+    """A task through the hooks, as Claude Code runs them (headless), in a project folder named demo."""
+
+    def setUp(self):
+        super().setUp()
+        from tests.test_cli import ThroughTheLauncher
+        self.cli = ThroughTheLauncher()
+        self.cli.home = self.home
+        self.cli.assertEqual = self.assertEqual
+        self.work = os.path.join(self.home, "work", "demo")
+        os.makedirs(self.work)
+        self.ev = {"session_id": "f1", "cwd": self.work, "transcript_path": None}
+
+    def task(self, model="claude-opus-5-5", verify=True, ok=True, edits=4):
+        self.cli.send("session-start", {**self.ev, "model": model})
+        self.cli.send("prompt", {**self.ev, "prompt": "fix the parser and add a test"})
+        for _ in range(edits):
+            self.cli.send("tool", {**self.ev, "tool_name": "Edit", "tool_input": {"file_path": "x.py"}})
+        if verify:
+            name = "tool" if ok else "tool-failed"
+            event = {**self.ev, "tool_name": "Bash", "tool_input": {"command": "python3 -m unittest -q"}}
+            event.update({"tool_response": {"stdout": "OK", "stderr": "", "interrupted": False}} if ok
+                         else {"error": "Exit code 1"})
+            self.cli.send(name, event)
+        return self.cli.send("stop", self.ev)
+
+    def learns(self):
+        from athos import eval as ev
+        return [e for e in ev.events() if e.get("type") == "learn"]
+
+
+class AutonomousSaveTest(_HookedTask):
+    """A frontier task, then the model's `athos save --auto`."""
+
+    def test_a_qualifying_frontier_task_with_strong_evidence_saves_a_candidate(self):
+        asked = self.task()
+        line = asked["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("save --auto", line)
+        self.assertEqual(len(line.splitlines()), 1)                         # one short line: the person sees it
+        self.assertLess(len(line), 200)
+        done = self.cli.run_athos("save", "--auto", stdin=PIECE, cwd=self.work)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("as a candidate of demo", done.stdout)
+        [piece] = store.all_pieces()
+        self.assertEqual((piece.status, piece.projects, piece.learned_by, piece.visibility, piece.risk),
+                         ("candidate", ["demo"], "claude-opus-5-5", "project", "normal"))
+        self.assertIn("verify:unittest:ok", piece.evidence)
+        self.assertTrue(any(e.startswith("task:") for e in piece.evidence))
+        decisions = [(e["decision"], e["reason"]) for e in self.learns()]
+        self.assertEqual(decisions, [("asked", "strong_evidence"), ("saved", "strong_evidence")])
+        self.assertEqual(self.learns()[-1]["checks"], 2)
+
+    def test_without_strong_evidence_nothing_is_asked_or_saved(self):
+        self.assertIsNone(self.task(verify=False))
+        self.assertEqual([(e["decision"], e["reason"]) for e in self.learns()], [("skipped", "no_strong_evidence")])
+        done = self.cli.run_athos("save", "--auto", stdin=PIECE, cwd=self.work)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("no objective evidence", done.stderr)
+        self.assertEqual(store.all_pieces(), [])
+
+    def test_a_failed_last_verification_is_not_learned(self):
+        self.assertIsNone(self.task(ok=False))
+        self.assertEqual(self.learns()[-1]["reason"], "no_strong_evidence")
+
+    def test_the_private_data_detector_blocks_a_save(self):
+        self.task()
+        leaky = PIECE.replace("bump the version in `VERSION`.", "mail ada@realcompany.org and edit /Users/ada/x.txt.")
+        done = self.cli.run_athos("save", "--auto", stdin=leaky, cwd=self.work)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("private data (email, folder)", done.stderr)
+        self.assertEqual(store.all_pieces(), [])
+        self.assertEqual((self.learns()[-1]["reason"], self.learns()[-1]["private"]), ("private_data",
+                                                                                        ["email", "folder"]))
+
+    def test_another_projects_name_blocks_it_too(self):
+        store.create("Other", "other things", "x", projects=["zebra-shop"])
+        self.task()
+        done = self.cli.run_athos("save", "--auto", stdin=PIECE + "\nAs in zebra-shop.\n", cwd=self.work)
+        self.assertIn("project", done.stderr)
+
+    def test_the_model_that_stops_saving_nothing_is_recorded(self):
+        self.task()
+        self.cli.send("prompt", {**self.ev, "prompt": "thanks, next thing"})
+        self.assertEqual(self.learns()[-1]["reason"], "model_saved_nothing")
+
+    def test_an_existing_piece_is_never_changed_autonomously(self):
+        old = store.create("Old", "old", "x", projects=["demo"])
+        self.task()
+        done = self.cli.run_athos("save", "--auto", stdin=PIECE.replace("---\ntitle", f"---\nid: {old.id}\ntitle"),
+                                  cwd=self.work)
+        self.assertIn("new pieces only", done.stderr)
+        self.assertEqual(store.get(old.id).version, 1)
+
+    def test_the_session_guide_is_the_autonomous_one_on_a_frontier_model(self):
+        opening = self.cli.context(self.cli.send("session-start", {**self.ev, "model": "claude-opus-5-5"}))
+        self.assertIn("save --auto", opening)
+        self.assertIn("**Check:**", opening)
+
+    def test_with_autonomous_learning_off_the_old_offer_comes_back(self):
+        Path(self.home, "config.json").write_text(json.dumps({"autolearn": {"on": False}}))
+        asked = self.task()
+        self.assertIn("athos save", asked["hookSpecificOutput"]["additionalContext"])
+        self.assertNotIn("--auto", asked["hookSpecificOutput"]["additionalContext"])
+
+
+class ApplyModeNeverSavesTest(_HookedTask):
+    def test_no_save_prompt_and_both_saves_refuse(self):
+        self.assertIsNone(self.task(model="claude-haiku-5-5"))
+        self.assertEqual(self.learns()[-1]["reason"], "apply_model")
+        auto = self.cli.run_athos("save", "--auto", stdin=PIECE, cwd=self.work)
+        plain = self.cli.run_athos("save", stdin=PIECE, cwd=self.work)
+        for done in (auto, plain):
+            self.assertNotEqual(done.returncode, 0)
+            self.assertIn("apply model", done.stderr)
+        self.assertEqual(store.all_pieces(), [])
+
+    def test_no_capture_guide_at_session_start(self):
+        store.create("Mine", "my thing", "x", projects=["demo"])
+        opening = self.cli.context(self.cli.send("session-start", {**self.ev, "model": "claude-haiku-5-5"}))
+        self.assertNotIn("athos save", opening)
+
+    def test_no_offer_in_an_interactive_session(self):
+        from athos import session
+        self.cli.send("session-start", {**self.ev, "model": "claude-sonnet-5-5"})
+        for _ in range(5):
+            self.cli.run_athos("hook", "tool", stdin=json.dumps({**self.ev, "tool_name": "Edit"}),
+                               env={"CLAUDE_CODE_ENTRYPOINT": "cli"})
+        self.cli.run_athos("hook", "stop", stdin=json.dumps(self.ev), env={"CLAUDE_CODE_ENTRYPOINT": "cli"})
+        self.assertIsNone(session.load("f1").get("offer"))
+
+
+class RiskDetectorTest(unittest.TestCase):
+    def test_risky_steps(self):
+        from athos import autolearn
+        for text, kind in [("run `npm publish`", "publish"), ("git push origin main", "publish"),
+                           ("`gh pr merge 12 --squash`", "merge"), ("merge the branch", "merge"),
+                           ("deploy to staging", "deploy"), ("`kubectl apply -f x.yaml`", "deploy"),
+                           ("`terraform destroy`", "deploy"), ("`rm -rf build/`", "delete"),
+                           ("delete the old rows", "delete"), ("DROP TABLE users", "delete"),
+                           ("`git push --force-with-lease`", "force_push"), ("on the production database", "production"),
+                           ("`vercel --prod`", "production"), ("publicar la versión", "publish"),
+                           ("borrar la rama", "delete"), ("desplegar en producción", "deploy")]:
+            self.assertIn(kind, autolearn.risks_in(text), text)
+
+    def test_ordinary_steps_are_not_risky(self):
+        from athos import autolearn
+        for text in ["run the unit tests", "edit the README", "open a pull request", "read the product page",
+                     "commit with a clear message", "`git status`", "format the code", "release notes draft"]:
+            self.assertEqual(autolearn.risks_in(text), [], text)
+
+    def test_a_piece_is_high_when_any_step_is(self):
+        from athos import autolearn
+        p = store.Piece(id="x", title="x", when="x", body=BODY + "\n## #ship\n**When:** done.\n**Do:** `git push`.\n")
+        self.assertEqual(autolearn.risky_steps(p), {"ship": ["publish"]})
+        self.assertEqual(autolearn.risk_of(p), "high")
+        self.assertEqual(autolearn.risk_of(store.Piece(id="y", title="y", when="y", body=BODY)), "normal")

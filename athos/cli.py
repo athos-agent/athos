@@ -353,6 +353,7 @@ def _on_prompt(event: dict, platform: str) -> None:
     from athos import start
     start.note_language(prompt)
     previous = session.load(sid).get("task_id") if sid else None
+    _quietly(autolearn.on_next_request, sid)     # a task asked to learn that saved nothing: recorded as skipped
     if sid:
         # After `athos mark c`, these words are the correction the last task needed (athos/cases.py).
         _quietly(cases.note_prompt, sid, prompt)
@@ -540,7 +541,23 @@ def cmd_save(args: argparse.Namespace) -> int | None:
     `--from-audio`, the piece is a recording the person dictated, drafted by Meta's models (athos/adapters/meta/voice)."""
     if getattr(args, "from_audio", None):
         return _save_from_audio(args)
+    if getattr(args, "auto", False):
+        return _save_auto(sys.stdin.read())
     return _save(sys.stdin.read())
+
+
+def _save_auto(text: str) -> int | None:
+    """`athos save --auto`: autonomous learning on a frontier model (athos/autolearn.py). It refuses, saying why, on an
+    apply model, without objective evidence, or when the piece looks like it carries private data."""
+    folder, noted = _here()
+    sid = noted.get("session_id", "default")
+    try:
+        piece, line, refused = autolearn.save_auto(text, sid, folder, noted.get("transcript_path"))
+    except PermissionError:
+        return _fail(_unwritable_store_hint())
+    if refused:
+        return _fail(line)
+    print(line)
 
 
 def _save_from_audio(args: argparse.Namespace) -> int | None:
@@ -571,6 +588,9 @@ def _save_from_audio(args: argparse.Namespace) -> int | None:
 def _save(text: str) -> int | None:
     folder, noted = _here()
     sid = noted.get("session_id", "default")
+    refused = autolearn.refuse_apply_save(noted.get("session_id"))
+    if refused:                                    # an apply model never creates or changes a piece
+        return _fail(refused)
     try:
         piece, diff = capture.save_text(text, sid, folder, noted.get("transcript_path"))
     except (PermissionError, ValueError) as refused:          # a sandboxed store, or a page that doesn't parse
@@ -1725,6 +1745,9 @@ def _parser() -> argparse.ArgumentParser:
                    "Transcribe and Muse Spark draft it as a way of working, saved once you confirm")
     s.add_argument("--lang", choices=["es", "en"], help="with --from-audio: the language spoken and of the draft")
     s.add_argument("--yes", action="store_true", help="with --from-audio: save the draft without asking")
+    s.add_argument("--auto", action="store_true", help="(for the agent, on a frontier model) autonomous learning: a "
+                   "new candidate piece of this project, on the task's objective evidence, after the private-data "
+                   "check; an independent verifier grades it")
     s = sub.add_parser("curate", help="tidy your ways of working: tag pages with the projects they are used in, "
                        "archive unused ones, spot near-duplicates, broken links and work with no page yet")
     s.add_argument("action", nargs="?", choices=["list", "apply", "dismiss", "ignore", "restore"], default="list")

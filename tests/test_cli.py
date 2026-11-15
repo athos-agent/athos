@@ -41,6 +41,8 @@ class ThroughTheLauncher(TempHome):
 class CliTest(ThroughTheLauncher):
     def test_a_session_saves_know_how_and_the_next_one_gets_it(self):
         first = {"session_id": "s1", "cwd": self.home, "transcript_path": None}
+        # The person's own save path, with autonomous learning off (tests/test_autolearn.py covers it on).
+        Path(self.home, "config.json").write_text(json.dumps({"autolearn": {"on": False}}))
         # Nothing stored yet: the session opens with the saving guide only, so the first task can draft its steps.
         opening = self.context(self.send("session-start", dict(first, model="claude-opus-5-5")))
         self.assertNotIn("athos step", opening)                    # the model is not asked to report steps

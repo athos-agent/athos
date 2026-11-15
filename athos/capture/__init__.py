@@ -87,8 +87,34 @@ piece: Athos itself shows the user one line with what was saved and where it is 
 """
 
 
-def guide(cmd: str = "athos") -> str:
-    """The capture instructions, given once at session start (out of the user's sight) so the Stop hook can be short."""
+AUTO_FORMAT = _save_format().replace("{cmd} save <<'EOF'", "{cmd} save --auto <<'EOF'").replace(
+    'id: <only to improve an existing piece: its id>\nnote: <only when improving: what changed and why>\n', "")
+
+AUTO_GUIDE = """## Learning on its own (Athos)
+
+Athos learns from this session without asking the person. When a task ends after real work that objective checks
+proved (a test run, a build or a linter that passed, a commit), Athos's Stop hook says so once, in one short line. Then,
+if the task taught something reusable (how it was solved, a rule that was not obvious, how to tell it went right),
+save exactly one new piece by running:
+
+{format}
+
+or, if nothing reusable came out of it, just stop. Every step needs a **Check:**: the command in backticks that proves
+it went right and can be run again later in this repository, or the fact anyone can observe; a piece without a
+runnable Check is never verified. Write only what the task showed. No secrets, emails, links, folders of this computer
+(use paths relative to the repository) or other projects' names: a piece that carries any is not saved. It is kept as
+a candidate of this project only, and an independent check, not you, decides whether the work was right; until then
+a weaker model never gets it. This path creates new pieces only. Don't announce the save in your answer and don't
+print the piece.
+
+"""
+
+
+def guide(cmd: str = "athos", auto: bool = False) -> str:
+    """The capture instructions, given once at session start (out of the user's sight) so the Stop hook can be short.
+    With `auto`, the instructions of autonomous learning (athos/autolearn.py) instead."""
+    if auto:
+        return AUTO_GUIDE.format(format=AUTO_FORMAT.format(cmd=cmd), cmd=cmd)
     return GUIDE.format(format=FORMAT.format(cmd=cmd), cmd=cmd)
 
 
@@ -113,12 +139,21 @@ class _Written(NamedTuple):
     improved: bool
 
 
-def _write_piece(text: str, origin: dict, project: str) -> _Written:
+def _write_piece(text: str, origin: dict, project: str, learning: dict | None = None) -> _Written:
     """Create the piece, or improve the one its `id` names. A new piece belongs to the project it was saved in (none
     when no project is known, as in Claude Desktop's chat): it joins the profile only when the person puts it there
-    (`athos profile add`). A `visibility:` line in what the agent sent is kept for a new piece."""
+    (`athos profile add`). A `visibility:` line in what the agent sent is kept for a new piece. With `learning` (an
+    autonomous save: status, learned_by, evidence...), only a new piece is written, with those fields."""
     meta, title, when, piece_id, body = _fields(text)
     tags = [project] if project else []
+    if learning is not None:
+        absent = [name for name, value in (("title", title), ("when", when), ("body", body)) if not value]
+        if absent:
+            raise ValueError("missing " + ", ".join(absent))
+        if piece_id and store.get(piece_id) is not None:
+            raise ValueError("autonomous learning creates new pieces only: leave out `id:`")
+        return _Written(store.create(title, when, body, projects=tags, origin=origin, piece_id=piece_id or None,
+                                     **learning), None, False)
     if piece_id and store.get(piece_id) is not None:
         if not any((body, title, when)):
             raise ValueError("nothing to change")
@@ -164,19 +199,20 @@ def _overlaps(piece: store.Piece) -> list:
 
 
 def save_text(text: str, session_id: str = "default", cwd: str | None = None,
-              transcript_path: str | None = None) -> tuple[store.Piece, str | None]:
+              transcript_path: str | None = None, learning: dict | None = None) -> tuple[store.Piece, str | None]:
     """`athos save`: store the piece the agent wrote, tagged with this session's origin and the project of `cwd`.
 
     A piece whose `id:` names one already in the store improves it (a new version and a history line, and the diff
     comes back); any other is created, and the diff is None. ValueError when a new piece lacks title, when or body,
     or an improvement changes nothing. Then the session's tallies reset, the wiki and exports refresh, and the
     session learns what was saved for the band to show."""
-    written = _write_piece(text, origin_for(session_id, transcript_path), paths.project_of(cwd))
+    written = _write_piece(text, origin_for(session_id, transcript_path), paths.project_of(cwd), learning)
     piece = written.piece
     _reset_counters(session_id, piece.id)
     rebuilt = _refresh_wiki(cwd)
     summary = {"id": piece.id, "title": piece.title, "version": piece.version,
-               "platforms": ["Claude Code", *sync_other_agents(piece.id)]}
+               "platforms": ["Claude Code", *sync_other_agents(piece.id)],
+               **({"status": piece.status} if piece.status else {})}
     if written.improved:
         # The piece changed: the corrections the person made on it before are the tests of the new version.
         pending = recheck(piece.id)
@@ -449,6 +485,15 @@ def stop_decision(event: dict, cmd: str = "athos", offer: bool = False) -> dict 
     session_id = event.get("session_id", "default")
     state = session.load(session_id)
     grounds = _grounds_to_ask(state)
+    from athos import autolearn
+    mode = autolearn.mode_for(state.get("model"))
+    if mode == autolearn.APPLY:
+        # An apply model never creates or changes a piece: no offer, no question (athos/autolearn.py).
+        if grounds:
+            autolearn.note_skipped(session_id, state, "apply_model", grounds)
+        return None
+    if autolearn.autonomous(session_id):
+        return autolearn.stop_decision(session_id, state, grounds, cmd)
     if grounds and offer:
         session.update(session_id, offer={"task_id": state.get("task_id"), "reason": grounds})
     if not grounds or offer:

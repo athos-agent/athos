@@ -936,8 +936,11 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
     # first tasks can be saved as its first ways of working (2026-11-01: a first run opened with nothing, so the
     # first task's trail stayed empty). "none" keeps Athos quiet.
     first_run = not text and control.get()["mode"] != "none"
-    if (text or first_run) and capture.enabled():
-        guide = capture.guide(cmd)
+    from athos import autolearn
+    mode = autolearn.session_mode(sid)
+    # An apply model never saves, so it gets no capture guide; a frontier one with autonomous learning gets its own.
+    if (text or first_run) and capture.enabled() and mode != autolearn.APPLY:
+        guide = capture.guide(cmd, auto=autolearn.autonomous(sid))
         text = (text + "\n\n" if text else "") + guide
         parts["guide"] = len(guide)
         session.update(sid, guide=True)
