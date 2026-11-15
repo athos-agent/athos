@@ -101,10 +101,11 @@ def on_tool(event: dict) -> None:
         # The agent opened a piece with `athos show`: that is using it for this task (the frontier index offers pieces
         # to open this way). The command itself writes nothing, so a person or another agent reading a piece leaves
         # no trace (2026-11-15: reading rules marked them used in an old session).
-        from athos import load
+        from athos import control, load
+        here, mark = paths.locate(event["cwd"]) if event.get("cwd") else (None, {})
         for m in SHOW.finditer(str(tin.get("command", ""))):
             p = store.get(m.group(1))
-            if p:
+            if p and (not mark.get("public") or control.may_see(p, here, True)):   # refused in a public repository
                 note(sid, {"kind": "read", "piece": p.id, "title": p.title})
                 load.note_opened(sid, p, "show", event.get("cwd"))
     else:
@@ -113,6 +114,11 @@ def on_tool(event: dict) -> None:
         f = str(tin.get("file_path") or tin.get("path") or tin.get("filePath") or "")
         kh = str(paths.know_how())
         p = store.get(os.path.basename(f)[:-3]) if f.startswith(kh) and f.endswith(".md") else None
+        if p and event.get("cwd"):
+            from athos import control
+            here, mark = paths.locate(event["cwd"])
+            if mark.get("public") and not control.may_see(p, here, True):
+                p = None                           # a public repository's pane never names another project's piece
         if p:
             note(sid, {"kind": "read", "piece": p.id, "title": p.title})
 

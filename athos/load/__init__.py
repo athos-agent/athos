@@ -183,17 +183,18 @@ def project_note(project: str, pieces: list[store.Piece]) -> str:
     return "e.g. " + "; ".join(f"«{p.title}»" for p in top)
 
 
-def other_projects(here: list[store.Piece]) -> list[str]:
+def other_projects(here: list[store.Piece], public: bool = False) -> list[str]:
     """What the session may know of the rest of the store: how many pieces other projects hold, and in how many
     projects, never their titles or names (another project's name or a private piece's title once reached a public
-    repository's session). Empty when there is nothing else."""
+    repository's session). Empty when there is nothing else. In a public repository they never load, and it says so."""
     ids = {p.id for p in here}
     others = [p for p in store.all_pieces() if p.id not in ids and p.projects]
     projects = {q for p in others for q in p.projects}
     if not others:
         return []
-    return [f"- {len(others)} way{'s' if len(others) != 1 else ''} of working in {len(projects)} other "
-            f"project{'s' if len(projects) != 1 else ''}"]
+    line = (f"- {len(others)} way{'s' if len(others) != 1 else ''} of working in {len(projects)} other "
+            f"project{'s' if len(projects) != 1 else ''}")
+    return [line + (" (never loaded here: this repository is marked public)" if public else "")]
 
 
 def _most_recent_first(pieces: list[store.Piece]) -> list[store.Piece]:
@@ -232,7 +233,8 @@ def _index_body(pieces: list[store.Piece], cmd: str, others: list[str] | None) -
     ))
     body = _catalogue(pieces, INDEX_CAP - len(intro), cmd)
     if others:
-        body.append("\nOther projects' know-how (loaded only when a request names the project):")
+        public = any("marked public" in o for o in others)
+        body.append("\nOther projects' know-how" + (":" if public else " (loaded only when a request names the project):"))
         body += others[:12]
     return intro + "\n".join(body)
 
@@ -653,9 +655,10 @@ def note_opened(session_id: str, piece: store.Piece, via: str, cwd: str | None =
     session.update(session_id, task_route=route + ([piece.id] if piece.id not in route else []),
                    task_opened=opened + ([piece.id] if piece.id not in opened else []))
     project = state.get("project") or (paths.project_of(cwd) if cwd else None)
+    public = bool(state.get("public"))
     ev.audit({"type": "piece_opened", "session_id": session_id, "task_id": state.get("task_id"), "piece": piece.id,
               "projects": list(piece.projects), "via": via, "offered": offered, "again": already, "project": project},
-             line=f"opened {loggable([piece], project)} ({via})" + (" · offered in the index" if offered else ""),
+             line=f"opened {loggable([piece], project, public)} ({via})" + (" · offered in the index" if offered else ""),
              project=project)
 
 
@@ -814,6 +817,7 @@ def note_route(sid: str, prompt: str, scope: dict, trace: dict, found: list[stor
               "model": state.get("model"), **tier, "mode": scope.get("mode"), "project": project,
               "scope_reason": scope.get("reason"),
               "named_projects": scope.get("named", []), "marker": bool(scope.get("marker")),
+              **({"named_count": scope["named_count"]} if "named_count" in scope else {}),
               "public": bool(scope.get("public")), "private_held": scope.get("private_held", 0),
               "store_pieces": in_store, "in_scope": in_scope,
               **printed, "request_kind": kind, "wrapper": wrapper, **trace,
@@ -834,29 +838,33 @@ def _route_line(kind: str, scope: dict, found: list[store.Piece], injected: int,
     if not found:
         return f"none{more} · {reason}"
     marker = " · public repository" if scope.get("public") else ""
-    return f"loaded {loggable(found, scope.get('project'))} · {injected} chars{more} · {reason}{marker}"
+    return f"loaded {loggable(found, scope.get('project'), bool(scope.get('public')))} · {injected} chars{more} · " \
+           f"{reason}{marker}"
 
 
 def _offer_line(scope: dict, offered: list[str], injected: int, total: int | None) -> str:
     """log.md for a frontier request: the pieces its index offered (named as `loggable` allows), not loaded."""
     byid = {p.id: p for p in store.all_pieces()}
-    listed = loggable([byid[i] for i in offered if i in byid], scope.get("project"))
+    listed = loggable([byid[i] for i in offered if i in byid], scope.get("project"), bool(scope.get("public")))
     more = f" · {total} chars in all" if total is not None and total != injected else ""
     marker = " · public repository" if scope.get("public") else ""
     return f"index of {len(offered)} ({listed}) · {injected} chars{more} · scope {scope.get('reason')}{marker}"
 
 
-def nameable(piece: store.Piece, project: str | None) -> bool:
+def nameable(piece: store.Piece, project: str | None, public: bool = False) -> bool:
     """Whether a line about a session in `project` may name this piece: it is this project's, or general and not
-    private. A private piece is named only in its own projects."""
+    private. A private piece is named only in its own projects. In a public repository only what may load there
+    (control.may_see): that project's pieces and the profile pieces allowed in public."""
+    if public:
+        return bool(project) and control.may_see(piece, project, True)
     if project and project in piece.projects:
         return True
     return not piece.projects and not store.private(piece)
 
 
-def loggable(pieces: list[store.Piece], project: str | None) -> str:
+def loggable(pieces: list[store.Piece], project: str | None, public: bool = False) -> str:
     """Pieces as log.md may name them: by id when `nameable`, else only counted."""
-    own = [p.id for p in pieces if nameable(p, project)]
+    own = [p.id for p in pieces if nameable(p, project, public)]
     other = len(pieces) - len(own)
     parts = own + ([f"{other} piece(s) of another project"] if other else [])
     return ", ".join(parts)
@@ -898,12 +906,13 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
     ev.note_model(sid, None, model, "event" if model else "unknown", None, project, stage="session_start")
     from athos import capture
     here = enabled(event.get("cwd"))
-    text = index_text(here, cmd, other_projects(here))
+    public = paths.is_public(event.get("cwd"))
+    text = index_text(here, cmd, other_projects(here, public))
     parts = {"index": len(text)}
     # Short-term memory: the project's recent tasks, next to its ways of working (the long-term memory).
     if event.get("cwd"):
         from athos import journal
-        recent = journal.text(project)
+        recent = journal.text(project, public)
         if recent:
             text = (text + "\n\n" if text else "") + recent
             parts["journal"] = len(recent)

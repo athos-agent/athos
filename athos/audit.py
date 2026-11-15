@@ -328,13 +328,18 @@ def _version_mismatch(c: _Ctx, versions: dict | None) -> dict:
 
 
 def _private_piece_named(c: _Ctx) -> dict:
-    """A private piece (today's `visibility`) loaded, ranked or named for a session outside its projects: in the
-    route events, or in this project's log.md lines. Athos does not see the agent's replies, so a clean result covers
-    only what Athos itself wrote."""
+    """A private piece (today's `visibility`) loaded, ranked, offered or named for a session outside its projects: in
+    the route events, or in this project's log.md lines. In a repository marked public every piece that may not load
+    there counts as private (control.may_see: another project's, or a profile piece not allowed in public). Athos does
+    not see the agent's replies, so a clean result covers only what Athos itself wrote."""
+    public = any(r.get("public") for r in c.routes)
     private = {pid: p for pid, p in c.byid.items() if store.private(p)}
+    if public and c.project:
+        private.update({pid: p for pid, p in c.byid.items() if not control.may_see(p, c.project, True)})
     if not private:
         return _result("private_piece_named", "clean", [], "no piece is private in today's store")
-    outside = {pid for pid, p in private.items() if not (c.project and c.project in p.projects)}
+    outside = {pid for pid, p in private.items()
+               if not (c.project and c.project in p.projects) or (public and not control.may_see(p, c.project, True))}
     found = []
     for r in c.routes:
         ids = set(r.get("chosen") or []) | set(r.get("handed_over") or []) | set(r.get("offered") or []) | {
@@ -347,8 +352,9 @@ def _private_piece_named(c: _Ctx) -> dict:
     if named:
         found.append({"where": "log.md", "lines": named})
     return _result("private_piece_named", _status(found, not c.routes), found,
-                   "route events and this project's log.md lines, against today's visibility (the agent's replies "
-                   "are not seen)")
+                   "route events and this project's log.md lines, against today's visibility" +
+                   (" and, in a repository marked public, every piece that may not load there" if public else "") +
+                   " (the agent's replies are not seen)")
 
 
 def _log_lines(project: str) -> list[str]:

@@ -15,8 +15,11 @@ how the person always works. A piece is not general just because it has no proje
 profile loads only where no folder is known (Claude Desktop's chat) or with `athos load all`.
 
 Whatever the mode, a piece whose visibility is `private` (store.visibility) loads only in a session of one of its
-own projects, and never in a repository whose `.athos.toml` says `public = true`. Where no folder is known (Claude
-Desktop's chat) every piece stays in reach, as before.
+own projects. In a repository whose `.athos.toml` says `public = true`, every piece that is not that project's is
+treated as private: it never loads and is never named there, even when the request names its project, and a profile
+piece only when the person allowed it in public repositories (`athos profile allow-public <id>`); a private piece of
+that very project stays out too. Where no folder is known (Claude Desktop's chat) every piece stays in reach, as
+before.
 """
 
 from __future__ import annotations
@@ -134,10 +137,33 @@ def profile_ids() -> list[str]:
     return [str(i) for i in ids] if isinstance(ids, list) else []
 
 
-def _save_profile(ids: list[str]) -> None:
+def public_ids() -> list[str]:
+    """The profile pieces the person allowed in public repositories (`athos profile allow-public`): by default none,
+    so a public repository sees only its own pieces."""
+    ids = _read_profile().get("public")
+    wanted = set(profile_ids())
+    return [str(i) for i in ids if str(i) in wanted] if isinstance(ids, list) else []
+
+
+def _save_profile(ids: list[str], public: list[str] | None = None) -> None:
     target = paths.profile_file()
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps({"pieces": ids}, indent=1) + "\n")
+    allowed = [i for i in (public_ids() if public is None else public) if i in ids]
+    target.write_text(json.dumps({"pieces": ids, **({"public": allowed} if allowed else {})}, indent=1) + "\n")
+
+
+def profile_allow_public(ids: list[str], allow: bool = True) -> list[str]:
+    """Allow (or, with `allow` False, no longer allow) profile pieces in repositories marked public. Returns the
+    allowed ids. ValueError, and nothing saved, for an id that is not in the profile."""
+    current = profile_ids()
+    outside = [i for i in ids if i not in current]
+    if outside and allow:
+        raise ValueError("not in the profile: " + ", ".join(outside) + " (`athos profile add <id>` first)")
+    allowed = public_ids()
+    allowed = (allowed + [i for i in dict.fromkeys(ids) if i not in allowed]) if allow else \
+        [i for i in allowed if i not in set(ids)]
+    _save_profile(current, allowed)
+    return allowed
 
 
 def profile_add(ids: list[str], cap: bool = True) -> list[str]:
@@ -168,7 +194,7 @@ def profile_pieces(pieces: list[store.Piece] | None = None) -> list[store.Piece]
 def profile_remove(ids: list[str]) -> list[str]:
     current = profile_ids()
     kept = [i for i in current if i not in set(ids)]
-    _save_profile(kept)
+    _save_profile(kept)                       # an id that leaves the profile is no longer allowed in public either
     return kept
 
 
@@ -181,11 +207,22 @@ def _named(project: str, prompt: str) -> bool:
 
 
 def may_see(piece: store.Piece, here: str | None, public: bool = False) -> bool:
-    """Whether a session in project `here` (None: no folder known) may load or name this piece: always, unless it is
-    private and the session is not in one of its projects, or runs in a public repository."""
-    if not store.private(piece) or here is None:
+    """Whether a session in project `here` (None: no folder known) may load or name this piece.
+
+    No folder: always. In a repository marked public: only a piece of that project that is not private, or a profile
+    piece the person allowed in public repositories; every other piece is treated as private there, whatever its own
+    visibility, even when the request names its project (a public repository's session once carried another
+    project's piece titles, 2026-11-15). Anywhere else: always, unless the piece is private and the session is not in
+    one of its projects."""
+    if here is None:
         return True
-    return here in piece.projects and not public
+    if public:
+        if store.private(piece):
+            return False
+        return here in piece.projects or piece.id in public_ids()
+    if not store.private(piece):
+        return True
+    return here in piece.projects
 
 
 def scope(pieces: list[store.Piece], cwd: str | None, prompt: str = "") -> list[store.Piece]:
@@ -249,6 +286,10 @@ def select(pieces: list[store.Piece], cwd: str | None = None, prompt: str = "",
     here = project or found
     public = bool(mark.get("public")) if public is None else public
     why = {"mode": mode, "project": here, "reason": mode, "named": [], "marker": bool(mark), "public": public}
+    if mode == "auto" and here and public:
+        # In a public repository another project is not named anywhere, not even in Athos's own log: only counted.
+        pool, reason, named, held = _auto(pieces, here, prompt, public)
+        return pool, {**why, "reason": reason, "named": [], "named_count": len(named), "private_held": held}
 
     def visible(chosen: list[store.Piece]) -> tuple[list[store.Piece], dict]:
         kept = [p for p in chosen if may_see(p, here, public)]

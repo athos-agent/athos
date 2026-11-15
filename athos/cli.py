@@ -43,6 +43,8 @@ Everyday commands (`athos <command> --help` has the details of each):
     athos audit [--session ID | --project P | --last N] [--json]   what Athos decided in a session, and what it got wrong
     athos profile [add|remove <id>...] [--untagged]   the few pieces that load in every project; --untagged lists the
                                        pieces with no project (read-only)
+    athos profile allow-public|deny-public <id>...   whether a profile piece may also load in a repository marked
+                                       public (by default none does)
     athos privacy [--json]             which pieces look private, for you to review (read-only)
     athos tiers [add|remove frontier|apply <pattern>... | reset | which <model>] [--json]   which models learn
                                        (frontier) and which apply what was learned; unknown models apply
@@ -397,6 +399,11 @@ def cmd_list(args: argparse.Namespace) -> int | None:
     from athos import start
     pieces = sorted(store.all_pieces(), key=lambda p: p.last_used, reverse=True)
     enabled = {p.id for p in load.enabled(os.getcwd())}
+    here, mark = paths.locate(os.getcwd())
+    hidden = 0
+    if mark.get("public"):                 # a public repository names only what may load in it
+        hidden = sum(1 for p in pieces if not control.may_see(p, here, True))
+        pieces = [p for p in pieces if control.may_see(p, here, True)]
     where, choice = paths.know_how(), control.describe(lang=start.lang())
     if start.lang() == "es":
         print(f"{len(pieces)} forma(s) de trabajar en {where} · se cargan: {choice}")
@@ -406,6 +413,9 @@ def cmd_list(args: argparse.Namespace) -> int | None:
         dot = "●" if p.id in enabled else "○"
         print(f"{dot} {p.id}  v{p.version}  {p.title}")
         print(f"    when: {p.when}  · last used {p.last_used}")
+    if hidden:
+        print(f"({hidden} piece(s) of other projects not listed: this repository is marked public; "
+              f"`{_cmd()} list` from a folder outside it lists them)")
 
 
 def cmd_show(args: argparse.Namespace) -> int | None:
@@ -415,6 +425,11 @@ def cmd_show(args: argparse.Namespace) -> int | None:
     piece = store.get(args.id)
     if piece is None:
         return _fail(f"no piece {args.id}")
+    here, mark = paths.locate(os.getcwd())
+    if mark.get("public") and not control.may_see(piece, here, True):
+        # In a repository marked public another project's piece is not shown, not even to the agent that guessed it.
+        return _fail(f"not shown here: this repository is marked public ({paths.MARKER}) and that piece is not "
+                     f"{here}'s. Read it from a folder outside this repository.")
     sid = _here()[1].get("session_id") if args.use else None
     if sid:
         load.mark_loaded(sid, [piece.id])
@@ -1178,16 +1193,24 @@ def cmd_profile(args) -> int | None:
             control.profile_add(ids)
         elif action == "remove":
             control.profile_remove(ids)
+        elif action in ("allow-public", "deny-public"):
+            if not ids:
+                return _fail("name at least one piece")
+            control.profile_allow_public(ids, action == "allow-public")
         elif action != "list":
-            return _fail(f"unknown action {action!r}: list, add <id>... or remove <id>...")
+            return _fail(f"unknown action {action!r}: list, add <id>..., remove <id>..., allow-public <id>... or "
+                         f"deny-public <id>...")
     except ValueError as refused:
         return _fail(refused)
-    ids = control.profile_ids()
+    ids, public = control.profile_ids(), control.public_ids()
     if args.json:
-        print(json.dumps({"profile": ids, "max": control.PROFILE_MAX}))
+        print(json.dumps({"profile": ids, "public": public, "max": control.PROFILE_MAX}))
         return 0
     print(f"profile: {len(ids)} of at most {control.PROFILE_MAX} pieces, loaded in every project"
-          + (": " + ", ".join(ids) if ids else f" (none yet; `{_cmd()} profile add <id>`)"))
+          + (": " + ", ".join(i + (" (also in public repositories)" if i in public else "") for i in ids)
+             if ids else f" (none yet; `{_cmd()} profile add <id>`)"))
+    if ids and not public:
+        print(f"In a repository marked public none of them loads; `{_cmd()} profile allow-public <id>` allows one.")
     return 0
 
 
@@ -1375,7 +1398,7 @@ def cmd_journal(args) -> int:
     """What happened lately in this project (or another one): the short-term memory a session starts with."""
     from athos import journal
     project = args.project or paths.project_of(os.getcwd())
-    print(journal.text(project) or f"Nothing yet in {project}.")
+    print(journal.text(project, paths.is_public(os.getcwd())) or f"Nothing yet in {project}.")
     return 0
 
 
@@ -1731,7 +1754,9 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--show", action="store_true", help="name other projects' pieces too (never requests)")
     s.add_argument("--json", action="store_true", help="the summary and every rule's result as JSON")
     s = sub.add_parser("profile", help="the few pieces that load in every project: list, add or remove them")
-    s.add_argument("what", nargs="*", metavar="ACTION", help="list (default) | add <id>... | remove <id>...")
+    s.add_argument("what", nargs="*", metavar="ACTION", help="list (default) | add <id>... | remove <id>... | "
+                   "allow-public <id>... | deny-public <id>... (whether a profile piece may load in a repository "
+                   "marked public; by default none does)")
     s.add_argument("--untagged", action="store_true", help="report the pieces with no project (read-only)")
     s.add_argument("--json", action="store_true", help="as JSON")
     s = sub.add_parser("privacy", help="which pieces look private, to review before marking them (read-only)")
