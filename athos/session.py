@@ -232,6 +232,7 @@ def models_in_tail(transcript_path: str | None) -> dict:
     the two came last in the file (`newest`: "reply", "switch" or None). Subagents' replies don't count."""
     out: dict = {"reply": None, "reply_at": None, "switch": None, "switch_name": None, "switch_at": None,
                  "newest": None}
+    before = ""                                  # the text of the previous user entry
     for row in _tail_rows(transcript_path):
         if row.get("isSidechain"):
             continue
@@ -242,7 +243,16 @@ def models_in_tail(transcript_path: str | None) -> dict:
                 out.update(reply=model, reply_at=row.get("timestamp"), newest="reply")
         elif kind in ("user", "system"):
             text = _text_of(row)
+            previous, before = before, (text if kind == "user" else before)
             if "Set model to" not in text:
+                continue
+            # Only the output of a local `/model` command switches: an entry that opens with it, written by
+            # Claude Code (not the person's own entry, which pasted output could look like) right after the
+            # command's own entry.
+            origin = row.get("origin") if isinstance(row.get("origin"), dict) else {}
+            local = _ANSI.sub("", text).lstrip().startswith("<local-command-stdout>")
+            if not local or origin.get("kind") in ("human", "plugin") or (
+                    kind == "user" and "<command-name>/model" not in previous):
                 continue
             m = _SWITCH.search(_ANSI.sub("", text))
             if m:

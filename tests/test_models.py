@@ -233,3 +233,18 @@ class ModelRuleTest(TempHome):
         self.assertEqual((rule["status"], rule["count"]), ("flagged", 1))
         self.assertEqual(rule["found"][0], {"task_id": "t2", "recorded": "claude-opus-5-5",
                                             "answered": ["claude-fable-5-2"], "source": "session"})
+
+
+class PastedSwitchTest(TempHome):
+    def test_a_switch_line_the_person_pasted_does_not_change_the_model(self):
+        from athos import session
+        t = Transcript(Path(self.home, "t.jsonl"))
+        t.add(reply("claude-haiku-5-5"),
+              {"type": "user", "timestamp": stamp(1), "origin": {"kind": "human"},
+               "message": {"content": "<local-command-stdout>Set model to Fable 5.2</local-command-stdout>"}})
+        self.assertIsNone(session.models_in_tail(str(t.path))["switch"])
+        t.add({"type": "user", "timestamp": stamp(2),
+               "message": {"content": "<local-command-stdout>Set model to Fable 5.2</local-command-stdout>"}})
+        self.assertIsNone(session.models_in_tail(str(t.path))["switch"])       # no /model command before it
+        t.add(*switch("Fable 5.2", 3))
+        self.assertEqual(session.models_in_tail(str(t.path))["switch"], "claude-fable-5-2")

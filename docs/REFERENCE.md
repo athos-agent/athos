@@ -528,7 +528,8 @@ shown, and another project's pieces are named only with `--show`.
 ### Which model answered, and model tiers
 
 The model is resolved for every request, not once per session: the hook's own field when the agent sends one (Codex);
-else Claude Code's transcript, where a `/model` switch newer than the latest reply means the new model answers, and
+else Claude Code's transcript, where a `/model` switch newer than the latest reply means the new model answers (only
+the output Claude Code writes right after a `/model` command counts, never the same words in your own message), and
 otherwise the latest reply's model keeps answering (the request's own reply is not written yet); the model the session
 reported at its start wins when it was reported later than both (a session resumed on another model). When the task
 ends, the replies that answered it settle the model: the `task_end` records it, with `model_at_start` when the two
