@@ -2,7 +2,7 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from athos import connectors, load, mcp, session, store, trail
+from athos import connectors, control, load, mcp, session, store, trail
 from tests.helpers import TempHome
 
 BODY = ("## #data_out\n**When:** before opening the contract.\n**Do:** if it holds client data, run the task through "
@@ -20,7 +20,9 @@ class Ok(BaseHTTPRequestHandler):
 
 class ConnectorsTest(TempHome):
     def piece(self):
-        return store.create("Review a contract", "review a lease contract", BODY, piece_id="contract")
+        p = store.create("Review a contract", "review a lease contract", BODY, piece_id="contract")
+        control.profile_add([p.id])                                          # loads in every project
+        return p
 
     def up(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), Ok)

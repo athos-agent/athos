@@ -118,10 +118,17 @@ class RouteEventTest(HookCase):
         gamma.mkdir()
         self.hook("prompt", {"session_id": "s4", "cwd": str(gamma), "prompt": "write the weekly report for the team"})
         (r,) = events("route")
-        self.assertEqual(r["scope_reason"], "auto:project-without-pieces")
-        self.assertEqual(r["chosen"], ["write-report"])
-        self.assertIn("1 piece(s) of another project", log_text())
+        self.assertEqual(r["scope_reason"], "auto:no-own-pieces")      # only the profile, which is empty here
+        self.assertEqual((r["chosen"], r["in_scope"]), ([], 0))
+        self.assertIn("route | gamma | none · scope auto:no-own-pieces", log_text())
         self.assertNotIn("write-report", log_text())   # another project's piece is never named in log.md
+        # Naming the other project brings its piece, which log.md counts without naming.
+        self.hook("prompt", {"session_id": "s4", "cwd": str(gamma),
+                             "prompt": "write the weekly report for the team, as in beta"})
+        r = events("route")[-1]
+        self.assertEqual((r["scope_reason"], r["chosen"]), ("auto:no-own-pieces+named", ["write-report"]))
+        self.assertIn("1 piece(s) of another project", log_text())
+        self.assertNotIn("write-report", log_text())
 
     def test_a_swallowed_exception_is_recorded_without_its_message(self):
         with mock.patch.object(load, "on_prompt", side_effect=KeyError(SECRET)):
@@ -166,15 +173,16 @@ class RouteEventTest(HookCase):
 class EditSeenTest(TempHome):
     """The edit detector's decisions, through the real hooks in a child process."""
 
-    def run_athos(self, *args, stdin=""):
+    def run_athos(self, *args, stdin="", cwd=None):
         return subprocess.run([sys.executable, ATHOS, *args], input=stdin, capture_output=True, text=True,
-                              cwd=self.home, env={**os.environ, "CLAUDE_CODE_ENTRYPOINT": "sdk-cli"})
+                              cwd=cwd or self.home, env={**os.environ, "CLAUDE_CODE_ENTRYPOINT": "sdk-cli"})
 
     def test_a_snapshot_and_an_attribution_each_leave_an_edit_seen_without_file_names(self):
         work = Path(self.home) / "work"
         work.mkdir()
         self.run_athos("save", stdin="---\ntitle: Review a services contract\nwhen: review a services contract\n"
-                                     "---\n## #penalties\n**When:** reading.\n**Do:** list each penalty.\n")
+                                     "---\n## #penalties\n**When:** reading.\n**Do:** list each penalty.\n",
+                       cwd=str(work))              # saved in this project, so it belongs to it
         e = {"session_id": "s1", "cwd": str(work)}
         self.run_athos("hook", "prompt", stdin=json.dumps({**e, "prompt": "review a services contract"}))
         f = work / "secret-client-report.md"
@@ -268,6 +276,13 @@ class RulesTest(TempHome):
         self.assertEqual((r["status"], r["count"]), ("flagged", 1))
         r = self.rule([start("t1"), routed("t1", chosen=["a1"])], "load_without_own_pieces")
         self.assertEqual(r["status"], "clean")
+        # Since 0.1.111 such a project sees the profile: a profile piece is fine, an unnamed other project's isn't.
+        r = self.rule([start("t1"), routed("t1", chosen=["g1"], reason="auto:no-own-pieces")],
+                      "load_without_own_pieces")
+        self.assertEqual(r["status"], "clean")
+        r = self.rule([start("t1"), routed("t1", chosen=["b1"], named=["beta"], reason="auto:no-own-pieces+named")],
+                      "load_without_own_pieces")
+        self.assertEqual(r["status"], "clean")
 
     def test_edit_without_basis(self):
         seen = {"type": "edit_seen", "session_id": "s", "task_id": "t1", "attributed_to": "person", "basis": [],
@@ -339,9 +354,18 @@ class RulesTest(TempHome):
         r = self.rule([start("t1")], "weak_evidence_learning")
         self.assertEqual(r["status"], "not_evaluated")
 
-    def test_private_piece_named_is_said_to_be_unchecked(self):
+    def test_private_piece_named(self):
         r = self.rule([start("t1")], "private_piece_named")
-        self.assertEqual(r["status"], "not_evaluated")
+        self.assertEqual(r["status"], "clean")                 # no private piece in the store
+        p = store.get("b1")
+        p.visibility = "private"
+        store._write(p)
+        r = self.rule([start("t1"), routed("t1", chosen=["a1"])], "private_piece_named")
+        self.assertEqual(r["status"], "clean")
+        r = self.rule([start("t1"), {**routed("t1"), "candidates": [{"piece": "b1", "score": 3.0}]}],
+                      "private_piece_named")
+        self.assertEqual((r["status"], r["count"]), ("flagged", 1))
+        self.assertNotIn("b1", json.dumps(r))                  # counted, never named
 
     def test_picking_sessions_and_the_command(self):
         write_events([start("t1", sid="s-one"), start("t2", sid="s-two", project="beta"),

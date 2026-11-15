@@ -143,8 +143,19 @@ def _other_project_load(c: _Ctx) -> dict:
 
 def _load_without_own_pieces(c: _Ctx) -> dict:
     if c.routes and all(r.get("scope_reason") for r in c.routes):
-        found = [{"task_id": r.get("task_id"), "loaded": len(r.get("chosen") or [])} for r in c.routes
-                 if r.get("scope_reason") == "auto:project-without-pieces" and r.get("chosen")]
+        # Before 0.1.111 such a project saw every piece (`auto:project-without-pieces`): any load there is flagged.
+        # Since then it sees only the profile (`auto:no-own-pieces`), and another project's pieces when the request
+        # names that project: a load of another project's piece the request didn't name is still flagged.
+        found = []
+        for r in c.routes:
+            reason, chosen = r.get("scope_reason") or "", r.get("chosen") or []
+            if reason == "auto:project-without-pieces" and chosen:
+                found.append({"task_id": r.get("task_id"), "loaded": len(chosen)})
+            elif reason.startswith("auto:no-own-pieces"):
+                named = set(r.get("named_projects") or [])
+                odd = [pid for pid in chosen if c.foreign(pid) and not named & set(c.byid[pid].projects)]
+                if odd:
+                    found.append({"task_id": r.get("task_id"), "loaded": len(odd)})
         return _result("load_without_own_pieces", _status(found, False), found, "route events (scope_reason)")
     if not c.project:
         return _result("load_without_own_pieces", "not_evaluated", [], "no project recorded for the session")
@@ -233,7 +244,7 @@ def _injected_over_cap(c: _Ctx) -> dict:
                   "cap": (r.get("thresholds") or {}).get("inject_cap", load.INJECT_CAP)} for r in c.routes
                  if (r.get("injected_chars") or 0) > (r.get("thresholds") or {}).get("inject_cap", load.INJECT_CAP)]
         return _result("injected_over_cap", _status(found, False), found,
-                       "route events (the best page is exempt from the cap by design, so a large page shows here)")
+                       "route events (since 0.1.111 a page that doesn't fit is cut, and the cut is recorded)")
     found = []
     for e in c.ends:
         pieces = [c.byid[p] for p in e.get("pieces") or [] if p in c.byid]
@@ -275,8 +286,39 @@ def _version_mismatch(c: _Ctx, versions: dict | None) -> dict:
 
 
 def _private_piece_named(c: _Ctx) -> dict:
-    return _result("private_piece_named", "not_evaluated", [],
-                   "pieces have no visibility field yet, and Athos does not see the agent's replies")
+    """A private piece (today's `visibility`) loaded, ranked or named for a session outside its projects: in the
+    route events, or in this project's log.md lines. Athos does not see the agent's replies, so a clean result covers
+    only what Athos itself wrote."""
+    private = {pid: p for pid, p in c.byid.items() if store.private(p)}
+    if not private:
+        return _result("private_piece_named", "clean", [], "no piece is private in today's store")
+    outside = {pid for pid, p in private.items() if not (c.project and c.project in p.projects)}
+    found = []
+    for r in c.routes:
+        ids = set(r.get("chosen") or []) | set(r.get("handed_over") or []) | {x.get("piece") for x in
+                                                                                r.get("candidates") or []}
+        hits = (ids & outside) | (ids & set(private) if r.get("public") else set())
+        if hits:
+            found.append({"task_id": r.get("task_id"), "where": "route event", "pieces": len(hits)})
+    lines = _log_lines(c.project) if c.project else []
+    named = sum(1 for line in lines if any(pid in line for pid in outside))
+    if named:
+        found.append({"where": "log.md", "lines": named})
+    return _result("private_piece_named", _status(found, not c.routes), found,
+                   "route events and this project's log.md lines, against today's visibility (the agent's replies "
+                   "are not seen)")
+
+
+def _log_lines(project: str) -> list[str]:
+    """This project's lines in log.md (and its rotated copy)."""
+    out = []
+    for f in (ev.log_file().with_name("log.1.md"), ev.log_file()):
+        try:
+            text = f.read_text(errors="ignore")
+        except OSError:
+            continue
+        out += [line for line in text.splitlines() if f"] route | {project} |" in line or f" | {project} | " in line]
+    return out
 
 
 def _weak_evidence_learning(c: _Ctx) -> dict:

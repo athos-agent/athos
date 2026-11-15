@@ -37,7 +37,7 @@ class Fake:
 class WithPiece(TempHome):
     def setUp(self):
         super().setUp()
-        self.piece, _ = capture.save_text(PIECE, "setup")
+        self.piece, _ = capture.save_text(PIECE, "setup", self.home)        # this folder's piece
 
     def task(self, sid, prompt=REQUEST, answer="Clause 3 is fine.", transcript=None):
         ev.task_start({"session_id": sid, "prompt": prompt, "cwd": self.home})

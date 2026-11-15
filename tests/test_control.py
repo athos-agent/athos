@@ -18,6 +18,7 @@ class ControlTest(TempHome):
             ("Write commit messages", "writing a commit message", "c", None),
         ):
             store.create(title, when, body, projects=projects)
+        control.profile_add([GENERAL_PAGE])                                # what applies in every project
 
     def folder(self, name: str) -> str:
         path = Path(self.home) / name
@@ -42,7 +43,13 @@ class ControlTest(TempHome):
         self.assertNotIn("Release site", load.on_prompt({"session_id": "s", "cwd": athos,
                                                           "prompt": "release a new version"}))
 
-    def test_a_folder_no_piece_belongs_to_sees_every_piece(self):
+    def test_a_folder_no_piece_belongs_to_sees_only_the_profile(self):
+        self.assertEqual(self.loaded(self.folder("elsewhere")), [GENERAL_PAGE])
+        self.assertEqual(control.select(store.all_pieces(), self.folder("elsewhere"))[1]["reason"],
+                         "auto:no-own-pieces")
+        # Naming a project from there still lets its pages through, and `athos load all` brings everything back.
+        self.assertEqual(self.loaded(self.folder("elsewhere"), "release the site"), [SITE_PAGE, GENERAL_PAGE])
+        self.choose("all")
         self.assertEqual(len(self.loaded(self.folder("elsewhere"))), 3)
 
     def test_project_mode_keeps_that_project_and_the_general_pages(self):
@@ -83,16 +90,14 @@ class ControlTest(TempHome):
         self.assertEqual(control.describe({"mode": "pieces", "pieces": ["a", "b"]}), "pieces a, b")
         self.assertEqual(control.describe({"mode": "all"}), "all")
 
-    def test_the_session_index_lists_other_projects_in_one_line_each(self):
+    def test_the_session_index_only_counts_other_projects(self):
         athos = self.folder("athos")
         text = load.on_session_start({"session_id": "s", "cwd": athos})
         self.assertIn("`release-athos`", text)
         self.assertNotIn("`release-site`", text)                       # its page doesn't mix in
-        self.assertIn("- site (1 way of working): e.g. «Release site»", text)
-        (Path(self.home) / "projects").mkdir()
-        (Path(self.home) / "projects" / "site.md").write_text("# site\nThe marketing site: releases and copy.\n")
-        self.assertIn("- site (1 way of working): The marketing site: releases and copy.",
-                      load.on_session_start({"session_id": "s", "cwd": athos}))
+        self.assertIn("- 1 way of working in 1 other project", text)       # counted, never named
+        self.assertNotIn("Release site", text)
+        self.assertNotIn("site (", text)
 
     def test_harness_messages_are_not_requests(self):
         self.assertEqual(load.relevant("<agent-message from=\"x\"> release athos", load.enabled()), [])

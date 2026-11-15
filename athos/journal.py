@@ -60,7 +60,8 @@ def text(project: str) -> str:
     ts = tasks_of(project)
     if not ts:
         return ""
-    titles = {p.id: p.title for p in store.all_pieces() if not p.projects or project in p.projects}
+    titles = {p.id: p.title for p in store.all_pieces() if (not p.projects and not store.private(p))
+              or project in p.projects}
     lines = [f"Recently in {project} (newest first):"] + [_line(t, titles) for t in ts[:RECENT]]
     cutoff = time.strftime("%Y-%m-%d", time.gmtime(time.time() - OPEN_DAYS * 86400))
     open_ = [t for t in ts if t.get("result") in ("corrected", "failed") and (t.get("started") or "") >= cutoff]

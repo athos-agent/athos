@@ -175,7 +175,7 @@ def note_prompt(session_id: str, prompt: str) -> bool:
         return False
     state["await_correction"] = None
     session.save(session_id, state)
-    text = (prompt or "").strip()
+    text = "" if state.get("public") else (prompt or "").strip()   # a public repository keeps no request text
     if not text:
         return False
     for f in root().glob(f"*/{_safe(tid)}.json"):

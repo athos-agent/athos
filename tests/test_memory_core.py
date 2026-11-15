@@ -123,7 +123,9 @@ class HooksTest(TempHome):
         ev = {"session_id": "h1", "cwd": self.home}
         self.hook("session-start", ev)
         ctx = self.hook("prompt", {**ev, "prompt": "cut a release of the package"})["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("--did", ctx)
+        self.assertIn("cut-a-release", ctx)
+        self.assertNotIn("athos step", ctx)              # the model is not asked to report steps any more
+        # A model that still reports them (Desktop's athos_step, an older session) keeps the trail working.
         self.run_athos("step", "cut-a-release#bump")
         self.run_athos("step", "cut-a-release#tag", "--did", "bumped to 0.3.0")
         # A sandboxed agent's command, read from the tool hook.

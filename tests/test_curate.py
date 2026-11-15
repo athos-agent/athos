@@ -111,7 +111,7 @@ class CurateTest(TempHome):
         self.assertTrue(rule[0]["request"].startswith("Athos · adjust lease: add a step with what not to do"))
 
     def test_a_page_that_keeps_going_wrong_is_flagged_for_review(self):
-        store.create("Release a package", "release a package", BODY, piece_id="release")
+        store.create("Release a package", "release a package", BODY, projects=["shop"], piece_id="release")
         for i in range(3):
             self.task(f"b{i}", "release a package now", self.shop)
             ev.mark("c", session_id=f"b{i}")

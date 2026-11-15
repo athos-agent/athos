@@ -141,7 +141,7 @@ will be published, and the gallery's form opens in your browser, filled in; you 
 Waits are hidden, not sped up.*
 
 **One memory per project.** As the ways of working grow, each project keeps its own: a session loads its project's
-ways of working and the general ones (another project's only when you name it), starts with what happened lately in
+ways of working and your profile, the few that apply everywhere (another project's only when you name it), starts with what happened lately in
 that project, and **curating** proposes, for your yes, what to tidy: pages used in a project they aren't tagged with,
 a «don't» rule from the corrections you made, pages that keep going wrong or nobody uses.
 

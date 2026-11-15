@@ -41,6 +41,9 @@ Everyday commands (`athos <command> --help` has the details of each):
     athos bench route [--router lexical,hybrid] [--scale 300] [--from-store]   how well the router picks the know-how
     athos bench route --replay FILE [--show]   a session's requests again, through the scope the hooks apply
     athos audit [--session ID | --project P | --last N] [--json]   what Athos decided in a session, and what it got wrong
+    athos profile [add|remove <id>...] [--untagged]   the few pieces that load in every project; --untagged lists the
+                                       pieces with no project (read-only)
+    athos privacy [--json]             which pieces look private, for you to review (read-only)
     athos embed [on|off] [--model M]   also load know-how by meaning (local embeddings, Ollama); off by default
     athos test <id> [--backend meta]   re-check a piece against the corrections you made on it before
     athos shadow [--limit N] | on|off  compare a cheaper model with the answers you approved (Ollama by default)
@@ -175,19 +178,33 @@ def _quietly(fn, *args):
         return None
 
 
-def _trigger(event: dict, which: str) -> None:
-    """The `trigger` audit event: a special request path fired (save, adjust, gallery, share), and whether the text
-    read as the person's own or as the harness's (a subagent's report, a notification). Nothing is decided on it."""
+def _trigger(event: dict, which: str) -> bool:
+    """The `trigger` audit event: a special request path matched (save, adjust, gallery, share), whether the text
+    read as the person's own or as the harness's (a subagent's report, a notification), and whether it acted. It acts
+    only on the person's own text: a subagent's report once fired the gallery's share path (2026-11-14). Returns
+    whether to act."""
     prompt = event.get("prompt", "") or ""
     person, wrapper = load.origin_of(prompt)
+    acted = person is True
     sid = event.get("session_id")
     project = session.load(sid).get("project") if sid else None
     if not project and event.get("cwd"):
         project = paths.project_of(event["cwd"])
     said = {True: "the person's text", False: f"harness text <{wrapper}>", None: f"unclear, opens with <{wrapper}>"}
+    printed = ev.request_print(prompt)
+    if paths.is_public(event.get("cwd")):
+        printed.pop("request_sha")
     ev.audit({"type": "trigger", "session_id": sid, "task_id": session.load(sid).get("task_id") if sid else None,
-              "trigger": which, "from_person": person, "wrapper": wrapper, "project": project,
-              **ev.request_print(prompt)}, line=f"{which} · {said[person]}", project=project)
+              "trigger": which, "from_person": person, "acted": acted, "wrapper": wrapper, "project": project,
+              **printed}, line=f"{which} · {said[person]}" + ("" if acted else " · ignored"), project=project)
+    return acted
+
+
+def _act_on(event: dict, which: str) -> bool:
+    """Whether a special path that matched may act: only on the person's own text. The audit event is written
+    either way; if writing it fails, the path still acts only on the person's text."""
+    acted = _quietly(_trigger, event, which)
+    return acted if acted is not None else load.from_person(event.get("prompt", "") or "")
 
 
 def _add_context(hook_event: str, text: str) -> None:
@@ -216,27 +233,24 @@ def _on_prompt(event: dict, platform: str) -> None:
     """The person sent a request. A button's request is answered on its own; any other one starts a task, and the
     pieces it calls for (plus a rule learned from the person's hand edits) go in as context."""
     prompt, sid = event.get("prompt", ""), event.get("session_id")
-    if capture.is_save_prompt(prompt):
+    if capture.is_save_prompt(prompt) and _act_on(event, "save"):
         # The person pressed [Save]: the save belongs to the task that just ended, so no new task starts
         # and nothing loads; the offer is spent.
-        _quietly(_trigger, event, "save")
         if sid:
             session.update(sid, offer=None)
         _add_context("UserPromptSubmit", capture.SAVE_CONTEXT.format(cmd=_cmd()))
         return
     from athos import gallery, share
-    if ref := gallery.requested(prompt):
+    if (ref := gallery.requested(prompt)) and _act_on(event, "gallery"):
         # The person pasted [Use in Athos] from the gallery: the agent adds it, in sight, with one command.
-        _quietly(_trigger, event, "gallery")
         _add_context("UserPromptSubmit", (
             f"The person asked to add {ref!r} from Athos's gallery: run `{_cmd()} add {shlex.quote(ref)}` "
             "now (it downloads only from the athos-agent/athos repository and never overwrites a page they "
             "have), then tell them in one short line, in their language, what was added."))
         return
-    if capture.is_adjust_prompt(prompt):
+    if capture.is_adjust_prompt(prompt) and _act_on(event, "adjust"):
         # The person pressed [Adjust] on a step of the pane and wrote the change: it improves that piece.
         # [Keep this rule] is an adjust too: the edit it names is kept, and its button goes away.
-        _quietly(_trigger, event, "adjust")
         if sid:
             _quietly(edits.kept, sid, prompt)
         _add_context("UserPromptSubmit", capture.ADJUST_CONTEXT.format(cmd=_cmd()))
@@ -254,10 +268,9 @@ def _on_prompt(event: dict, platform: str) -> None:
         # The person's hand edits of files the agent wrote: a rule of their way of working, offered once.
         learned = edits.on_prompt(event, _cmd())
         context = (context + "\n" + learned) if context and learned else (context or learned)
-    if share.asked(prompt):
+    if share.asked(prompt) and _act_on(event, "share"):
         # The person asked to share a way of working with the gallery: a draft, anonymised by the agent in sight,
         # sent through the gallery's form, filled in, on their yes.
-        _quietly(_trigger, event, "share")
         sharing = share.SHARE_CONTEXT.format(cmd=_cmd(since=share.SINCE))
         context = (sharing + "\n\n" + context) if context else sharing
     # A rating the person gave in the panel since the last request: a plain fact, with what it means said openly.
@@ -548,9 +561,15 @@ def _export_skills(args: argparse.Namespace) -> int | None:
     """Each piece as an agent skill. Muse Code reads the same ~/.agents/skills folder Codex does."""
     from athos.adapters import codex
     target = codex.skills_dir() if not args.dir else Path(args.dir).expanduser()
-    count, stale = codex.export_skills(target)
+    # ~/.agents/skills is read in every project: only the profile goes there (a folder the person names gets all).
+    pieces = None if args.dir else control.profile_pieces()
+    count, stale = codex.export_skills(target, pieces)
     who = "Codex and Muse Code" if args.muse else "Codex"
     print(f"exported {count} piece(s) as skills for {who} to {target}" + (f" (removed {stale} stale)" if stale else ""))
+    if pieces is not None:
+        held = len(store.all_pieces()) - count
+        print(f"{held} other piece(s) stay out of it: that folder is read in every project, so it gets only your "
+              f"profile (`{_cmd()} profile`). `{_cmd()} project sync` gives a project its own pieces.")
 
 
 def _export_folder(folder: str | None) -> int | None:
@@ -1091,6 +1110,43 @@ def cmd_audit(args) -> int:
     return 0
 
 
+def cmd_profile(args) -> int | None:
+    """The pieces that apply in every project: list them, add or remove some, or (--untagged) report the pieces with
+    no project, read-only."""
+    from athos import privacy
+    if args.untagged:
+        r = privacy.untagged()
+        print(json.dumps(r, indent=1, ensure_ascii=False) if args.json else privacy.render_untagged(r, _cmd()))
+        return 0
+    action, ids = (args.what[0], args.what[1:]) if args.what else ("list", [])
+    try:
+        if action == "add":
+            if not ids:
+                return _fail("name at least one piece")
+            control.profile_add(ids)
+        elif action == "remove":
+            control.profile_remove(ids)
+        elif action != "list":
+            return _fail(f"unknown action {action!r}: list, add <id>... or remove <id>...")
+    except ValueError as refused:
+        return _fail(refused)
+    ids = control.profile_ids()
+    if args.json:
+        print(json.dumps({"profile": ids, "max": control.PROFILE_MAX}))
+        return 0
+    print(f"profile: {len(ids)} of at most {control.PROFILE_MAX} pieces, loaded in every project"
+          + (": " + ", ".join(ids) if ids else f" (none yet; `{_cmd()} profile add <id>`)"))
+    return 0
+
+
+def cmd_privacy(args) -> int:
+    """Which pieces look private, for the person to review; read-only."""
+    from athos import privacy
+    r = privacy.propose()
+    print(json.dumps(r, indent=1, ensure_ascii=False) if args.json else privacy.render_proposal(r, _cmd()))
+    return 0
+
+
 def cmd_gallery(args) -> int:
     from athos import gallery
     for f in gallery.build(Path(args.out) if args.out else None):
@@ -1585,6 +1641,12 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--last", type=int, help="the last N sessions (with --project, that project's last N)")
     s.add_argument("--show", action="store_true", help="name other projects' pieces too (never requests)")
     s.add_argument("--json", action="store_true", help="the summary and every rule's result as JSON")
+    s = sub.add_parser("profile", help="the few pieces that load in every project: list, add or remove them")
+    s.add_argument("what", nargs="*", metavar="ACTION", help="list (default) | add <id>... | remove <id>...")
+    s.add_argument("--untagged", action="store_true", help="report the pieces with no project (read-only)")
+    s.add_argument("--json", action="store_true", help="as JSON")
+    s = sub.add_parser("privacy", help="which pieces look private, to review before marking them (read-only)")
+    s.add_argument("--json", action="store_true", help="counts and ids as JSON")
     s = sub.add_parser("gallery", help="build the gallery's gallery.json and index.html")
     s.add_argument("action", choices=["build"])
     s.add_argument("--out", help="the folder to write to (default: the gallery folder)")
@@ -1612,7 +1674,7 @@ _HANDLERS = {
     "report": cmd_report, "bench": cmd_bench, "embed": cmd_embed, "wiki": cmd_wiki, "mcp": cmd_mcp,
     "watch": cmd_watch, "connector": cmd_connector, "desktop": cmd_desktop, "step": cmd_step, "test": cmd_test,
     "shadow": cmd_shadow, "status": cmd_status, "doctor": cmd_doctor, "gallery": cmd_gallery, "add": cmd_add, "share": cmd_share,
-    "hook": cmd_hook, "audit": cmd_audit,
+    "hook": cmd_hook, "audit": cmd_audit, "profile": cmd_profile, "privacy": cmd_privacy,
 }
 
 

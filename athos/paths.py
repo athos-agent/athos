@@ -69,11 +69,64 @@ def _git_toplevel(folder: Path) -> str:
     return done.stdout.strip()
 
 
+MARKER = ".athos.toml"
+
+
+def profile_file() -> Path:
+    """The ids of the pieces that apply in every project (`athos profile`)."""
+    return _under_home("profile.json")
+
+
+def _root(folder: Path) -> Path:
+    """The repository a folder is part of (its git top folder), or the folder itself outside any repository."""
+    top = _git_toplevel(folder)
+    return Path(top) if top else folder
+
+
+def _read_marker(root: Path) -> dict:
+    """`.athos.toml` at a repository's root, as written: `name = "<project>"` and `public = true|false`. Anything
+    missing, unreadable or of the wrong type is left out, so a broken marker never stops a hook."""
+    import tomllib
+    try:
+        data = tomllib.loads((root / MARKER).read_text())
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return {}
+    out: dict = {"file": str(root / MARKER)}
+    name = data.get("name")
+    if isinstance(name, str) and name.strip():
+        out["name"] = name.strip()
+    if isinstance(data.get("public"), bool):
+        out["public"] = data["public"]
+    return out
+
+
+def marker(cwd: str | Path | None = None) -> dict:
+    """The project marker of the repository a folder is part of: `{"file", "name"?, "public"?}`, or {} when there is
+    none. It gives the project a stable name (a clone in a folder of another name is still the same project) and
+    says whether the repository is public: then no private piece loads or is named there, and nothing taken from a
+    request is stored."""
+    folder = Path(cwd) if cwd else Path(os.getcwd())
+    return _read_marker(_root(folder))
+
+
+def locate(cwd: str | Path) -> tuple[str, dict]:
+    """`project_of` and `marker` together, with one look for the repository."""
+    root = _root(Path(cwd))
+    mark = _read_marker(root)
+    return mark.get("name") or root.name, mark
+
+
+def is_public(cwd: str | Path | None) -> bool:
+    """Whether a folder belongs to a repository whose marker says `public = true`. No folder: False."""
+    return bool(cwd) and marker(cwd).get("public") is True
+
+
 def project_of(cwd: str | Path | None = None) -> str:
     """Name used for the project a folder is part of.
 
-    Inside a git work tree that is the name of the repository's top folder; anywhere else, the folder's own name.
-    With no argument the folder the process runs in is used."""
+    The `name` of the repository's `.athos.toml` when it has one; else, inside a git work tree, the name of the
+    repository's top folder; anywhere else, the folder's own name. With no argument the folder the process runs in
+    is used."""
     folder = Path(cwd) if cwd else Path(os.getcwd())
-    top = _git_toplevel(folder)
-    return Path(top).name if top else folder.name
+    root = _root(folder)
+    return _read_marker(root).get("name") or root.name

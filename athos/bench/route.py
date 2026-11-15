@@ -265,7 +265,8 @@ def from_store(meaning=None, scoped: bool = False) -> dict:
     pieces = load.enabled()
     have = {p.id for p in pieces}
     out = {"tasks": 0, "hit1": 0, "any": 0, "missed": 0, "extra": 0, "none_tasks": 0, "none_loads": 0, "ms": [],
-           "other_project": 0, "all_tasks": 0}
+           "other_project": 0, "other_project_unnamed": 0, "all_tasks": 0, "no_own_tasks": 0,
+           "no_own_other_project": 0}
     known = {q for p in pieces for q in p.projects}
     byid = {p.id: p for p in pieces}
     for t in ev.tasks():
@@ -277,11 +278,18 @@ def from_store(meaning=None, scoped: bool = False) -> dict:
         ids = [p.id for p in load.relevant(t["request"], pool, meaning=meaning)]
         out["ms"].append((time.perf_counter() - t0) * 1000)
         # A page of another project loaded for this task: the mixing per-project memory is for. The tasks' recorded
-        # pieces count every page that loaded, misloads included, so hit@1 above can't judge it on its own.
+        # pieces count every page that loaded, misloads included, so hit@1 above can't judge it on its own. Every
+        # task counts, also those of a project with no pieces of its own (until 0.1.110 they were skipped, which hid
+        # the loads such a project got from every other one).
         here = t.get("project") or ""
         out["all_tasks"] += 1
-        out["other_project"] += here in known and any(byid[i].projects and here not in byid[i].projects
-                                                      for i in ids)
+        foreign = [byid[i] for i in ids if byid[i].projects and here not in byid[i].projects]
+        unnamed = [p for p in foreign if not any(control._named(q, t["request"]) for q in p.projects)]
+        out["other_project"] += bool(foreign)
+        out["other_project_unnamed"] += bool(unnamed)
+        if here not in known:
+            out["no_own_tasks"] += 1
+            out["no_own_other_project"] += bool(foreign)
         if not expect:                           # done well with nothing loaded: does the router load something now?
             out["none_tasks"] += 1
             out["none_loads"] += bool(ids)
@@ -320,7 +328,7 @@ def replay(case: dict, meaning=False, show: bool = False) -> dict:
     project = case.get("project") or None
     cwd = case.get("cwd") or None
     byid = {p.id: p for p in everything}
-    out = {"prompts": 0, "loaded": 0, "other_project": 0, "general": 0, "as_expected": 0, "injected_max": 0,
+    out = {"prompts": 0, "loaded": 0, "other_project": 0, "general": 0, "as_expected": 0, "cut": 0, "injected_max": 0,
            "injected_mean": 0.0, "pieces": len(everything), "project": project, "scope": {}, "ms": [], "rows": []}
     sizes = []
     for n, c in enumerate(case["cases"], 1):
@@ -331,7 +339,9 @@ def replay(case: dict, meaning=False, show: bool = False) -> dict:
         out["ms"].append((time.perf_counter() - t0) * 1000)
         here = why.get("project")
         ids = [p.id for p in found]
-        size = len(load.inject_text(found)) if found else 0
+        body, cut, left = load.fit(found)
+        size = len(body)
+        out["cut"] += bool(cut)
         sizes.append(size)
         out["prompts"] += 1
         out["scope"][why["reason"]] = out["scope"].get(why["reason"], 0) + 1
@@ -358,8 +368,8 @@ def render_replay(r: dict) -> str:
              f"{r['prompts']} requests",
              f"  something loaded for {r['loaded']} · a piece of another project for {r['other_project']} · "
              f"a general piece for {r['general']} · as expected {r['as_expected']}/{r['prompts']}",
-             f"  characters added: max {r['injected_max']}, mean {r['injected_mean']:.0f} · {r['ms_mean']:.1f} ms "
-             f"per request",
+             f"  characters added: max {r['injected_max']}, mean {r['injected_mean']:.0f} (a page cut to fit for "
+             f"{r['cut']}) · {r['ms_mean']:.1f} ms per request",
              f"  scope: {scope}",
              "  Read-only: no request is printed or written."]
     for row in r.get("rows", []):
@@ -391,5 +401,8 @@ def render_store(r: dict) -> str:
             f"  hit@1 {_pct(r['hit1'], r['tasks'])} · any of its pieces {_pct(r['any'], r['tasks'])} · "
             f"nothing loaded {r['missed']} · loaded one it didn't use {r['extra']}\n"
             f"  {r['none_tasks']} good tasks used no piece; the router loads one for {r['none_loads']} of them.\n"
-            f"  a page of another project loaded for {r['other_project']} of {r['all_tasks']} tasks.\n"
+            f"  a page of another project loaded for {r['other_project']} of {r['all_tasks']} tasks "
+            f"({r['other_project_unnamed']} without the request naming that project); "
+            f"{r['no_own_other_project']} of them among the {r['no_own_tasks']} tasks of projects with no pieces of "
+            f"their own.\n"
             f"  {r['ms_mean']:.1f} ms per request. Read-only: no request is printed or written.")

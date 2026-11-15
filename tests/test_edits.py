@@ -43,7 +43,7 @@ class EditsTest(TempHome):
         self.work = Path(self.home) / "work"
         self.work.mkdir()
         self.ev = {"session_id": "s1", "cwd": str(self.work)}
-        self.run_athos("save", stdin=PIECE)
+        self.run_athos("save", stdin=PIECE, cwd=str(self.work))       # saved in this project, so it belongs to it
 
     def agent_writes(self, name="report.md", text=REPORT, tool="Write", **tin):
         f = self.work / name

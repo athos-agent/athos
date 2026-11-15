@@ -152,6 +152,10 @@ def install(language: str, profile: str) -> tuple[list[store.Piece], list[str]]:
         added.append(store.create(meta["title"], meta["when"], body.strip() + "\n",
                                   origin={"platform": "athos", "model": "starter"}, piece_id=meta["id"]))
     if added:
+        # A profession's starters are how the person works anywhere: they join the profile, which is what loads in
+        # every project (control.py); an untagged piece outside it loads only where no folder is known.
+        from athos import control
+        control.profile_add([p.id for p in added], cap=False)
         from athos import wiki
         try:
             wiki.rebuild()

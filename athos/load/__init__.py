@@ -17,7 +17,7 @@ from athos import control, eval as ev, paths, session, store
 
 # Size budgets, in characters.
 INDEX_CAP = 4000         # the session-start catalogue
-INJECT_CAP = 8000        # the pages added to one request (the best page is exempt: it always comes whole)
+INJECT_CAP = 8000        # everything added to one request; a page that does not fit is cut, and the cut is recorded
 
 # Lexical ranking.
 TOP_K = 2                # at most this many pages are picked by score
@@ -25,6 +25,12 @@ RUNNER_UP = 0.5      # a second piece loads only with at least half the best pie
 MIN_SCORE = 1.2          # below this a page is not worth adding
 STEM = 5                 # tokens are cut to this length, so "release", "releases" and "releasing" all meet
 ONE_WORD_DF = 1        # one shared word is enough only if no other piece's title has it
+# The margin (set with `athos bench route`, the per-project from-store run and a private replay of one session whose
+# requests all needed nothing): a score alone grows with the request's length, so a long pasted text shares words with
+# almost any page. A page also needs this share of its head's words (title and "when") in the request...
+HEAD_SHARE_MIN = 0.05
+# ...and its head's words must be this share of the request's own words, so a request cannot win on volume.
+REQUEST_SHARE_MIN = 0.07
 # The meaning (`athos embed on`, load/embed.py), set with `athos bench route`:
 SURE_SCORE = 8.0       # a lexical first piece this strong, alone at the top, needs no second opinion
 MEANING_MIN = 0.20     # a piece found by meaning alone: the closest one, this far above its closeness to any request
@@ -93,13 +99,14 @@ def _head(piece: store.Piece) -> str:
 # The harness's own messages are not the person's requests: a subagent's report loaded an unrelated page (2026-10-31).
 NOT_A_REQUEST = re.compile(r"^\s*<(task-notification|system-reminder|agent-message)[\s>]")
 
-# For the audit log only (nothing is decided on it): the wrappers the harness puts around text it sends as a prompt,
-# and the leading tag of any text that opens with one.
+# The wrappers the harness puts around text it sends as a prompt. A prompt that opens with one, or carries one early
+# on (a subagent's report that begins with a system reminder), is not the person's: it loads nothing, and the special
+# paths (save, adjust, gallery, share) never act on it.
 HARNESS_TAGS = {"task-notification", "system-reminder", "agent-message", "teammate-message", "local-command-stdout",
                 "local-command-stderr", "local-command-caveat", "command-name", "command-message", "command-args",
                 "user-prompt-submit-hook", "bash-input", "bash-stdout", "bash-stderr"}
-_LEADING_TAG = re.compile(r"^\s*<([A-Za-z][\w:-]*)[\s>/]")
-_HARNESS_INSIDE = re.compile(r"<(task-notification|system-reminder|agent-message|teammate-message)[\s>]")
+_LEADING_TAG = re.compile(r"^\s*</?([A-Za-z][\w:-]*)[\s>/]")      # a closing tag too: the tail of a cut wrapper
+_HARNESS_INSIDE = re.compile(r"</?(" + "|".join(sorted(map(re.escape, HARNESS_TAGS))) + r")[\s>/]")
 
 
 def origin_of(text: str) -> tuple[bool | None, str | None]:
@@ -114,6 +121,16 @@ def origin_of(text: str) -> tuple[bool | None, str | None]:
     if inside:
         return False, inside.group(1)
     return (None, tag) if tag else (True, None)
+
+
+def from_person(text: str) -> bool:
+    """The special paths (save, adjust, gallery, share) act only on text that reads plainly as the person's."""
+    return origin_of(text)[0] is True
+
+
+def not_a_request(text: str) -> bool:
+    """The router loads nothing for text the harness wrote (a notification, a subagent's report)."""
+    return bool(NOT_A_REQUEST.match(text or "")) or origin_of(text)[0] is False
 
 
 def enabled(cwd: str | None = None, prompt: str = "") -> list[store.Piece]:
@@ -135,16 +152,16 @@ def project_note(project: str, pieces: list[store.Piece]) -> str:
 
 
 def other_projects(here: list[store.Piece]) -> list[str]:
-    """The global memory is an index: one line per other project, so the model knows that know-how exists without
-    it mixing into this project's requests."""
+    """What the session may know of the rest of the store: how many pieces other projects hold, and in how many
+    projects, never their titles or names (another project's name or a private piece's title once reached a public
+    repository's session). Empty when there is nothing else."""
     ids = {p.id for p in here}
-    by: dict[str, list[store.Piece]] = {}
-    for p in store.all_pieces():
-        if p.id not in ids:
-            for q in p.projects:
-                by.setdefault(q, []).append(p)
-    return [f"- {q} ({len(ps)} way{'s' if len(ps) > 1 else ''} of working): {project_note(q, ps)}"
-            for q, ps in sorted(by.items(), key=lambda kv: -len(kv[1]))]
+    others = [p for p in store.all_pieces() if p.id not in ids and p.projects]
+    projects = {q for p in others for q in p.projects}
+    if not others:
+        return []
+    return [f"- {len(others)} way{'s' if len(others) != 1 else ''} of working in {len(projects)} other "
+            f"project{'s' if len(projects) != 1 else ''}"]
 
 
 def _most_recent_first(pieces: list[store.Piece]) -> list[store.Piece]:
@@ -183,8 +200,7 @@ def _index_body(pieces: list[store.Piece], cmd: str, others: list[str] | None) -
     ))
     body = _catalogue(pieces, INDEX_CAP - len(intro), cmd)
     if others:
-        body.append("\nOther projects' know-how (loaded only when a request names the project; "
-                    f"`{cmd} list` shows it):")
+        body.append("\nOther projects' know-how (loaded only when a request names the project):")
         body += others[:12]
     return intro + "\n".join(body)
 
@@ -267,7 +283,7 @@ def _rank_traced(prompt: str, pieces: list[store.Piece]) -> tuple[list[tuple[flo
     """`rank`, plus every piece that scored at all, with why it was kept or not (for the `route` audit event). The
     shared words are counted, never listed: they are the request's own words."""
     asked = set(tokens(prompt))
-    if not asked or not pieces or NOT_A_REQUEST.match(prompt):
+    if not asked or not pieces or not_a_request(prompt):
         return [], []
     pool = _Pool(pieces)
     request_words = _base_words(prompt)
@@ -279,6 +295,9 @@ def _rank_traced(prompt: str, pieces: list[store.Piece]) -> tuple[list[tuple[flo
         in_head = asked & head
         only_in_body = (asked & body) - head
         score = sum(pool.weight(t) for t in in_head) + 0.25 * sum(pool.weight(t) for t in only_in_body)
+        shared = len(request_words & pool.head_words[i])
+        head_share = shared / max(1, len(pool.head_words[i]))
+        request_share = shared / max(1, len(request_words))
         if _dismissed(request_words, pool.head_words[i], turned_down.get(piece.id, [])):
             reason = "dismissed"
         elif not in_head:
@@ -287,11 +306,16 @@ def _rank_traced(prompt: str, pieces: list[store.Piece]) -> tuple[list[tuple[flo
             reason = "below_min_score"
         elif not pool.same_words_enough(request_words, i):
             reason = "prefixes_only"
+        elif head_share < HEAD_SHARE_MIN:
+            reason = "head_share_low"
+        elif request_share < REQUEST_SHARE_MIN:
+            reason = "request_share_low"
         else:
             reason = "ranked"
             kept.append((score, piece))
         if score > 0:
-            seen.append({"piece": piece.id, "score": round(score, 2), "shared": len(request_words & pool.head_words[i]),
+            seen.append({"piece": piece.id, "score": round(score, 2), "shared": shared,
+                         "head_share": round(head_share, 3), "request_share": round(request_share, 3),
                          "projects": list(piece.projects), "kept": False, "reason": reason})
     return _by_score(kept), seen
 
@@ -345,8 +369,8 @@ CANDIDATES = 5          # the route event keeps this many candidates
 
 def thresholds() -> dict:
     """The numbers the router decided with, as the route event records them."""
-    return {"min_score": MIN_SCORE, "runner_up": RUNNER_UP, "top_k": TOP_K, "one_word_df": ONE_WORD_DF,
-            "stem": STEM, "inject_cap": INJECT_CAP}
+    return {"min_score": MIN_SCORE, "head_share_min": HEAD_SHARE_MIN, "request_share_min": REQUEST_SHARE_MIN,
+            "runner_up": RUNNER_UP, "top_k": TOP_K, "one_word_df": ONE_WORD_DF, "stem": STEM, "inject_cap": INJECT_CAP}
 
 
 def decide(prompt: str, pieces: list[store.Piece], meaning=None) -> tuple[list[store.Piece], dict]:
@@ -357,7 +381,7 @@ def decide(prompt: str, pieces: list[store.Piece], meaning=None) -> tuple[list[s
     if meaning is None:
         from athos.load import embed
         meaning = embed.scores if embed.enabled() else False
-    asked_meaning = bool(meaning and not sure(ranked) and words(prompt) and not NOT_A_REQUEST.match(prompt))
+    asked_meaning = bool(meaning and not sure(ranked) and words(prompt) and not not_a_request(prompt))
     if asked_meaning:
         before = {p.id for _, p in ranked}
         ranked = rerank(prompt, pieces, ranked, meaning(prompt, pieces) or {})
@@ -431,47 +455,68 @@ def _page_section(piece: store.Piece) -> str:
     return "\n".join((heading, f"When: {piece.when}", "", piece.body, ""))
 
 
-def inject_text(pieces: list[store.Piece], cmd: str = "athos") -> str:
-    """The text added to a request: the matching pages, then how to report steps, how to answer, and the first line.
-    Nothing at all when no page matched."""
-    preface = ("# Athos — know-how that matches this request\n\nThe user's own know-how for this kind of task. "
-               "Follow it unless the request says otherwise.\n")
-    sections = [preface, *map(_page_section, pieces), *_instructions(pieces, cmd)] if pieces else []
-    return "\n".join(sections)
+PREFACE = ("# Athos — know-how that matches this request\n\nThe user's own know-how for this kind of task. "
+           "Follow it unless the request says otherwise.\n")
+CUT_NOTE = "\n… (cut to fit; `{cmd} show {id}` prints the whole page)\n"
+
+
+def inject_text(pieces: list[store.Piece], cmd: str = "athos", cap: int | None = None) -> str:
+    """The text added to a request: the matching pages, then how hand-overs work and how to answer. Nothing at all
+    when no page matched. Never longer than `cap` (INJECT_CAP by default): see `fit`."""
+    return fit(pieces, cmd, cap)[0]
+
+
+def fit(pieces: list[store.Piece], cmd: str = "athos", cap: int | None = None) -> tuple[str, list[str], list[str]]:
+    """`inject_text`, plus the pages cut to fit and the pages left out for lack of room. The notes come first in the
+    budget; then each page whole while it fits, the first that doesn't is cut at a line (with a note on how to read
+    the rest) and any after it are left out. A 26 KB page once came whole with every request (2026-11-14)."""
+    if not pieces:
+        return "", [], []
+    cap = INJECT_CAP if cap is None else cap
+    notes = _instructions(pieces, cmd)
+    room = cap - len(PREFACE) - sum(len(n) + 1 for n in notes) - 1
+    sections: list[str] = []
+    cut: list[str] = []
+    left: list[str] = []
+    for piece in pieces:
+        section = _page_section(piece)
+        if cut or left or room <= 0:
+            left.append(piece.id)
+            continue
+        if len(section) + 1 <= room:
+            sections.append(section)
+            room -= len(section) + 1
+            continue
+        note = CUT_NOTE.format(cmd=cmd, id=piece.id)
+        keep = section[:max(0, room - len(note) - 1)]
+        keep = keep[:keep.rfind("\n")] if "\n" in keep else ""
+        if not keep.strip():
+            left.append(piece.id)
+            continue
+        sections.append(keep + note)
+        cut.append(piece.id)
+        room = 0
+    if not sections:
+        return "", cut, left
+    return "\n".join([PREFACE, *sections, *notes]), cut, left
 
 
 def _instructions(pieces: list[store.Piece], cmd: str) -> list[str]:
-    """What the model is told after the pages: how hand-overs work (when there are any), how to report each step,
-    how to answer, and what the first line of the reply says."""
-    first = pieces[0].title
+    """What the model is told after the pages: how hand-overs work (when there are any) and how to answer. Nothing
+    asks it for visible work: no opening line naming the page, no step commands (a private page's title ended up
+    written in replies, and the step reports cost turns no panel used, 2026-11-14)."""
     parts: list[str] = []
-    # The person watches the trail in Athos's pane (Claude Code) or `athos watch`: one call per step, not per action.
-    # Muse Code wrote a whole plan in one reply and reported one step (2026-10-30): a statement whose work is only part
-    # of the answer is still a step.
     # Composition: a step may hand over to another way of working, always or only in some cases (2026-10-30).
     if hand := handover(pieces, f"`{cmd} show <page>`"):
         parts.append(hand + "\n")
-    parts.append(f"**As you go**, when you start one of these statements run `{cmd} step <piece-id>#<statement_id>` "
-                 f"(once per statement, as its own command right before that statement's work, never chained with "
-                 f"other steps: the person watches them tick one by one). This holds when the work is only thinking "
-                 f"or writing part of your answer: run the step for each statement before writing that part, even if "
-                 f"the whole answer is one reply. If the task needs a step none of them has, run "
-                 f"`{cmd} step --new \"<the step, in a few words, in the person's language>\"`. Add "
-                 f"`--did \"<one short line of what you did in the step you are leaving>\"` to each step after the "
-                 f"first: the person reads it in Athos's panel and rates that step. Say nothing about it in your "
-                 f"answer.\n")
     # The person may be a lawyer or a coach, not the author of the piece's notes (2026-10-30, Claude Desktop: answers
     # narrated tools, cited "piece v7" and pasted the piece's commands until told otherwise).
     parts.append("**How to answer**: plainly, in the person's language, as a colleague who already knows how they work: "
                  "do the task or answer the question directly. Don't narrate tools or say you are reading something; "
-                 "after the first line, don't mention Athos, pieces, ids, versions, or the dates, measurements and notes "
-                 "the piece keeps for you; give commands, paths or settings only when the person must act on them. "
-                 "Take from the piece only what this request needs.\n")
-    # Last, so it is the freshest instruction: the person sees which of their know-how is applied, in every agent.
-    parts.append(f"**The first line of your reply** names the way of working you follow and how it applies to this "
-                 f"request, in the person's language, in this form: `Athos · «{first}»: <how it applies here, in a few "
-                 f"words>` (in Spanish the same, with the explanation in Spanish). If it does not fit this request, "
-                 f"say so in that line and don't follow it.\n")
+                 "don't mention Athos, pieces, ids, versions, or the dates, measurements and notes the piece keeps for "
+                 "you; give commands, paths or settings only when the person must act on them. Take from the piece "
+                 "only what this request needs, and if it doesn't fit this request, leave it aside without saying "
+                 "so.\n")
     return parts
 
 
@@ -506,18 +551,23 @@ def on_prompt(event: dict, cmd: str = "athos") -> str:
     pool, scope = control.select(everything, event.get("cwd"), prompt)
     found, trace = decide(prompt, pool)
     ms = (time.perf_counter() - started) * 1000
+    extra = ""
     if found:
-        session.update(sid, task_why={p.id: why(prompt, p) for p in found})
-    mark_loaded(sid, [piece.id for piece in found])
-    text = inject_text(found, cmd)
-    conn = note_connectors(sid, found, cmd)
-    text += "\n" + conn + "\n" if conn else ""
-    if found:                                    # a cheaper model proven on this piece: the person hears it once
-        from athos import replay
+        conn = note_connectors(sid, found, cmd)
+        extra += "\n" + conn + "\n" if conn else ""
+        from athos import replay                 # a cheaper model proven on this piece: the person hears it once
         offer = replay.offer_text([p.id for p in found], cmd)
-        text += "\n" + offer + "\n" if offer else ""
+        extra += "\n" + offer + "\n" if offer else ""
+    body, cut, left = fit(found, cmd, INJECT_CAP - len(extra))
+    shown = [p for p in found if p.id not in left]
+    if shown:
+        # In a public repository nothing taken from a request is kept, not even the words that loaded a page.
+        session.update(sid, task_why={p.id: [] if scope.get("public") else why(prompt, p) for p in shown})
+    mark_loaded(sid, [piece.id for piece in shown])
+    text = body + extra if body else ""
+    trace = {**trace, "cut": cut, "left_out": left}
     try:
-        note_route(sid, prompt, scope, trace, found, len(everything), len(pool), len(text), ms)
+        note_route(sid, prompt, scope, trace, shown, len(everything), len(pool), len(text), ms)
     except Exception as problem:  # noqa: BLE001 — the audit never costs the person the load
         ev.hook_error("prompt", "load.note_route", problem, sid)
     return text
@@ -529,10 +579,15 @@ def note_route(sid: str, prompt: str, scope: dict, trace: dict, found: list[stor
     person, wrapper = origin_of(prompt)
     project = scope.get("project")
     kind = "empty" if not prompt.strip() else "harness" if person is False else "person"
+    printed = ev.request_print(prompt)
+    if scope.get("public"):
+        printed.pop("request_sha")               # a public repository: not even a fingerprint of the request
     ev.audit({"type": "route", "session_id": sid, "task_id": session.load(sid).get("task_id"),
               "mode": scope.get("mode"), "project": project, "scope_reason": scope.get("reason"),
-              "named_projects": scope.get("named", []), "store_pieces": in_store, "in_scope": in_scope,
-              **ev.request_print(prompt), "request_kind": kind, "wrapper": wrapper, **trace,
+              "named_projects": scope.get("named", []), "marker": bool(scope.get("marker")),
+              "public": bool(scope.get("public")), "private_held": scope.get("private_held", 0),
+              "store_pieces": in_store, "in_scope": in_scope,
+              **printed, "request_kind": kind, "wrapper": wrapper, **trace,
               "thresholds": thresholds(), "injected_chars": injected, "ms": round(ms, 1)},
              line=_route_line(kind, scope, found, injected), project=project)
     if project:
@@ -547,12 +602,21 @@ def _route_line(kind: str, scope: dict, found: list[store.Piece], injected: int)
         return f"none · not the person's request ({kind}) · {reason}"
     if not found:
         return f"none · {reason}"
-    return f"loaded {loggable(found, scope.get('project'))} · {injected} chars · {reason}"
+    marker = " · public repository" if scope.get("public") else ""
+    return f"loaded {loggable(found, scope.get('project'))} · {injected} chars · {reason}{marker}"
+
+
+def nameable(piece: store.Piece, project: str | None) -> bool:
+    """Whether a line about a session in `project` may name this piece: it is this project's, or general and not
+    private. A private piece is named only in its own projects."""
+    if project and project in piece.projects:
+        return True
+    return not piece.projects and not store.private(piece)
 
 
 def loggable(pieces: list[store.Piece], project: str | None) -> str:
-    """Pieces as log.md may name them: by id when they belong to `project` or to none, else only counted."""
-    own = [p.id for p in pieces if not p.projects or (project and project in p.projects)]
+    """Pieces as log.md may name them: by id when `nameable`, else only counted."""
+    own = [p.id for p in pieces if nameable(p, project)]
     other = len(pieces) - len(own)
     parts = own + ([f"{other} piece(s) of another project"] if other else [])
     return ", ".join(parts)
@@ -596,15 +660,17 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
         recent = journal.text(project)
         if recent:
             text = (text + "\n\n" if text else "") + recent
-    # With the guide given here, the Stop hook only needs one line. On an empty store it is the whole opening: the
-    # first task drafts its steps on the trail and can be saved as the first way of working (2026-11-01: a first run
-    # opened with nothing, so the first task's trail stayed empty). "none" keeps Athos quiet.
-    first_run = not text and not store.all_pieces() and control.get()["mode"] != "none"
+    # With the guide given here, the Stop hook only needs one line. With nothing in reach it is the whole opening: an
+    # empty store, or a project with no pieces of its own (since these no longer see every other project's), whose
+    # first tasks can be saved as its first ways of working (2026-11-01: a first run opened with nothing, so the
+    # first task's trail stayed empty). "none" keeps Athos quiet.
+    first_run = not text and control.get()["mode"] != "none"
     if (text or first_run) and capture.enabled():
         text = (text + "\n\n" if text else "") + capture.guide(cmd)
         session.update(sid, guide=True)
     from athos import replay
-    offer = replay.offer_text(None, cmd)        # a cheaper model proven on a piece: told once, at the session's start
+    # A cheaper model proven on a piece in reach here: told once, at the session's start (never another project's).
+    offer = replay.offer_text(None if not event.get("cwd") else [p.id for p in here], cmd)
     if offer:
         text = (text + "\n\n" if text else "") + offer
     if text:                                    # where Athos's own decisions are written down, for an agent to audit

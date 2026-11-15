@@ -154,15 +154,53 @@ run this command, with your `MODEL_API_KEY`.
 
 ### One memory per project
 
-Each page says which projects it belongs to (`projects:` in its frontmatter; pages with none are general know-how).
-By default (`auto`), a session in a project's folder loads that project's pages and the general ones; another
-project's pages load only when the request names that project ("…like we did in heat-v2"). What a session starts
-with is an index: this project's pages, and one line per other project saying what its know-how is about (its most
-used pages, or your own words in `~/.athos/projects/<project>.md`). A folder no page belongs to, and Claude Desktop's
-chat (no folder), see every page. `athos load all` brings back one pool for everything.
+Each page says which projects it belongs to (`projects:` in its frontmatter). A page you save belongs to the project
+you saved it in. By default (`auto`), a session in a project's folder loads that project's pages and your **profile**;
+another project's pages load only when the request names that project ("…like we did in heat-v2"). A project with no
+pages of its own yet sees only the profile (until 0.1.110 it saw every page, and loaded other projects' pages on its
+first day). Claude Desktop's chat, which has no folder, still sees every page, and `athos load all` brings back one pool
+for everything (but a private page, below, stays in its projects).
+
+The profile is a short list you choose of the pages that apply everywhere, how you always work (at most 12):
+
+```
+athos profile                         the pages in it
+athos profile add <id>... | remove <id>...
+athos profile --untagged [--json]     the pages with no project, and whether each is in the profile (read-only)
+```
+
+A page with no project is not general just because it has no tag: outside the profile it loads only where no folder is
+known, or with `athos load all`. `athos start` puts the profession's example pages in the profile, and so does
+`athos add` for a page from the gallery. Only the profile goes to `~/.agents/skills`, the folder Codex and Muse Code
+read in every project (`athos export --codex` and the refresh after each save); `athos project sync` gives a project's
+own pages to the agents in that project.
+
+What a session starts with is an index: this project's pages and the profile, and of the other projects only a count
+("12 ways of working in 4 other projects"), never their names or titles.
+
+**Who may see a page.** A page's frontmatter may say `visibility: private`, `project` or `general`. Without it, a page
+with projects is `project` and one without is `general`. A private page loads only in a session of one of its own
+projects, never where the repository is marked public (below), and is never named in another project's session: not in
+its index, the audit log, `log.md` or anything the hooks add, not even when the request names its project.
+`athos privacy [--json]` lists the pages that look private (data that points at a person or an account, or a body about
+clients, patients, money or production), by id, for you to review; it changes nothing. To mark one, add the line
+`visibility: private` under `projects:`.
+
+**The project marker.** An optional `.athos.toml` at the root of a repository:
+
+```
+name = "my-app"      # the project's name, whatever the folder is called (default: the repository's folder name)
+public = true        # a public repository
+```
+
+In a public repository no private page loads or is named, and nothing taken from a request is kept: the task log keeps
+the request's length but not its first 120 characters, the audit events no fingerprint, the session no copy, and
+[Didn't apply] no words. The `route` event says when a marker applied (`marker`, `public`).
 
 Measured on one person's store (71 pages over ten projects, 252 tasks marked good; `athos bench route --from-store`):
-a page of another project loaded for 14 tasks with one pool and for none with `auto`.
+a page of another project loaded for 14 tasks with one pool and for none with `auto`. Measured again on 2026-11-15
+(91 pages, 343 tasks marked good), counting every task this time, also those of projects with no pages of their own
+that the count used to skip: 2 tasks with the 0.1.110 scope, both in such projects, and none now.
 
 ### The journal: what happened lately in this project
 
@@ -216,7 +254,13 @@ through the app-only tool `athos_library_do`.
 
 On every request Athos loads the one or two pieces whose title and "when" share the request's words (rarer words count
 more, and a word counts with its endings: publish, published, publishing; publicar, publicado; [Didn't apply]
-remembers the words that loaded a piece by mistake). `athos bench route` measures that choice
+remembers the words that loaded a piece by mistake). Since 0.1.111 a piece also needs a margin, because a score grows
+with the request's length and a long pasted text shares words with almost any page: at least 5% of the words of its
+title and "when" must be in the request (`head_share_min`), and those shared words must be at least 7% of the request's
+own words (`request_share_min`), so a request cannot win on volume. What a request adds is capped at 8000 characters:
+a page that doesn't fit is cut at a line with a note on how to read the rest (`athos show <id>`), and the route event
+records it (`cut`, `left_out`). Nothing in it asks the model for visible work: no opening line naming the page, no
+step commands; only the page and a short note on how to answer. `athos bench route` measures that choice
 before anything changes it:
 
 ```
@@ -254,6 +298,14 @@ and the ids loaded, never its text. Measured on 2026-10-31 without the sports st
 | words | en+es, 300 pages | 33/56 | 7 | 23/24 | 15 |
 | words + meaning | en+es, 300 pages | 40/56 | 11 | 21/24 | 36 |
 
+With the margin (0.1.111, measured on 2026-11-15, words only): starters en+es 34/56, 1 wrong, 24/24 none ok; 300
+pages 33/56, 6 wrong, 24/24; the cross-language runs unchanged. The two values were the largest that cost no hit on
+these cases while turning down most of the loads of one real session whose requests needed nothing (long pasted texts
+among them). On one person's own tasks (`--from-store`, per project) hit@1 went from 38 to 28 of 141: 8 of the 10
+lost were turned down by the margin (7 of them single-word matches on pages with a long "when") and 2 are pages no
+longer in reach there (one untagged page outside the profile). That bench counts as expected whatever loaded at the
+time, so it rewards the old router; requests that needed nothing and loaded something went from 20 to 13 of 202.
+
 `athos embed on` adds meaning to the words, with a local embedding model through Ollama (default `embeddinggemma`,
 `athos embed on --model <name>` for another; `ollama pull embeddinggemma` first). It is off by default, and with it
 off, or with Ollama down, loading is exactly the words-only router. When on, each piece's title, "when" and its
@@ -273,18 +325,19 @@ of it keeps a request's words: only its length and a 12-character fingerprint (`
 
 | event | written when | fields |
 |---|---|---|
-| `route` | every request the prompt hook sees, loaded or not | `task_id`, `mode`, `project`, `scope_reason`, `named_projects`, `store_pieces`, `in_scope`, `request_chars`, `request_sha`, `request_kind` (person, harness, empty), `wrapper`, `candidates` (up to 5: `piece`, `score`, `shared` (how many words it shares with the request, never which), `projects`, `kept`, `reason`), `scored`, `chosen`, `handed_over`, `meaning`, `thresholds`, `injected_chars`, `ms` |
+| `route` | every request the prompt hook sees, loaded or not | `task_id`, `mode`, `project`, `scope_reason`, `named_projects`, `marker` (a `.athos.toml` applied), `public`, `private_held` (private pieces kept out, counted), `store_pieces`, `in_scope`, `request_chars`, `request_sha` (not in a public repository), `request_kind` (person, harness, empty), `wrapper`, `candidates` (up to 5: `piece`, `score`, `shared` (how many words it shares with the request, never which), `head_share`, `request_share`, `projects`, `kept`, `reason`), `scored`, `chosen`, `handed_over`, `meaning`, `thresholds`, `cut` (pages cut to fit), `left_out` (pages with no room), `injected_chars`, `ms` |
 | `edit_seen` | the edit detector keeps a file the agent wrote, or gives a change to the person | `task_id`, `file_sha` (a hash of the path), `decision` (snapshot, attributed), `source` (agent_tool, outside), `basis` (the evidence that the person made the change), `attributed_to`, and for an attribution `detector`, `piece`, `piece_basis` (current_step, first_task_piece) |
 | `model` | a session starts, and every request | `task_id`, `model`, `source` (event, session, transcript, unknown), `seen_in_transcript` (the model of the transcript's latest reply), `tier` |
-| `trigger` | a special path fires: save, adjust, gallery, share | `task_id`, `trigger`, `from_person` (true; false for a harness wrapper such as a subagent's message; null when the text opens with another tag), `wrapper`, `project`, `request_chars`, `request_sha` |
+| `trigger` | a special path matches: save, adjust, gallery, share | `task_id`, `trigger`, `from_person` (true; false for a harness wrapper such as a subagent's message, also one that opens with another wrapper; null when the text opens with another tag), `acted` (it acts only when `from_person` is true), `wrapper`, `project`, `request_chars`, `request_sha` |
 | `hook_error` | a hook swallows an exception so your session carries on | `hook`, `where`, `error` (the exception's kind), `line` (file and line inside Athos), never its message |
 | `learn`, `grade`, `ui` | reserved for autonomous learning, a piece's grade and the panel's state | not written yet |
 
 Every one of them also carries `at`, `session_id` and `v`, the version of Athos that wrote it. `candidates.reason`
 says why a piece did or didn't load: `chosen`, `runner_up_too_weak`, `over_budget`, `beyond_top_k`, `below_min_score`,
-`prefixes_only`, `no_head_match`, `dismissed` or `meaning`; `scope_reason` is the saved mode (`all`, `project`,
-`pieces`, `none`) or, in `auto`, `auto:project`, `auto:project+named`, `auto:project-without-pieces` (a folder no page
-belongs to sees every page) or `auto:no-folder`.
+`prefixes_only`, `head_share_low`, `request_share_low`, `no_head_match`, `dismissed` or `meaning`; `scope_reason` is the
+saved mode (`all`, `project`, `pieces`, `none`) or, in `auto`, `auto:project`, `auto:project+named`,
+`auto:no-own-pieces` (a project with no pages of its own: the profile only), `auto:no-own-pieces+named` or
+`auto:no-folder`. Events written by 0.1.110 may say `auto:project-without-pieces`: such a folder then saw every page.
 
 `~/.athos/log.md` says the same in one line per operation, for a person or an agent to read with grep and tail:
 
@@ -295,8 +348,8 @@ grep '^## \[' ~/.athos/log.md | tail
 ## [2026-11-15 09:30] trigger | my-app | share · harness text <agent-message>
 ```
 
-Times are UTC. It names a piece only when the piece belongs to that project or to none (another project's are only
-counted), and it is moved to `log.1.md` once it passes 256 KB, so at most two files are kept. Each session starts with
+Times are UTC. It names a piece only when the piece belongs to that project, or to none and is not private (another
+project's are only counted), and it is moved to `log.1.md` once it passes 256 KB, so at most two files are kept. Each session starts with
 one hidden line telling the agent where the log is and that `athos audit --session <id>` summarizes it.
 
 `athos audit [--session <id> | --project <name> | --last N] [--show] [--json]` folds the log by session (by default
@@ -305,13 +358,13 @@ the session of the folder you run it in) and checks each one against these rules
 | rule | flags |
 |---|---|
 | `other_project_load` | a piece of another project loaded without the request naming that project |
-| `load_without_own_pieces` | a piece loaded in a project that has no pieces of its own |
+| `load_without_own_pieces` | a piece loaded in a project that has no pieces of its own (since 0.1.111 such a project sees the profile, so only a piece of another project it didn't name is flagged) |
 | `edit_without_basis` | an edit given to the person with no evidence that the person made it |
 | `model_inconsistent` | the model recorded for the session disagrees with itself or with Claude Code's transcript |
-| `injected_over_cap` | more characters added to one request than the router's cap (the best page is exempt by design, so a large page shows here) |
+| `injected_over_cap` | more characters added to one request than the router's cap (since 0.1.111 a page that doesn't fit is cut, so only older events show here) |
 | `trigger_not_from_person` | save, adjust, gallery or share fired on text the person didn't write |
 | `version_mismatch` | the session's events written by two versions, or Claude Code's plugin and the `athos` on your PATH differ now |
-| `private_piece_named` | a private piece named in any output (pages have no visibility yet, so it is reported as not checked) |
+| `private_piece_named` | a private piece loaded, ranked or named outside its projects, in the route events or in this project's `log.md` lines (the agent's replies are not seen) |
 | `weak_evidence_learning` | a piece learned with only the model's opinion as evidence (nothing writes `learn` yet) |
 
 Each rule says how it was judged: flagged, clean, partial (checked with older data, which is not a proof) or not
@@ -426,8 +479,9 @@ followed a checklist Athos asks once whether to save or improve a piece. `athos 
 Code and Codex. Keep Muse Code's Contributor mode off (`muse` → `/settings`) unless you want Meta to train on your
 sessions; Athos warns when a task ran with it.
 
-Without the plugin, `athos export --muse` writes your pieces as skills in `~/.agents/skills` and `athos import muse`
-records past tasks from Muse's session logs.
+Without the plugin, `athos export --muse` writes your profile as skills in `~/.agents/skills` (that folder is read in
+every project; `athos project sync` gives a project its own pieces) and `athos import muse` records past tasks from
+Muse's session logs.
 
 ### In OpenCode
 

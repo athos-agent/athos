@@ -265,17 +265,21 @@ def _tokens(platform: str, transcript_path: str | None, since: str, until: str, 
 
 
 # ================================================================================================ recording tasks
-def request_fields(text: str) -> dict:
+def request_fields(text: str, public: bool = False) -> dict:
     """What the log keeps of a request: a short head to recognise it by, and its full length. The bars compare
-    that length with the first run's, which is how much explaining the know-how saved."""
+    that length with the first run's, which is how much explaining the know-how saved. In a repository whose
+    `.athos.toml` says `public = true`, only the length: nothing taken from the request is stored."""
     cleaned = (text or "").strip()
+    if public:
+        return {"request": "", "request_chars": len(cleaned), "public": True}
     return {"request": cleaned[:120], "request_chars": len(cleaned)}
 
 
-def _start_event(task_id: TaskId, sid: str, platform: str, model: str, project, at: str, request) -> Event:
+def _start_event(task_id: TaskId, sid: str, platform: str, model: str, project, at: str, request,
+                 public: bool = False) -> Event:
     """The task_start line, shared by tasks seen through hooks and tasks reported from elsewhere."""
     return {"type": "task_start", "task_id": task_id, "session_id": sid, "platform": platform, "model": model,
-            "project": project, "at": at, **request_fields(request)}
+            "project": project, "at": at, **request_fields(request, public)}
 
 
 def _end_event(task_id: TaskId, at: str, duration_s: float, tokens, model: str, loaded, saved,
@@ -330,11 +334,12 @@ def task_start(event: Event, platform: str = "claude-code") -> TaskId:
     model = state.get("model") or _transcript_model(event)
     prompt = str(event.get("prompt") or "")
     project = paths.project_of(event.get("cwd"))
+    public = paths.is_public(event.get("cwd"))
     seen = session.latest_model(event.get("transcript_path"))
     told = [model, seen]
-    session.save(sid, {**state, "platform": platform, **_fresh_task_state(new_id, opened_at, prompt),
-                       "audit_model": told})
-    opened = _start_event(new_id, sid, platform, model, project, opened_at, event.get("prompt"))
+    session.save(sid, {**state, "platform": platform, **_fresh_task_state(new_id, opened_at, "" if public else prompt),
+                       "audit_model": told, "public": public})
+    opened = _start_event(new_id, sid, platform, model, project, opened_at, event.get("prompt"), public)
     if _is_scratch(event.get("cwd")):
         opened["scratch"] = True                 # a test or rehearsal: curating ignores it
     append(opened)
@@ -476,8 +481,10 @@ def infer_mark(session_id: str, prompt: str) -> str | None:
     if any(e.get("type") == "mark" and e.get("task_id") == tid for e in events()):
         return None
     append({"type": "mark", "task_id": tid, "result": res, "by": "inferred", "at": _iso(now())})
-    # The words that judged the task wrong are the correction itself: the case keeps them as what to check.
-    _keep_case(tid, res, session_id, prompt.strip() if res == "corrected" else None)
+    # The words that judged the task wrong are the correction itself: the case keeps them as what to check (but not
+    # in a public repository, where nothing taken from a request is stored).
+    public = session.load(session_id).get("public")
+    _keep_case(tid, res, session_id, prompt.strip() if res == "corrected" and not public else None)
     return res
 
 

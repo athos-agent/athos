@@ -43,7 +43,7 @@ class CliTest(ThroughTheLauncher):
         first = {"session_id": "s1", "cwd": self.home, "transcript_path": None}
         # Nothing stored yet: the session opens with the saving guide only, so the first task can draft its steps.
         opening = self.context(self.send("session-start", dict(first, model="claude-opus-5-5")))
-        self.assertIn("step --new", opening)
+        self.assertNotIn("athos step", opening)                    # the model is not asked to report steps
         self.assertNotIn("know-how are available", opening)
         self.assertIn("Saving know-how", opening)
         for tool in ["Edit"] * 5:                                   # enough work for the stop hook to ask for a save

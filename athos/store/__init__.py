@@ -2,7 +2,8 @@
 
 A piece is a plain markdown file, `<home>/know-how/<id>.md`, that a person can open and change by hand. It begins
 with a frontmatter block between two `---` lines holding, in this order: `id`; `title`; `when` (the situation the
-piece is for); `projects` as an inline list such as `[athos, docs]`; the `created` and `last_used` dates; an
+piece is for); `projects` as an inline list such as `[athos, docs]`; an optional `visibility` (`private`,
+`project` or `general`, see `visibility`); the `created` and `last_used` dates; an
 `origin` mapping whose indented `platform` and `model` say where it was written; and the `version` number. The
 steps, criteria and mistakes to avoid follow as free markdown. Last comes a `## History` heading over a bullet
 list of changes, newest first, each shaped like `v2 <date> (<platform>, <model>): <what changed>`.
@@ -29,6 +30,10 @@ _UNKNOWN_ORIGIN = {"platform": "unknown", "model": "unknown"}
 _NEEDS_QUOTES = set(':#[]{},"')
 _KEY_LINE = re.compile(r"^(\s*)([A-Za-z_][\w-]*):\s*(.*)$")
 _HISTORY_LINE = re.compile(r"^## History\s*$", re.M)
+# Who may see a piece. `private`: only sessions in one of its projects, never in a repository marked public, and never
+# named anywhere else (not in another project's index, log.md or hook output). `project`: its projects' sessions,
+# and another project's when the request names one of them. `general`: may be named anywhere.
+VISIBILITIES = ("private", "project", "general")
 
 
 @dataclass
@@ -45,10 +50,23 @@ class Piece:
     origin: dict = field(default_factory=dict)
     version: int = 1
     history: list[str] = field(default_factory=list)       # newest first, without the leading "- "
+    visibility: str = ""                                     # as written; "" when the frontmatter has none
 
     @property
     def path(self) -> Path:
         return _file_for(self.id)
+
+
+def visibility(p: Piece) -> str:
+    """A piece's visibility: the one its frontmatter states, else `project` for a piece tagged with projects and
+    `general` for an untagged one."""
+    if p.visibility in VISIBILITIES:
+        return p.visibility
+    return "project" if p.projects else "general"
+
+
+def private(p: Piece) -> bool:
+    return visibility(p) == "private"
 
 
 def _file_for(piece_id: str) -> Path:
@@ -155,6 +173,7 @@ def parse(text: str) -> Piece:
         origin=origin if isinstance(origin, dict) else {},
         version=int(fields.get("version") or 1),
         history=history,
+        visibility=str(fields.get("visibility") or "").strip().lower(),
     )
 
 
@@ -171,6 +190,7 @@ def render(p: Piece) -> str:
         f"title: {_quote(p.title)}",
         f"when: {_quote(p.when)}",
         "projects: [" + ", ".join(p.projects) + "]",
+        *([f"visibility: {p.visibility}"] if p.visibility else []),
         f"created: {p.created}",
         f"last_used: {p.last_used}",
         "origin:",
@@ -275,6 +295,7 @@ def update(piece_id: str, note: str, body: str | None = None, title: str | None 
         origin=origin,
         version=version,
         history=[_history_entry(version, origin, note.strip() or "updated"), *current.history],
+        visibility=current.visibility,
     )
     _write(improved)
     diff = difflib.unified_diff(render(current).splitlines(True), render(improved).splitlines(True),

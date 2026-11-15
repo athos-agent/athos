@@ -83,9 +83,7 @@ or, if nothing reusable came out of it, just stop. If a piece already loaded in 
 it (its `id:` and a `note:`) instead of creating a new one. Don't announce the save in your answer and don't print the
 piece: Athos itself shows the user one line with what was saved and where it is available.
 
-The person watches the task's trail in Athos's pane. When a task follows none of their know-how but takes several
-steps of real work, run `{cmd} step --new "<the step, in a few words, in the person's language>"` as you start each
-main step (not each action), so the way of working drafts itself as you go. Say nothing about it in your answer."""
+"""
 
 
 def guide(cmd: str = "athos") -> str:
@@ -115,18 +113,25 @@ class _Written(NamedTuple):
 
 
 def _write_piece(text: str, origin: dict, project: str) -> _Written:
-    """Create the piece, or improve the one its `id` names."""
+    """Create the piece, or improve the one its `id` names. A new piece belongs to the project it was saved in (none
+    when no project is known, as in Claude Desktop's chat): it joins the profile only when the person puts it there
+    (`athos profile add`). A `visibility:` line in what the agent sent is kept for a new piece."""
     meta, title, when, piece_id, body = _fields(text)
+    tags = [project] if project else []
     if piece_id and store.get(piece_id) is not None:
         if not any((body, title, when)):
             raise ValueError("nothing to change")
         piece, diff = store.update(piece_id, meta.get("note", ""), body=body or None, title=title or None,
-                                   when=when or None, origin=origin, projects=[project])
+                                   when=when or None, origin=origin, projects=tags)
         return _Written(piece, diff, True)
     absent = [name for name, value in (("title", title), ("when", when), ("body", body)) if not value]
     if absent:
         raise ValueError("missing " + ", ".join(absent))
-    piece = store.create(title, when, body, projects=[project], origin=origin, piece_id=piece_id or None)
+    piece = store.create(title, when, body, projects=tags, origin=origin, piece_id=piece_id or None)
+    seen = str(meta.get("visibility") or "").strip().lower()
+    if seen in store.VISIBILITIES:
+        piece.visibility = seen
+        store._write(piece)
     return _Written(piece, None, False)
 
 
@@ -171,7 +176,7 @@ def save_text(text: str, session_id: str = "default", cwd: str | None = None,
     _reset_counters(session_id, piece.id)
     rebuilt = _refresh_wiki()
     summary = {"id": piece.id, "title": piece.title, "version": piece.version,
-               "platforms": ["Claude Code", *sync_other_agents()]}
+               "platforms": ["Claude Code", *sync_other_agents(piece.id)]}
     if written.improved:
         # The piece changed: the corrections the person made on it before are the tests of the new version.
         pending = recheck(piece.id)
@@ -200,17 +205,24 @@ def recheck_words(n: int) -> str:
     return f"{n} past correction{'s' if n != 1 else ''} to re-check"
 
 
-def sync_other_agents() -> list[str]:
+def sync_other_agents(piece_id: str | None = None) -> list[str]:
     """Where the new piece is also ready: once the person exported the know-how for Codex and Muse Code (both read
-    ~/.agents/skills), every save refreshes that export, so the piece is there with no extra step."""
+    ~/.agents/skills), every save refreshes that export. That folder is read in every project, so it gets only the
+    profile (control.profile_pieces): a project's pieces and private ones stay out of it, and their old copies there
+    are removed (every piece used to be exported there after each save, 2026-11-14). `athos project sync` gives a
+    project's pieces to the agents in that project."""
+    from athos import control
     from athos.adapters import codex
     d = codex.skills_dir()
     try:
         if not any(x.name.startswith(codex.SKILL_PREFIX) for x in d.iterdir()):
             return []
-        codex.export_skills(d)
+        everywhere = control.profile_pieces()
+        codex.export_skills(d, everywhere)
     except OSError:
         return []
+    if piece_id is not None and piece_id not in {p.id for p in everywhere}:
+        return []                        # the saved piece is this project's: not in that folder
     return ["Codex", "Muse Code"]
 
 
