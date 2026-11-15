@@ -519,6 +519,8 @@ class RulesTest(TempHome):
 
     def test_private_piece_named(self):
         r = self.rule([start("t1")], "private_piece_named")
+        self.assertEqual(r["status"], "not_evaluated")         # no route events: nothing was checked
+        r = self.rule([start("t1"), routed("t1", chosen=["a1"])], "private_piece_named")
         self.assertEqual(r["status"], "clean")                 # no private piece in the store
         p = store.get("b1")
         p.visibility = "private"
@@ -529,6 +531,23 @@ class RulesTest(TempHome):
                       "private_piece_named")
         self.assertEqual((r["status"], r["count"]), ("flagged", 1))
         self.assertNotIn("b1", json.dumps(r))                  # counted, never named
+
+    def test_private_piece_named_reads_whole_ids_in_this_sessions_log_lines(self):
+        p = store.get("b1")
+        p.visibility = "private"
+        store._write(p)
+        r = self.rule([start("t1")], "private_piece_named")
+        self.assertEqual(r["status"], "not_evaluated")
+        log = ev.log_file()
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("## [2026-11-10 10:02] route | alpha | loaded b1-other · 10 chars\n"   # another id
+                       "## [2026-11-09 09:00] route | alpha | loaded b1 · 10 chars\n")         # another session's
+        r = self.rule([start("t1"), routed("t1", chosen=["a1"]), end("t1", ["a1"])], "private_piece_named")
+        self.assertEqual(r["status"], "clean", r)
+        with log.open("a") as out:
+            out.write("## [2026-11-10 10:03] route | alpha | loaded b1 · 10 chars\n")         # this session's
+        r = self.rule([start("t1"), routed("t1", chosen=["a1"]), end("t1", ["a1"])], "private_piece_named")
+        self.assertEqual((r["status"], r["found"]), ("flagged", [{"where": "log.md", "lines": 1}]))
 
     def test_picking_sessions_and_the_command(self):
         write_events([start("t1", sid="s-one"), start("t2", sid="s-two", project="beta"),

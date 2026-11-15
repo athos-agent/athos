@@ -23,6 +23,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 from pathlib import Path
 
 from athos import control, eval as ev, store
@@ -369,15 +370,18 @@ def _version_mismatch(c: _Ctx, versions: dict | None) -> dict:
 
 def _private_piece_named(c: _Ctx) -> dict:
     """A private piece (today's `visibility`) loaded, ranked, offered or named for a session outside its projects: in
-    the route events, or in this project's log.md lines. In a repository marked public every piece that may not load
-    there counts as private (control.may_see: another project's, or a profile piece not allowed in public). Athos does
-    not see the agent's replies, so a clean result covers only what Athos itself wrote."""
+    the route events, or in this project's log.md lines written while the session ran (a piece id counts as a whole
+    word). In a repository marked public every piece that may not load there counts as private (control.may_see:
+    another project's, or a profile piece not allowed in public). Athos does not see the agent's replies, so a clean
+    result covers only what Athos itself wrote; with no route events nothing was checked."""
+    if not c.routes:
+        return _result("private_piece_named", "not_evaluated", [], "no route events for this session")
     public = any(r.get("public") for r in c.routes)
     private = {pid: p for pid, p in c.byid.items() if store.private(p)}
     if public and c.project:
         private.update({pid: p for pid, p in c.byid.items() if not control.may_see(p, c.project, True)})
     if not private:
-        return _result("private_piece_named", "clean", [], "no piece is private in today's store")
+        return _result("private_piece_named", "clean", [], "route events; no piece is private in today's store")
     outside = {pid for pid, p in private.items()
                if not (c.project and c.project in p.projects) or (public and not control.may_see(p, c.project, True))}
     found = []
@@ -387,25 +391,37 @@ def _private_piece_named(c: _Ctx) -> dict:
         hits = (ids & outside) | (ids & set(private) if r.get("public") else set())
         if hits:
             found.append({"task_id": r.get("task_id"), "where": "route event", "pieces": len(hits)})
-    lines = _log_lines(c.project) if c.project else []
-    named = sum(1 for line in lines if any(pid in line for pid in outside))
+    times = sorted(t for t in (ev._parse(e.get("at") or "") for e in c.evs) if t)
+    lines = _log_lines(c.project, times[0], times[-1]) if c.project and times else []
+    words = [re.compile(rf"(?<![\w-]){re.escape(pid)}(?![\w-])") for pid in outside]
+    named = sum(1 for line in lines if any(w.search(line) for w in words))
     if named:
         found.append({"where": "log.md", "lines": named})
-    return _result("private_piece_named", _status(found, not c.routes), found,
-                   "route events and this project's log.md lines, against today's visibility" +
-                   (" and, in a repository marked public, every piece that may not load there" if public else "") +
-                   " (the agent's replies are not seen)")
+    return _result("private_piece_named", _status(found, False), found,
+                   "route events and this project's log.md lines written during the session, against today's "
+                   "visibility" + (" and, in a repository marked public, every piece that may not load there" if public
+                                   else "") + " (the agent's replies are not seen)")
 
 
-def _log_lines(project: str) -> list[str]:
-    """This project's lines in log.md (and its rotated copy)."""
+def _log_lines(project: str, since=None, until=None) -> list[str]:
+    """This project's lines in log.md (and its rotated copy), only those stamped between `since` and `until` (to the
+    minute, UTC) when given."""
+    import datetime as _dt
+    lo = since.astimezone(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M") if since else ""
+    hi = until.astimezone(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M") if until else "9999"
     out = []
     for f in (ev.log_file().with_name("log.1.md"), ev.log_file()):
         try:
             text = f.read_text(errors="ignore")
         except OSError:
             continue
-        out += [line for line in text.splitlines() if f"] route | {project} |" in line or f" | {project} | " in line]
+        for line in text.splitlines():
+            if not (f"] route | {project} |" in line or f" | {project} | " in line):
+                continue
+            stamp = line[len(ev.LOG_PREFIX):len(ev.LOG_PREFIX) + 16] if line.startswith(ev.LOG_PREFIX) else ""
+            if stamp and not (lo <= stamp <= hi):
+                continue
+            out.append(line)
     return out
 
 
