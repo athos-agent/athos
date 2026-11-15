@@ -62,15 +62,17 @@ def chosen_model() -> str:
 def set_embed(on: bool, model_name: str | None = None) -> dict:
     """`athos embed on|off`: kept with the person's other choices (`<home>/config.json`)."""
     from athos import start
-    c = start.config()
-    s = dict(c.get("embed") or {})
-    s["on"] = on
-    if model_name:
-        s["model"] = model_name
-    c["embed"] = s
-    start.config_file().parent.mkdir(parents=True, exist_ok=True)
-    start.config_file().write_text(json.dumps(c, indent=1) + "\n")
-    return s
+    out: dict = {}
+
+    def change(c: dict) -> None:
+        s = dict(c.get("embed") or {})
+        s["on"] = on
+        if model_name:
+            s["model"] = model_name
+        c["embed"] = s
+        out.update(s)
+    start.change_config(change)
+    return out
 
 
 # ------------------------------------------------------------------------------------------------ vectors

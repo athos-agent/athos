@@ -209,19 +209,21 @@ def settings() -> dict:
 def set_shadow(on: bool, backend_name: str | None = None, model: str | None = None) -> dict:
     """`athos shadow on|off`: stored with the person's other choices (`<home>/config.json`). Meta only when named."""
     from athos import start
-    c = start.config()
-    s = dict(c.get("shadow") or {})
-    s["on"] = on
-    if backend_name:
-        s["backend"] = backend_name
-        s.pop("model", None)                     # a model of the old backend means nothing on the new one
-    if model:
-        s["model"] = model
-    s.setdefault("backend", "ollama")
-    c["shadow"] = s
-    start.config_file().parent.mkdir(parents=True, exist_ok=True)
-    start.config_file().write_text(json.dumps(c, indent=1) + "\n")
-    return s
+    out: dict = {}
+
+    def change(c: dict) -> None:
+        s = dict(c.get("shadow") or {})
+        s["on"] = on
+        if backend_name:
+            s["backend"] = backend_name
+            s.pop("model", None)                 # a model of the old backend means nothing on the new one
+        if model:
+            s["model"] = model
+        s.setdefault("backend", "ollama")
+        c["shadow"] = s
+        out.update(s)
+    start.change_config(change)
+    return out
 
 
 def _lock():

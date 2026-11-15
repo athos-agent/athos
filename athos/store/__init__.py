@@ -283,10 +283,9 @@ def get(piece_id: str) -> Piece | None:
 
 
 def _write(p: Piece) -> None:
-    """Store a piece in its file as is (no archiving, no version bump)."""
-    target = p.path
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(render(p))
+    """Store a piece in its file as is (no archiving, no version bump), in one step: the file is replaced whole, so
+    a hook, the verifier or the person's editor reading it at the same time sees the old piece or the new one."""
+    paths.write_atomic(p.path, render(p))
 
 
 def _archive(p: Piece) -> Path:

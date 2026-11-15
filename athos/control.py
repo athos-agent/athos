@@ -68,9 +68,7 @@ def _validated_piece_ids(requested: list[str] | None) -> list[str]:
 
 
 def _save(selection: dict) -> None:
-    target = paths.selection_file()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(selection))
+    paths.write_atomic(paths.selection_file(), json.dumps(selection))
 
 
 def _mode_options(mode: str, values: list[str] | None) -> dict:
@@ -116,11 +114,17 @@ def describe(sel: dict | None = None, lang: str = "en") -> str:
 
 
 # ------------------------------------------------------------------------------------------------ the profile
-def _read_profile() -> dict:
+def _read_profile(strict: bool = False) -> dict:
+    """The profile file's content. A file that cannot be read gives {} to a reader, and, with `strict` (before a
+    change is written back), paths.StateUnreadable (a ValueError): read as empty and saved, it would be wiped."""
     try:
-        data = json.loads(paths.profile_file().read_text())
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        data = paths.read_state(paths.profile_file())
+    except paths.StateUnreadable:
+        if strict:
+            raise
         return {}
+    if data is not None and not isinstance(data, dict) and strict:
+        raise paths.StateUnreadable(f"{paths.profile_file()} does not hold a profile; it was left as it is")
     return data if isinstance(data, dict) else {}
 
 
@@ -139,15 +143,15 @@ def public_ids() -> list[str]:
 
 
 def _save_profile(ids: list[str], public: list[str] | None = None) -> None:
-    target = paths.profile_file()
-    target.parent.mkdir(parents=True, exist_ok=True)
     allowed = [i for i in (public_ids() if public is None else public) if i in ids]
-    target.write_text(json.dumps({"pieces": ids, **({"public": allowed} if allowed else {})}, indent=1) + "\n")
+    paths.write_atomic(paths.profile_file(),
+                       json.dumps({"pieces": ids, **({"public": allowed} if allowed else {})}, indent=1) + "\n")
 
 
 def profile_allow_public(ids: list[str], allow: bool = True) -> list[str]:
     """Allow (or, with `allow` False, no longer allow) profile pieces in repositories marked public. Returns the
     allowed ids. ValueError, and nothing saved, for an id that is not in the profile."""
+    _read_profile(strict=True)                 # a damaged profile is not overwritten
     current = profile_ids()
     outside = [i for i in ids if i not in current]
     if outside and allow:
@@ -168,6 +172,7 @@ def profile_add(ids: list[str], cap: bool = True) -> list[str]:
         raise ValueError("unknown pieces: " + ", ".join(unknown))
     if any(store.private(byid[i]) for i in ids):
         raise ValueError("a private piece stays in its own projects; it cannot join the profile")
+    _read_profile(strict=True)                 # a damaged profile is not overwritten
     current = profile_ids()
     merged = current + [i for i in dict.fromkeys(ids) if i not in current]
     if cap and len(merged) > PROFILE_MAX:
@@ -185,6 +190,7 @@ def profile_pieces(pieces: list[store.Piece] | None = None) -> list[store.Piece]
 
 
 def profile_remove(ids: list[str]) -> list[str]:
+    _read_profile(strict=True)                 # a damaged profile is not overwritten
     current = profile_ids()
     kept = [i for i in current if i not in set(ids)]
     _save_profile(kept)                       # an id that leaves the profile is no longer allowed in public either

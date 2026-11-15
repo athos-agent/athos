@@ -104,7 +104,7 @@ def run(events: Iterable[dict] | None = None, write: bool = True) -> dict:
     out["at"] = time.time()
     if write:
         out["applied"] = sorted(done)
-        path().write_text(json.dumps(out, ensure_ascii=False, indent=2))
+        paths.write_atomic(path(), json.dumps(out, ensure_ascii=False, indent=2))
     return out
 
 
@@ -140,7 +140,7 @@ def apply(n: int, lang: str) -> str:
     p = props[n - 1]
     st["applied"] = sorted({*(st.get("applied") or []), p["id"]})
     st["proposals"] = [x for x in props if x["id"] != p["id"]]
-    path().write_text(json.dumps(st, ensure_ascii=False, indent=2))
+    paths.write_atomic(path(), json.dumps(st, ensure_ascii=False, indent=2))
     return request(p, lang)
 
 

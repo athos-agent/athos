@@ -138,7 +138,7 @@ class EditsTest(HookCase):
             self.agent_writes(f"r{i}.md")
         names = [Path(s["path"]).name for s in self.snapshots()]
         self.assertEqual(names, [f"r{i}.md" for i in range(2, edits.KEEP_TASKS + 2)])
-        files = {p.name for p in (Path(self.home) / "snapshots" / "s1").iterdir()}
+        files = {p.name for p in (Path(self.home) / "snapshots" / "s1").iterdir() if not p.name.startswith(".")}
         self.assertEqual(len(files), edits.KEEP_TASKS + 2)            # the snapshots, the index and the clock
 
     def test_the_diff_is_capped(self):

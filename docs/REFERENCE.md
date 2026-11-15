@@ -38,7 +38,12 @@ Then `athos start` asks your language and profession and adds example ways of wo
 Requires Python 3.11+ (the installer picks the newest one you have). No other dependencies. The hooks run under
 whatever `python3` the agent finds, which may be older (macOS ships 3.9): they do not need `tomllib`, and read the
 project marker's `name` and `public` lines without it. Your know-how lives in `~/.athos/know-how`, the same for every
-agent.
+agent. Several hooks, the background verifier and your editor may touch the same files at once, so every file Athos
+writes there that more than one process writes (a page, a session's state, the profile, the loading mode, the
+config, the review marks, the edit detector's clock) is replaced in one step (written beside it, then moved over it),
+and the ones read, changed and written back (a session, the profile, the config, the review marks) are changed under a
+lock. A state file that cannot be read is retried and then reported as an error: it is never read as empty and
+written back over itself.
 
 ## Use
 

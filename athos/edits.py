@@ -76,8 +76,7 @@ def _save_index(session_id: str, entries: list[dict]) -> None:
     if not entries:
         shutil.rmtree(d, ignore_errors=True)
         return
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "index.json").write_text(json.dumps(entries, indent=1, ensure_ascii=False))
+    paths.write_atomic(d / "index.json", json.dumps(entries, indent=1, ensure_ascii=False))
 
 
 def _clock(session_id: str) -> dict:
@@ -94,7 +93,8 @@ def _save_clock(session_id: str, **changes) -> None:
     d = _dir(session_id)
     if not (d / "index.json").exists():          # nothing watched: no clock to keep
         return
-    (d / "clock.json").write_text(json.dumps({**_clock(session_id), **changes}))
+    with paths.locked(d / "clock.json"):
+        paths.write_atomic(d / "clock.json", json.dumps({**_clock(session_id), **changes}))
 
 
 def _text(path: Path) -> str | None:

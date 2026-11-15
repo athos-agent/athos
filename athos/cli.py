@@ -151,9 +151,8 @@ def _remember_session(event: dict) -> None:
     folder, sid = event.get("cwd"), event.get("session_id")
     if not (folder and sid):
         return
-    note = _folder_note(folder)
-    note.parent.mkdir(parents=True, exist_ok=True)
-    note.write_text(json.dumps({"session_id": sid, "transcript_path": event.get("transcript_path")}))
+    paths.write_atomic(_folder_note(folder),
+                       json.dumps({"session_id": sid, "transcript_path": event.get("transcript_path")}))
 
 
 def _current_session(cwd: str) -> dict:
@@ -1335,7 +1334,7 @@ def status() -> dict:
     from athos import start
     cwd, noted = _here()
     sid = noted.get("session_id")
-    state, tasks, lang = (session.load(sid) if sid else {}), ev.tasks(), start.lang()
+    state, tasks, lang = (session.peek(sid) if sid else {}), ev.tasks(), start.lang()
     current_offer = state.get("offer") if (state.get("offer") or {}).get("task_id") == state.get("task_id") else None
     here = control.here(cwd)
     if here.public:                           # only what may be named in this repository

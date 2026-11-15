@@ -12,7 +12,6 @@ frontier model gets an index of the pieces in reach and opens what it needs; an 
 from __future__ import annotations
 
 import fnmatch
-import json
 import re
 
 FRONTIER, APPLY = "frontier", "apply"
@@ -81,13 +80,13 @@ def describe(model: str | None, piece_in_reach: bool | None = None) -> dict:
 
 def _save(tiers: dict[str, list[str]] | None) -> None:
     from athos import start
-    c = _config()
-    if tiers is None:
-        c.pop("tiers", None)
-    else:
-        c["tiers"] = tiers
-    start.config_file().parent.mkdir(parents=True, exist_ok=True)
-    start.config_file().write_text(json.dumps(c, indent=1) + "\n")
+
+    def change(c: dict) -> None:
+        if tiers is None:
+            c.pop("tiers", None)
+        else:
+            c["tiers"] = tiers
+    start.change_config(change)
 
 
 def add(tier: str, items: list[str]) -> dict[str, list[str]]:

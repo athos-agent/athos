@@ -1,8 +1,10 @@
 """Per-session scratch state for the hooks.
 
 Each session owns one JSON file, `<home>/sessions/<session_id>.json`. It records things such as the model in use,
-the number of tool calls since the last capture, and the ids of pieces loaded or saved during the session. Missing or
-damaged files simply read as an empty state.
+the number of tool calls since the last capture, and the ids of pieces loaded or saved during the session. Several
+hook processes write one session at once (a tool hook of a subagent, the prompt hook, a background verifier), so the
+file is replaced in one step, updated under a lock, and one that cannot be read is an error (`paths.StateUnreadable`),
+never an empty state written back over it. A missing file reads as an empty state.
 """
 
 from __future__ import annotations
@@ -26,29 +28,37 @@ def _file(session_id: str) -> Path:
 
 
 def load(session_id: str) -> dict:
-    """The stored state of a session, `{}` when there is none or it cannot be read."""
-    try:
-        raw = _file(session_id).read_text()
-    except _UNREADABLE:
-        raw = ""
-    try:
-        state = json.loads(raw) if raw else {}
-    except json.JSONDecodeError:        # a damaged file is treated as empty
-        state = {}
+    """The stored state of a session, `{}` when there is none. paths.StateUnreadable when the file is there but cannot
+    be read after a few tries: a damaged session read as empty, then written back, used to wipe it."""
+    target = _file(session_id)
+    state = paths.read_state(target)
+    if state is None:
+        return {}
+    if not isinstance(state, dict):
+        raise paths.StateUnreadable(f"{target} does not hold a session's state; it was left as it is")
     return state
 
 
+def peek(session_id: str) -> dict:
+    """`load` for a reader that only shows the state (the status line, the indicator): a damaged file reads as {}
+    here, and what it returns is never written back."""
+    try:
+        return load(session_id)
+    except paths.StateUnreadable:
+        return {}
+
+
 def save(session_id: str, state: dict) -> None:
-    """Replace a session's state with `state`."""
-    target = _file(session_id)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(state, indent=1))
+    """Replace a session's state with `state`, in one step (a reader sees the old state or the new one)."""
+    paths.write_atomic(_file(session_id), json.dumps(state, indent=1))
 
 
 def update(session_id: str, **changes) -> dict:
-    """Merge `changes` into a session's state, store it and hand back the merged state."""
-    merged = {**load(session_id), **changes}
-    save(session_id, merged)
+    """Merge `changes` into a session's state, store it and hand back the merged state, under the session's lock so a
+    hook running at the same time loses nothing."""
+    with paths.locked(_file(session_id)):
+        merged = {**load(session_id), **changes}
+        save(session_id, merged)
     return merged
 
 

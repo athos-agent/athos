@@ -68,7 +68,7 @@ def compute(sid: str | None, state: dict | None = None) -> tuple[str, str]:
         return IDLE, "off"
     if not sid:
         return IDLE, "no_session"
-    state = session.load(sid) if state is None else state
+    state = session.peek(sid) if state is None else state
     task = state.get("task_id")
     ended = (state.get("task_end") or {}).get("task_id") == task
     working = bool(task) and not ended and _fresh(sid)
@@ -142,7 +142,7 @@ def observe(sid: str | None, state: dict | None = None, project: str | None = No
     except OSError:
         return out
     from athos import eval as ev
-    st = session.load(sid) if state is None else state
+    st = session.peek(sid) if state is None else state
     project = project or st.get("project")
     ev.audit({"type": "ui", "session_id": sid, "task_id": st.get("task_id"), "state": now, "why": why,
               "from": before.get("state") or IDLE, "mode": mode(), "project": project},

@@ -94,9 +94,25 @@ def config_file() -> Path:
 
 def config() -> dict:
     try:
-        return json.loads(config_file().read_text())
-    except (OSError, ValueError):
+        data = paths.read_state(config_file(), retries=2)
+    except paths.StateUnreadable:
         return {}
+    return data if isinstance(data, dict) else {}
+
+
+def change_config(change) -> dict:
+    """Read the config, let `change(config)` alter it, and write it back in one step, under its lock (the prompt hook
+    writes it too). paths.StateUnreadable, and nothing written, when the file is there but cannot be read: read as
+    empty and saved, the person's settings would be wiped."""
+    target = config_file()
+    with paths.locked(target):
+        current = paths.read_state(target)
+        if current is not None and not isinstance(current, dict):
+            raise paths.StateUnreadable(f"{target} does not hold a configuration; it was left as it is")
+        c = dict(current or {})
+        change(c)
+        paths.write_atomic(target, json.dumps(c, indent=1) + "\n")
+    return c
 
 
 def lang() -> str:
@@ -127,9 +143,10 @@ def note_language(prompt: str) -> None:
         return
     seen = detect(prompt)
     if seen and seen != c.get("lang_seen"):
-        c["lang_seen"] = seen
-        config_file().parent.mkdir(parents=True, exist_ok=True)
-        config_file().write_text(json.dumps(c, indent=1) + "\n")
+        try:
+            change_config(lambda cfg: cfg.update(lang_seen=seen) if not cfg.get("lang") else None)
+        except paths.StateUnreadable:
+            pass                                  # a damaged config stays as it is; the language can wait
 
 
 def t(key: str, **kw) -> str:
@@ -165,10 +182,7 @@ def install(language: str, profile: str) -> tuple[list[store.Piece], list[str]]:
 
 
 def save_choice(language: str, profile: str) -> None:
-    c = config()
-    c.update(lang=language, profile=profile)
-    config_file().parent.mkdir(parents=True, exist_ok=True)
-    config_file().write_text(json.dumps(c, indent=1) + "\n")
+    change_config(lambda c: c.update(lang=language, profile=profile))
 
 
 # The professions as Desktop's panel offers them on a first use, one button each, in the person's language.

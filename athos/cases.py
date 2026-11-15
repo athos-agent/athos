@@ -135,9 +135,7 @@ def _draft(task_id: str, session_id: str | None) -> tuple[str | None, dict | Non
 
 
 def _write(data: dict) -> None:
-    f = _file(data["piece"], data["task_id"])
-    f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(data, indent=1, ensure_ascii=False))
+    paths.write_atomic(_file(data["piece"], data["task_id"]), json.dumps(data, indent=1, ensure_ascii=False))
 
 
 def on_mark(task_id: str, result: str, session_id: str | None = None, correction: str | None = None) -> int:

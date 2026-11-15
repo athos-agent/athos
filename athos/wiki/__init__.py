@@ -437,9 +437,8 @@ def agents_target() -> Path | None:
 
 def remember_install(dest: Path, project: str) -> None:
     import json
-    f = paths.home() / "agents-install"
-    f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps({"target": str(dest), "project": project, "format": 2}))
+    paths.write_atomic(paths.home() / "agents-install",
+                       json.dumps({"target": str(dest), "project": project, "format": 2}))
 
 
 def project_agents(project: str) -> dict[str, str]:

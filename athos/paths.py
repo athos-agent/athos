@@ -6,6 +6,7 @@ plugin folder never holds user data, so reinstalling or removing the plugin cann
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 from pathlib import Path
@@ -255,6 +256,52 @@ def write_atomic(target: Path, text: str) -> None:
         except OSError:
             pass
         raise
+
+
+class StateUnreadable(ValueError):
+    """A state file is there but cannot be read, even after a few tries. It is an error, never an empty state: one
+    read as empty and written back would wipe it."""
+
+
+def read_state(target: Path, retries: int = 5, delay: float = 0.01):
+    """A JSON state file's content: None when there is no such file; StateUnreadable when it is there but cannot be
+    read or parsed after `retries` tries (a moment apart: an older Athos may still be writing it in place)."""
+    import json
+    import time
+    problem: BaseException | None = None
+    for attempt in range(retries):
+        try:
+            return json.loads(Path(target).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        except (OSError, UnicodeDecodeError, ValueError) as bad:
+            problem = bad
+            time.sleep(delay * (attempt + 1))
+    raise StateUnreadable(f"{target} cannot be read ({type(problem).__name__}); it was left as it is")
+
+
+@contextlib.contextmanager
+def locked(target: Path):
+    """Hold an exclusive lock on a state file (on a hidden `.<file>.lock` beside it) while it is read, changed and
+    written back, so two processes updating it at once do not lose each other's change. Where the platform has no `fcntl`
+    (Windows) the write is still atomic, only unlocked."""
+    try:
+        import fcntl
+    except ImportError:                                  # pragma: no cover - not on POSIX
+        yield
+        return
+    target = Path(target)
+    lock = target.parent / f".{target.name}.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 def accepted_names_file() -> Path:

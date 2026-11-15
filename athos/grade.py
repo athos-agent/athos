@@ -319,26 +319,31 @@ def _review_file():
     return paths.home() / "autolearn" / "review.json"
 
 
-def reviews() -> dict:
+def reviews(strict: bool = False) -> dict:
+    """The review marks. One that cannot be read is {} to a reader and, with `strict` (before a change is written
+    back), paths.StateUnreadable."""
     try:
-        data = json.loads(_review_file().read_text())
-    except (OSError, ValueError):
+        data = paths.read_state(_review_file())
+    except paths.StateUnreadable:
+        if strict:
+            raise
         return {}
     return data if isinstance(data, dict) else {}
 
 
 def mark_review(piece_id: str, why: str) -> None:
     """A piece failed on an apply model: the next frontier session's index says so."""
-    data = reviews()
-    data[piece_id] = {"why": why, "at": ev._iso(ev.now())}
-    _review_file().parent.mkdir(parents=True, exist_ok=True)
-    _review_file().write_text(json.dumps(data, indent=1))
+    with paths.locked(_review_file()):
+        data = reviews(strict=True)
+        data[piece_id] = {"why": why, "at": ev._iso(ev.now())}
+        paths.write_atomic(_review_file(), json.dumps(data, indent=1))
 
 
 def clear_review(piece_id: str) -> None:
-    data = reviews()
-    if data.pop(piece_id, None) is not None:
-        _review_file().write_text(json.dumps(data, indent=1))
+    with paths.locked(_review_file()):
+        data = reviews(strict=True)
+        if data.pop(piece_id, None) is not None:
+            paths.write_atomic(_review_file(), json.dumps(data, indent=1))
 
 
 # ------------------------------------------------------------------------------------------------ ageing
