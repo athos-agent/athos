@@ -20,7 +20,7 @@ def run_all(code: str, n: int) -> None:
     for p in procs:
         out, err = p.communicate(timeout=120)
         if p.returncode:
-            raise AssertionError(err.decode(errors="ignore")[-2000:])
+            raise AssertionError(f"exit {p.returncode}: " + err.decode(errors="ignore")[-2000:])
 
 
 class ConcurrentTest(TempHome):
@@ -96,3 +96,16 @@ class UnreadableTest(TempHome):
             self.assertEqual(cli.main(["status", "--json"]), 0)
         self.assertEqual(json.loads(out.getvalue())["loaded"], [])
         self.assertEqual(f.read_text(), "{not json")
+
+
+class LogRotationTest(TempHome):
+    def test_concurrent_writers_never_rotate_a_fresh_log_over_a_full_one(self):
+        code = ("import sys\nfrom athos import eval as ev\nev.LOG_CAP = 3000\n"
+                "for j in range(300):\n    ev.log_line('route', 'alpha', f'line {sys.argv[1]}-{j} ' + 'x' * 40)\n"
+                "    if j % 7 == 0:\n        size = (ev.log_file().with_name('log.1.md')).stat().st_size "
+                "if ev.log_file().with_name('log.1.md').exists() else None\n"
+                "        if size is not None and size < 3000:\n            sys.exit(3)\n")
+        run_all(code, 6)
+        rotated = paths.home() / "log.1.md"
+        self.assertTrue(rotated.exists())
+        self.assertGreaterEqual(rotated.stat().st_size, 3000)

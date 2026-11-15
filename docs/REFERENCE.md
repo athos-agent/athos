@@ -494,7 +494,7 @@ grep '^## \[' ~/.athos/log.md | tail
 ```
 
 Times are UTC. It names a piece only when the piece belongs to that project, or to none and is not private (another
-project's are only counted), and it is moved to `log.1.md` once it passes 256 KB, so at most two files are kept. Each session starts with
+project's are only counted), and it is moved to `log.1.md` once it passes 256 KB (under a lock, so two hooks never rotate it twice), so at most two files are kept. Each session starts with
 one hidden line telling the agent where the log is and that `athos audit --session <id>` summarizes it.
 
 `athos audit [--session <id> | --project <name> | --last N] [--show] [--json]` folds the log by session (by default

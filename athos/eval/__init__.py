@@ -156,7 +156,11 @@ def log_line(kind: str, project: str | None, what: str, at: Moment | None = None
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
         if target.stat().st_size > LOG_CAP:
-            target.replace(target.with_name("log.1.md"))
+            # Under a lock, and only if it is still past the cap: two hooks that both saw it full once rotated twice,
+            # the second moving a fresh, nearly empty log over the full one just rotated.
+            with paths.locked(target):
+                if target.stat().st_size > LOG_CAP:
+                    target.replace(target.with_name("log.1.md"))
     except OSError:
         pass
     stamp = (at or now()).astimezone(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M")
