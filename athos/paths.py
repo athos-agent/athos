@@ -83,13 +83,61 @@ def _root(folder: Path) -> Path:
     return Path(top) if top else folder
 
 
+class _MarkerSyntax(ValueError):
+    """A marker line Athos cannot read."""
+
+
+def _toml_value(raw: str):
+    """One TOML value of the kinds a marker holds: a basic or literal string, or true/false; a trailing comment is
+    dropped. _MarkerSyntax for anything else."""
+    import json
+    import re
+    raw = raw.strip()
+    m = re.match(r'^("(?:[^"\\]|\\.)*")\s*(?:#.*)?$', raw)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except ValueError as bad:
+            raise _MarkerSyntax(raw) from bad
+    m = re.match(r"^'([^']*)'\s*(?:#.*)?$", raw)
+    if m:
+        return m.group(1)
+    m = re.match(r"^(true|false)\s*(?:#.*)?$", raw)
+    if m:
+        return m.group(1) == "true"
+    raise _MarkerSyntax(raw)
+
+
+def _loads_marker(text: str) -> dict:
+    """The top-level `name` and `public` of a marker. With tomllib (Python 3.11+) the whole file is parsed; without
+    it (the hooks may run under an older `python3`) only the lines before the first table, and only those two keys
+    are read. _MarkerSyntax when the file is not valid TOML (or, without tomllib, one of those two lines is not)."""
+    try:
+        import tomllib
+    except ImportError:
+        tomllib = None
+    if tomllib is not None:
+        try:
+            return tomllib.loads(text)
+        except tomllib.TOMLDecodeError as bad:
+            raise _MarkerSyntax(str(bad)) from bad
+    import re
+    out: dict = {}
+    for line in text.splitlines():
+        if re.match(r"^\s*\[", line):
+            break                                   # a table: its keys are not the marker's
+        m = re.match(r"^\s*(name|public)\s*=(.*)$", line)
+        if m:
+            out[m.group(1)] = _toml_value(m.group(2))
+    return out
+
+
 def _read_marker(root: Path) -> dict:
     """`.athos.toml` at a repository's root, as written: `name = "<project>"` and `public = true|false`. Anything
     missing, unreadable or of the wrong type is left out, so a broken marker never stops a hook."""
-    import tomllib
     try:
-        data = tomllib.loads((root / MARKER).read_text())
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        data = _loads_marker((root / MARKER).read_text())
+    except (OSError, UnicodeDecodeError, _MarkerSyntax):
         return {}
     out: dict = {"file": str(root / MARKER)}
     name = data.get("name")

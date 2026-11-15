@@ -35,8 +35,10 @@ athos opencode install       then restart OpenCode
 
 Then `athos start` asks your language and profession and adds example ways of working (law, finance, journalism, science and engineering on call today).
 
-Requires Python 3.11+ (the installer picks the newest one you have). No other dependencies. Your know-how lives in
-`~/.athos/know-how`, the same for every agent.
+Requires Python 3.11+ (the installer picks the newest one you have). No other dependencies. The hooks run under
+whatever `python3` the agent finds, which may be older (macOS ships 3.9): they do not need `tomllib`, and read the
+project marker's `name` and `public` lines without it. Your know-how lives in `~/.athos/know-how`, the same for every
+agent.
 
 ## Use
 
