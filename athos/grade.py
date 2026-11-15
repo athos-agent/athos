@@ -5,20 +5,24 @@
                             frontier model or one pass on an apply model (a replay, or a real use whose Checks the
                             hooks saw pass). A `risk: high` piece needs the verifier and at least one clean reuse:
                             a replay alone is not enough for it.
-    verified → candidate    a reuse that was corrected or failed. A legacy piece (no status) only on strong
-                            evidence (a change the person made, a revert, its own Check failing), never on words.
-    → retired               RETIRE_NEGATIVES corrected or failed reuses among its last RETIRE_WINDOW (same rule
-                            on strong evidence for a legacy piece). Retiring supersedes; `athos revert` restores.
+    verified → candidate    a reuse that was corrected or failed: strong evidence tied to that piece. A legacy
+                            piece (no status) never moves; grading records an event and a review mark instead.
+    → retired               RETIRE_NEGATIVES corrected or failed reuses among its last RETIRE_WINDOW, counted from
+                            its last status change, revert or improvement (each a new version). Retiring
+                            supersedes; `athos revert` restores, with no outcome against it.
     verified → candidate    ageing: no use and no re-verification in `age_days` (90). Using a piece moves its
                             last-used date, so use slows ageing. Legacy pieces do not age.
 
-A reuse is judged when the person's next request arrives, once their reaction and their edits are known (`finish_task`):
+A reuse is judged when the person's next request arrives, once their reaction and their edits are known (`finish_task`),
+never in the session that wrote or improved the piece:
 
-    frontier   clean: the task's evidence has a strong positive item and nothing against the piece (no change of the
-               person's credited to it or to no piece, no revert, no reaction that it was wrong, no Check of it
-               failing last); corrected: any of those; unverified: neither (nothing proved the work), not counted
-    apply      clean: at least one of its Checks seen passing and none failing last, and no correction; failed: a Check
-               of it failing last, or a correction; unverified: none of its Checks ran
+    frontier   clean: the task's evidence has a strong positive item and nothing against the work; corrected: strong
+               evidence tied to the piece (a change of the person's credited to it, one of its Checks failing last);
+               unverified, not counted: nothing proved the work, or something was against the work without naming
+               this piece (a revert, a change credited to another piece or to none, a failed verification), or the
+               person's words read as a correction (that lowers confidence, nothing more)
+    apply      clean: at least one of its Checks seen passing and none failing last, and nothing against; failed: tied
+               strong evidence as above; unverified: none of its Checks ran, or untied evidence, or words
 
 Every move, and every decision not to move, is a `grade` event with its basis. Nothing is deleted: a status change is a
 new version of the piece (store.set_status). Confidence (0 to 1) follows the evidence and feeds the router a little.
@@ -37,6 +41,7 @@ VERIFIER_PASS = 0.2
 VERIFIER_FAIL = -0.1
 CLEAN_REUSE = 0.1
 NEGATIVE_REUSE = -0.2
+WEAK_NEGATIVE = -0.1     # a reaction read from the person's words that the task went wrong
 STALE_REFS = -0.1
 VERIFIED_FLOOR = 0.7       # a verified piece starts at least this confident
 FRONTIER_REUSES = 2        # clean frontier reuses that, with the verifier, verify a normal piece
@@ -157,23 +162,28 @@ def verifier_passed(p: store.Piece, evs: list[dict] | None = None) -> dict | Non
     return passes[-1] if passes else None
 
 
-def _reuses(evs: list[dict], since: str = "") -> list[dict]:
-    return [e for e in evs if e.get("type") == "reuse" and (e.get("at") or "") >= since]
+def _reuses(evs: list[dict], since: str = "", version: int | None = None) -> list[dict]:
+    """The reuse events at or after `since`, and of `version` only when one is given: a status change, a revert and an
+    improvement each make a new version, so outcomes counted by version start again from the piece's last change."""
+    return [e for e in evs if e.get("type") == "reuse" and (e.get("at") or "") >= since
+            and (version is None or e.get("version") == version)]
 
 
 def standing(p: store.Piece) -> dict:
     """What the rules see for a piece: the verifier's pass, runnable Checks, clean and negative reuses since it
-    became a candidate, and its risk."""
+    became a candidate and since its last change (a revert brings back a piece with no outcomes against it), and
+    its risk."""
     evs = _events(p.id)
     since = _since(evs)
-    recent = _reuses(evs, since)
+    recent = _reuses(evs, since, p.version)
+    current = _reuses(evs, version=p.version)
     return {"verifier": verifier_passed(p, evs), "checks": len(evidence.checks_of(p)), "risk": risk(p),
             "frontier_clean": sum(1 for e in recent if e.get("outcome") == "clean" and e.get("tier") == "frontier"),
             "apply_pass": sum(1 for e in recent if e.get("tier") == "apply" and e.get("outcome") in ("clean",
                                                                                                     "replay_pass")),
             "apply_clean": sum(1 for e in recent if e.get("tier") == "apply" and e.get("outcome") == "clean"),
-            "outcomes": [e.get("outcome") for e in _reuses(evs) if e.get("outcome") != "unverified"],
-            "strong_negatives": sum(1 for e in _reuses(evs) if e.get("outcome") in ("corrected", "failed", "replay_fail")
+            "outcomes": [e.get("outcome") for e in current if e.get("outcome") != "unverified"],
+            "strong_negatives": sum(1 for e in current if e.get("outcome") in ("corrected", "failed", "replay_fail")
                                     and set(e.get("basis") or []) & STRONG_NEGATIVE)}
 
 
@@ -261,29 +271,42 @@ def demote(piece_id: str, basis: str, strong: bool) -> bool:
 
 # ------------------------------------------------------------------------------------------------ a finished reuse
 def _outcome(pid: str, tier: str, items: list[dict]) -> tuple[str, list[str]]:
-    """How a task went for one piece it used, and on what basis (see the module's notes)."""
-    basis: list[str] = []
+    """How a task went for one piece it used, and on what basis (see the module's notes). Only strong evidence tied to
+    this piece (a change of the person's credited to it, one of its own Checks failing last) makes a reuse corrected
+    or failed. Strong evidence against the work that names no piece (a revert, a change credited to another piece or
+    to none, a failed verification that is not one of its Checks) makes it unverified: the work was not clean, but
+    nothing says this piece was wrong. A reaction read from the person's words is weak: it keeps a reuse from
+    counting as clean and lowers confidence, never more."""
+    tied: list[str] = []
+    untied: list[str] = []
+    weak: list[str] = []
     mine = [i for i in items if i.get("type") == "verify" and (i.get("check_of") or "").startswith(pid + "#")]
     strong_mine = [i for i in mine if i.get("strength") == "strong"]
     if strong_mine and strong_mine[-1].get("ok") is False:
-        basis.append("check_failed")
+        tied.append("check_failed")
     for i in items:
-        if i.get("type") == "person_edit" and i.get("piece") in (pid, None):
-            basis.append("person_edit")
+        if i.get("type") == "person_edit":
+            (tied if i.get("piece") == pid else untied).append("person_edit" if i.get("piece") == pid
+                                                               else "person_edit_not_this_piece")
         elif i.get("type") == "revert":
-            basis.append("revert")
+            untied.append("revert")
         elif i.get("type") == "reaction" and i.get("result") == "corrected":
-            basis.append("reaction_corrected")
-    basis = list(dict.fromkeys(basis))
-    if basis:
-        return ("failed" if tier == "apply" else "corrected"), basis
+            weak.append("reaction_corrected")
+    verifies = [i for i in items if i.get("type") == "verify" and i.get("strength") == "strong"]
+    if verifies and verifies[-1].get("ok") is False and "check_failed" not in tied:
+        untied.append("last_verification_failed")
+    tied, untied, weak = (list(dict.fromkeys(x)) for x in (tied, untied, weak))
+    if tied:
+        return ("failed" if tier == "apply" else "corrected"), tied
+    if untied:
+        return "unverified", untied + weak
     if tier == "apply":
         if strong_mine and strong_mine[-1].get("ok"):
-            return "clean", ["check_passed"]
-        return "unverified", ["no_check_ran"]
+            return ("unverified", ["check_passed"] + weak) if weak else ("clean", ["check_passed"])
+        return "unverified", ["no_check_ran"] + weak
     if any(i.get("strength") == "strong" and i.get("polarity") == "positive" for i in items):
-        return "clean", ["strong_positive", "no_correction"]
-    return "unverified", ["nothing_proved_the_work"]
+        return ("unverified", ["strong_positive"] + weak) if weak else ("clean", ["strong_positive", "no_correction"])
+    return "unverified", ["nothing_proved_the_work"] + weak
 
 
 def finish_task(sid: str | None, task_id: str | None, state: dict) -> list[dict]:
@@ -293,7 +316,10 @@ def finish_task(sid: str | None, task_id: str | None, state: dict) -> list[dict]
     from athos import autolearn
     if not task_id:
         return []
-    used = [p for p in dict.fromkeys(state.get("task_loaded") or []) if p not in (state.get("task_saved") or [])]
+    # The session that wrote (or improved) a piece does not count its reuse: the same model, the same context, often
+    # the same work seen twice.
+    written = set(state.get("task_saved") or []) | set(state.get("saved") or [])
+    used = [p for p in dict.fromkeys(state.get("task_loaded") or []) if p not in written]
     if not used:
         return []
     model = state.get("model")
@@ -313,6 +339,8 @@ def finish_task(sid: str | None, task_id: str | None, state: dict) -> list[dict]
                  "basis": basis, "status": store.status(p), "project": p.projects[0] if p.projects else None}
         ev.audit(event)
         out.append(event)
+        if "reaction_corrected" in basis and outcome not in ("corrected", "failed"):
+            _set_confidence(p, WEAK_NEGATIVE)      # words only: confidence, never the status
         if outcome == "clean":
             _set_confidence(p, CLEAN_REUSE)
         elif outcome in ("corrected", "failed"):

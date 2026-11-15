@@ -759,22 +759,26 @@ it by hand, in the foreground; `athos verify --pending` the oldest waiting one.
   reuses on a frontier model** or **one pass on an apply model** (a replay, below, or a real use whose Checks the hooks
   saw pass). A `risk: high` piece needs the verifier and at least one clean reuse; a replay alone does not verify it.
   Reuses alone, without the verifier, never verify anything.
-- **verified → candidate** after a reuse that was corrected or failed. A legacy piece never moves: on strong evidence
-  (a change you made credited to it, a revert, one of its own Checks failing) it is marked for review instead, and a
-  `grade` event says what was seen; a reaction read from your words only records an event.
-- **→ retired** when 3 of its last 5 judged reuses were corrected or failed (a legacy piece is marked for review
-  instead). Retiring supersedes it as a new version; `athos revert` restores it.
+- **verified → candidate** after a reuse that was corrected or failed, which takes strong evidence tied to that piece:
+  a change you made credited to it, or one of its own Checks failing last. A legacy piece never moves: on such evidence
+  it is marked for review instead, and a `grade` event says what was seen. Weak signals never change a status: a
+  reaction read from your words only lowers confidence (−0.1) and keeps that reuse from counting as clean.
+- **→ retired** when 3 of its last 5 judged reuses were corrected or failed, counted from its last status change,
+  revert or improvement (each is a new version, and the count starts again), so a piece brought back with `athos
+  revert` is not retired again by its next reuse (a legacy piece is marked for review instead). Retiring supersedes it
+  as a new version; `athos revert` restores it.
 - **ageing, without a model**: a verified piece with no use and no re-verification in `autolearn.age_days` (90) days
   goes back to candidate, checked when a session starts. Using a piece moves its last-used date, so use slows ageing.
   Legacy pieces do not age.
 
 A reuse is judged when your next request arrives, once your reaction and your edits are known: a `reuse` event per piece
-the task used (opened, on a frontier model; given, on an apply model), never for the task that saved it. On a frontier
-model it is **clean** when the task's evidence has a strong item for the work and nothing against the piece (no edit
-of yours credited to it, no revert, no reaction that it was wrong, none of its Checks failing last), **corrected** when
-something is against it, and **unverified** (not counted) when nothing proved the work. On an apply model it is
-**clean** only when at least one of its Checks was seen passing and none failing last, **failed** on a failing Check or
-a correction, and unverified when none of its Checks ran. A failure on an apply model also marks the piece for review:
+the task used (opened, on a frontier model; given, on an apply model), never in the session that saved or improved
+it. On a frontier model it is **clean** when the task's evidence has a strong item for the work and nothing against
+it, **corrected** on strong evidence tied to the piece (an edit of yours credited to it, one of its Checks failing
+last), and **unverified** (not counted) when nothing proved the work, when something was against the work without
+naming this piece (a revert, an edit of yours credited to another piece or to none, a failed verification that is not
+one of its Checks), or when your words read as a correction. On an apply model it is **clean** only when at least one
+of its Checks was seen passing and none failing last, **failed** on the same tied evidence, and unverified otherwise. A failure on an apply model also marks the piece for review:
 the next frontier model's index says so.
 
 Confidence (0 to 1) starts at 0.3, moves +0.2 on a verifier pass, −0.1 on a fail, +0.1 per clean reuse, −0.2 per
@@ -809,7 +813,7 @@ piece. Both runs count against the same daily cap.
 | event | written when | fields |
 |---|---|---|
 | `grade` | a piece moves, or a verifier outcome or a rule leaves it where it is | `piece`, `version`, `from`, `to` (candidate, verified, retired, legacy), `basis`, and for a move `trigger`, `verifier_pass`, `verifier_model`, `frontier_clean`, `apply_pass`, `risk`, `checks` |
-| `reuse` | the next request after a task that used a piece, or a replay | `piece`, `version`, `task_id`, `tier` (frontier, apply), `model`, `outcome` (clean, corrected, failed, unverified, replay_pass, replay_fail), `basis` (strong_positive, no_correction, check_passed, check_failed, person_edit, revert, reaction_corrected, no_check_ran, nothing_proved_the_work, replay, score), `status` |
+| `reuse` | the next request after a task that used a piece, or a replay | `piece`, `version`, `task_id`, `tier` (frontier, apply), `model`, `outcome` (clean, corrected, failed, unverified, replay_pass, replay_fail), `basis` (strong_positive, no_correction, check_passed, check_failed, person_edit, person_edit_not_this_piece, revert, last_verification_failed, reaction_corrected, no_check_ran, nothing_proved_the_work, replay, score), `status` |
 | `reverify` | an old piece is checked against the environment | `piece`, `version`, `age_days`, `checked`, `missing` (files, commands, scripts, targets: counts), `stale` |
 
 **Repairing polluted statistics.** Sessions recorded before 0.1.111 counted pieces of other projects as used (a
