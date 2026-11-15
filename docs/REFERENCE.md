@@ -372,7 +372,7 @@ of it keeps a request's words: only its length and a 12-character fingerprint (`
 
 | event | written when | fields |
 |---|---|---|
-| `route` | every request the prompt hook sees, loaded or not | `task_id`, `model`, `tier`, `work_mode`, `collaborates` (an apply model always; a frontier one when a piece loaded), `mode` (the loading mode), `project`, `scope_reason`, `named_projects` (empty in a public repository), `named_count` (in a public repository: how many other projects the request named), `marker` (a `.athos.toml` applied), `public`, `private_held` (private pieces kept out, counted), `store_pieces`, `in_scope`, `request_chars`, `request_sha` (not in a public repository), `request_kind` (person, harness, empty), `wrapper`, `candidates` (up to 5: `piece`, `score`, `shared` (how many words it shares with the request, never which), `head_share`, `request_share`, `projects`, `kept`, `reason`), `scored`, `chosen`, `handed_over`, `meaning`, `thresholds`, `cut` (pages cut to fit), `left_out` (pages with no room), `steps_only` (pages given as their steps' When and Do only, whole), `delivery` (piece: the pages themselves, to an apply model; index: a list of the pieces in reach, to a frontier model; null when nothing was chosen), `offered` (the ids the index listed), `piece_chars` and `index_chars` (what each delivery costs, measured either way), `injected_chars` (the router's own text), `injected_total` (everything the prompt hook handed the model: the router's text plus an edit notice, a share request or a rating added after it), `injected_parts` (the characters of each: `pieces`, `connectors`, `offer`, `edit`, `share`, `rating`), `ms` |
+| `route` | every request the prompt hook sees, loaded or not | `task_id`, `model`, `tier`, `work_mode`, `collaborates` (an apply model always; a frontier one when a piece loaded), `mode` (the loading mode), `project`, `scope_reason`, `named_projects` (empty in a public repository), `named_count` (in a public repository: how many other projects the request named), `marker` (a `.athos.toml` applied), `public`, `private_held` (private pieces kept out, counted), `store_pieces`, `in_scope`, `request_chars`, `request_sha` (not in a public repository), `request_kind` (person, harness, empty), `wrapper`, `candidates` (up to 5: `piece`, `score`, `shared` (how many words it shares with the request, never which), `head_share`, `request_share`, `projects`, `kept`, `reason`), `scored`, `chosen`, `handed_over`, `meaning`, `thresholds`, `cut` (pages cut to fit), `left_out` (pages with no room), `steps_only` (pages given as their steps' When, Do and Check only, whole), `delivery` (piece: the pages themselves, to an apply model; index: a list of the pieces in reach, to a frontier model; null when nothing was chosen), `offered` (the ids the index listed), `piece_chars` and `index_chars` (what each delivery costs, measured either way), `injected_chars` (the router's own text), `injected_total` (everything the prompt hook handed the model: the router's text plus an edit notice, a share request or a rating added after it), `injected_parts` (the characters of each: `pieces`, `connectors`, `offer`, `edit`, `share`, `rating`), `ms` |
 | `edit_seen` | the edit detector keeps a file the agent wrote, sees the agent change it again, or finds a change on the next request | `task_id`, `file_sha` (a hash of the path), `decision` (snapshot, rebased (the agent changed it: the copy moves on), pending (the person changed it between two tool calls; told on the next request), attributed, unattributed (a change with no evidence: given to nobody)), `source` (agent_tool, agent_shell, outside, unexplained), `basis` (the evidence for the decision: `changed_during:<tool>`, `no_timing:<tool>`, `tool_failed`, `changed_between_tool_calls`, `changed_after_turn_end`, `no_tool_call_since`, or why there is none: `no_turn_end`, `changed_before_turn_end`, `tool_after_turn_end`, `background_task_running`), `attributed_to` (agent, person, or null), and for a change given to the person `detector` (between_tool_calls, after_turn_end), `piece` (not in a public repository), `piece_basis` (current_step, route_best, none) |
 | `model` | a session starts, every request, and the end of a task whose replies could be read | `task_id`, `model`, `source` (event: the hook said so; transcript_switch: a `/model` switch newer than the latest reply; transcript_reply: the latest reply, since this request's own reply does not exist yet; session: what the session reported, when reported later than both, or last knew; replies: the replies that answered the task; unknown), `seen_in_transcript` (the model of the transcript's latest reply), `stage` (session_start, prompt, end), `changed`, `tier` (frontier, apply), `work_mode` (learn, collaborate), and at the end `answered` (the models whose replies answered the task) and `at_start` |
 | `trigger` | a special path matches: save, adjust, gallery, share | `task_id`, `trigger`, `from_person` (true; false for a harness wrapper such as a subagent's message, also one that opens with another wrapper, or when the transcript says the harness sent it; null when the text opens with another tag or the transcript has no entry for it yet), `acted` (it acts only when `from_person` is true), `wrapper`, `origin_signal` (which signal decided: `heuristic`, `both`, `disagree`, `missing:verify` (acted on the text, checked later), `missing` (`origin_check` strict: held back), `missing:heuristic`), `transcript_origin` (person, harness, or null), `verified` (null while a check is pending); the check itself is another `trigger` event with `stage` verify, `verified` (true, false, or null when the turn ended with no entry), `hook` (tool, stop), `undone` (offer_restored, edit_offer_restored, model_told) and `saved_meanwhile`, `project`, `request_chars`, `request_sha`, `injected_total` (what the path handed the model: save, adjust and gallery; a share request is counted in its route event) |
@@ -502,6 +502,40 @@ answer (after its last tool call) is given to nobody; a hand edit followed by th
 with no other tool call between, is folded into the agent's write; agents whose hooks carry no `duration_ms` (Codex,
 Muse Code, OpenCode) only have the after-the-turn evidence. Checking the kept files costs well under a millisecond per
 tool call with twenty files kept.
+
+### Autonomous learning: candidates, checks and a verifier
+
+On a frontier model Athos can learn on its own, and only a piece proven by objective evidence reaches an apply model.
+
+**Status and provenance.** A page's frontmatter may carry, after `visibility`, each line only when set:
+
+| field | values |
+|---|---|
+| `status` | `candidate` (learned, not proven yet), `verified` (proven: see below), `retired` (superseded after repeated failures; never loads) |
+| `risk` | `normal` or `high` (its steps publish, merge, deploy, delete, force-push or touch production) |
+| `confidence` | a number from 0 to 1 |
+| `last_verified` | the date it was last proven |
+| `learned_by` | the model that wrote it |
+| `evidence` | a short inline list of `kind:detail` items, e.g. `[verify:unittest:ok, commit, task:3f9a1c2b7d10, verifier:pass]` |
+
+A page with no `status` (every page written before 0.1.122, and any page you write yourself) is **legacy**: it loads,
+is offered and is delivered exactly as a verified one. Such a file is written back unchanged: the new lines appear only
+once a field is set. A status change is a new version, the outgoing one archived in `.history` as for any improvement,
+so `athos revert <id>` brings it back; retiring supersedes a page and deletes nothing.
+
+**Check lines.** A statement may say how to tell that its step went right, next to When, Do, Because and Links:
+
+```
+## #run_tests
+**When:** after changing the parser.
+**Do:** run the unit tests.
+**Check:** `python3 -m unittest discover -s tests` exits 0
+```
+
+A Check is a command in backticks, or a fact anyone can observe. An apply model runs the check instead of judging its
+own work, and a candidate needs at least one runnable Check (a command in backticks) before it can be verified. The
+capture guide asks for one per step; a page given as its steps only, to fit the 8000-character cap, keeps each step's
+Check with its When and Do.
 
 ### Per-step models
 

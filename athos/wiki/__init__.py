@@ -8,6 +8,11 @@ A piece is a page. Its body is a list of **statements**, the smallest unit you c
     **Because:** a private name reached a public PR once.
     **Links:** [[bump-the-plugin-version#bump]] · [[land-a-change#open_pr]]
     **Model:** local
+    **Check:** `python3 tools/guard.py .` exits 0
+
+`**Check:**` is optional: the command, or the fact anyone can observe, that proves the step went right. It is what
+makes a piece safe for a weaker model (it runs the check instead of judging), and a candidate piece needs at least
+one runnable Check (a command in backticks) before it can be verified (athos/grade.py).
 
 `**Model:**` is optional: the model that step runs on in `athos delegate --by-step` (`local`, `meta`,
 `ollama:<model>` or `meta:<model>`). A statement without it runs on the task's model.
@@ -37,7 +42,7 @@ from athos import paths, store
 
 INDEX = "Index.md"
 STATEMENT = re.compile(r"^## #([a-z0-9][a-z0-9_-]*)\s*$", re.M)
-FIELD = re.compile(r"^\*\*(When|Do|Because|Links|Calls|If|Model):\*\*\s*(.*)$", re.M)
+FIELD = re.compile(r"^\*\*(When|Do|Because|Links|Calls|If|Model|Check):\*\*\s*(.*)$", re.M)
 LINK = re.compile(r"\[\[([a-z0-9][a-z0-9-]*)(?:#([a-z0-9][a-z0-9_-]*))?(?:\|[^\]]*)?\]\]")
 AGENT_PREFIX = "athos-"
 OVERLAP = 0.4          # share of the words two **When** lines have in common to call them the same moment
@@ -56,6 +61,7 @@ class Statement:
     links: list[tuple[str, str | None]] = field(default_factory=list)
     calls: list[dict] = field(default_factory=list)   # [{"page", "statement", "if"}]: the sub-routines of this step
     model: str = ""                     # `**Model:**`, the model this step asks for; "" = the task's model
+    check: str = ""                     # `**Check:**`, what proves the step went right; "" = none
 
     @property
     def ref(self) -> str:
@@ -71,7 +77,7 @@ def statements(p: store.Piece) -> list[Statement]:
     for sid, text in zip(parts[1::2], parts[2::2]):
         f = {k.lower(): v.strip() for k, v in FIELD.findall(text)}
         out.append(Statement(p.id, sid, f.get("when", ""), f.get("do", ""), f.get("because", ""), LINK.findall(text),
-                             calls_of(f.get("calls", ""), f.get("if", "")), f.get("model", "")))
+                             calls_of(f.get("calls", ""), f.get("if", "")), f.get("model", ""), f.get("check", "")))
     return out
 
 

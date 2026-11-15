@@ -109,7 +109,7 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "athos_save", "description": "Save what a task taught as one piece, or improve an existing one (give "
      "its id and a note). The text is a frontmatter (title, when, and id + note to improve) and a body of statements "
-     "(## #id with **When:** **Do:** **Because:** **Links:**).",
+     "(## #id with **When:** **Do:** **Check:** **Because:** **Links:**).",
      "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     {"name": "athos_merge", "description": "Merge colleagues' copies of one of the person's ways of working into one "
      "team version (\"merge my lease review with Ana's version in this folder\"). `id`: the person's piece; `paths`: "

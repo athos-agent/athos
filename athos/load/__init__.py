@@ -506,9 +506,9 @@ def _page_section(piece: store.Piece) -> str:
 PREFACE = ("# Athos — know-how that matches this request\n\nThe user's own know-how for this kind of task. "
            "Follow it unless the request says otherwise.\n")
 CUT_NOTE = "\n… (cut to fit; `{cmd} show {id}` prints the whole page)\n"
-STEPS_NOTE = ("\n… (only each step's When and Do, to fit: `{cmd} show {id}` prints the whole page, with the reasons, "
+STEPS_NOTE = ("\n… (only each step's When, Do and Check, to fit: `{cmd} show {id}` prints the whole page, with the reasons, "
               "links and history)\n")
-STEPS_CUT_NOTE = ("\n… (only each step's When and Do, to fit, and {n} more step(s) left out: {ids}. `{cmd} show {id}` "
+STEPS_CUT_NOTE = ("\n… (only each step's When, Do and Check, to fit, and {n} more step(s) left out: {ids}. `{cmd} show {id}` "
                   "prints the whole page)\n")
 
 
@@ -576,7 +576,7 @@ def _fit(pieces: list[store.Piece], cmd: str = "athos",
 
 def _steps_section(piece: store.Piece, room: int, cmd: str) -> tuple[str, bool]:
     """A page as its steps only, within `room` characters: the heading and "when", then each statement's id, When,
-    Do and hand-overs (Calls, If), without Because, Links or the page's history. Returns the text ("" for a page
+    Do, Check and hand-overs (Calls, If), without Because, Links or the page's history. Returns the text ("" for a page
     without statements, or when not even one step fits) and whether every step fit."""
     wiki = _wiki()
     if not wiki.is_wiki(piece):
@@ -587,7 +587,8 @@ def _steps_section(piece: store.Piece, room: int, cmd: str) -> tuple[str, bool]:
         lines = [f"### #{st.id}"]
         lines += [f"**{k}:** {v}" for k, v in (("When", st.when), ("Do", st.do)) if v]
         raw = _raw_statement(piece, st.id)
-        lines += [ln for ln in raw.splitlines() if ln.startswith(("**Calls:**", "**If:**"))]
+        # A step's Check stays with it: it is how an apply model knows the step went right without judging it.
+        lines += [ln for ln in raw.splitlines() if ln.startswith(("**Check:**", "**Calls:**", "**If:**"))]
         blocks.append((st.id, "\n".join(lines) + "\n"))
     whole_note = STEPS_NOTE.format(cmd=cmd, id=piece.id)
     text = head + "\n".join(b for _, b in blocks)

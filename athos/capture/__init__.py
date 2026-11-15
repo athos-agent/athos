@@ -49,6 +49,7 @@ _FRONTMATTER_HINTS = (
 _STATEMENT_TEMPLATE = """## #<statement_id>
 **When:** <the moment in the task this step applies, as you would recognise it mid-task>
 **Do:** <the action, concrete enough to check: a command, a file, a question to the person, a refusal>
+**Check:** <the command in backticks, or the fact anyone can observe, that proves this step went right>
 **Because:** <the reason or the evidence: an incident, a measurement, the person's decision>
 **Links:** <[[page#statement]] of what applies next or alongside, in this piece or another one>
 

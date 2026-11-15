@@ -3,7 +3,10 @@
 A piece is a plain markdown file, `<home>/know-how/<id>.md`, that a person can open and change by hand. It begins
 with a frontmatter block between two `---` lines holding, in this order: `id`; `title`; `when` (the situation the
 piece is for); `projects` as an inline list such as `[athos, docs]`; an optional `visibility` (`private`,
-`project` or `general`, see `visibility`); the `created` and `last_used` dates; an
+`project` or `general`, see `visibility`); the autonomous-learning fields, each written only when set (`status`:
+`candidate`, `verified` or `retired`; `risk`: `normal` or `high`; `confidence`, a number from 0 to 1;
+`last_verified`, a date; `learned_by`, the model that wrote it; `evidence`, an inline list of short `kind:detail`
+items); the `created` and `last_used` dates; an
 `origin` mapping whose indented `platform` and `model` say where it was written; and the `version` number. The
 steps, criteria and mistakes to avoid follow as free markdown. Last comes a `## History` heading over a bullet
 list of changes, newest first, each shaped like `v2 <date> (<platform>, <model>): <what changed>`.
@@ -34,6 +37,11 @@ _HISTORY_LINE = re.compile(r"^## History\s*$", re.M)
 # named anywhere else (not in another project's index, log.md or hook output). `project`: its projects' sessions,
 # and another project's when the request names one of them. `general`: may be named anywhere.
 VISIBILITIES = ("private", "project", "general")
+# Where a piece stands in autonomous learning (athos/grade.py). A piece with no status at all was written before it
+# existed (or by the person): it is `legacy` and behaves as verified, so nothing that worked stops working.
+STATUSES = ("candidate", "verified", "retired")
+LEGACY = "legacy"
+RISKS = ("normal", "high")
 
 
 @dataclass
@@ -51,6 +59,12 @@ class Piece:
     version: int = 1
     history: list[str] = field(default_factory=list)       # newest first, without the leading "- "
     visibility: str = ""                                     # as written; "" when the frontmatter has none
+    status: str = ""                                         # candidate | verified | retired; "" = legacy
+    risk: str = ""                                           # normal | high; "" = not classified yet
+    confidence: str = ""                                     # as written, e.g. "0.6"; "" = none
+    last_verified: str = ""                                  # YYYY-MM-DD
+    learned_by: str = ""                                     # the model id that wrote it, for autonomous saves
+    evidence: list[str] = field(default_factory=list)        # short `kind:detail` items, newest last
 
     @property
     def path(self) -> Path:
@@ -67,6 +81,26 @@ def visibility(p: Piece) -> str:
 
 def private(p: Piece) -> bool:
     return visibility(p) == "private"
+
+
+def status(p: Piece) -> str:
+    """A piece's status: the one its frontmatter states, else `legacy` (a piece from before autonomous learning, or
+    written by the person), which loads and behaves exactly as `verified`."""
+    return p.status if p.status in STATUSES else LEGACY
+
+
+def usable_as_verified(p: Piece) -> bool:
+    """Verified, or legacy: what an apply model may be given."""
+    return status(p) in ("verified", LEGACY)
+
+
+def confidence(p: Piece) -> float | None:
+    """The piece's confidence as a number in [0, 1], or None when it has none (legacy pieces)."""
+    try:
+        value = float(p.confidence)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, min(1.0, value))
 
 
 def _file_for(piece_id: str) -> Path:
@@ -174,7 +208,32 @@ def parse(text: str) -> Piece:
         version=int(fields.get("version") or 1),
         history=history,
         visibility=str(fields.get("visibility") or "").strip().lower(),
+        status=str(fields.get("status") or "").strip().lower(),
+        risk=str(fields.get("risk") or "").strip().lower(),
+        confidence=str(fields.get("confidence") or "").strip(),
+        last_verified=str(fields.get("last_verified") or "").strip(),
+        learned_by=str(fields.get("learned_by") or "").strip(),
+        evidence=_as_list(fields.get("evidence")),
     )
+
+
+def _as_list(value) -> list[str]:
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    return [str(value)] if value else []
+
+
+_LEARNING_KEYS = ("status", "risk", "confidence", "last_verified", "learned_by")
+
+
+def _learning_lines(p: Piece) -> list[str]:
+    """The autonomous-learning fields that are set, in a fixed order; none for a legacy piece, so its file is written
+    back exactly as before."""
+    lines = [f"{key}: {_quote(str(getattr(p, key)))}" for key in _LEARNING_KEYS if getattr(p, key)]
+    if p.evidence:
+        items = [re.sub(r"[,\[\]\n]", " ", e).strip() for e in p.evidence]
+        lines.append("evidence: [" + ", ".join(i for i in items if i) + "]")
+    return lines
 
 
 def _origin_lines(origin: dict) -> list[str]:
@@ -191,6 +250,7 @@ def render(p: Piece) -> str:
         f"when: {_quote(p.when)}",
         "projects: [" + ", ".join(p.projects) + "]",
         *([f"visibility: {p.visibility}"] if p.visibility else []),
+        *_learning_lines(p),
         f"created: {p.created}",
         f"last_used: {p.last_used}",
         "origin:",
@@ -263,13 +323,17 @@ def _require(piece_id: str) -> Piece:
 
 
 def create(title: str, when: str, body: str, projects: list[str] | None = None, origin: dict | None = None,
-           piece_id: str | None = None) -> Piece:
-    """Add a new piece at version 1. The id comes from `piece_id` (or the title) and never reuses an existing one."""
+           piece_id: str | None = None, **learning) -> Piece:
+    """Add a new piece at version 1. The id comes from `piece_id` (or the title) and never reuses an existing one.
+    `learning` sets the autonomous-learning fields (status, risk, confidence, learned_by, evidence, visibility)."""
     origin = origin or dict(_UNKNOWN_ORIGIN)
     date = today()
     piece = Piece(id=_free_id(slugify(piece_id or title)), title=title, when=when, body=body,
                   projects=projects or [], created=date, last_used=date, origin=origin, version=1,
-                  history=[_history_entry(1, origin, "created")])
+                  history=[_history_entry(1, origin, learning.pop("note", None) or "created")])
+    for key, value in learning.items():
+        if hasattr(piece, key) and value is not None:
+            setattr(piece, key, value)
     _write(piece)
     return piece
 
@@ -296,6 +360,7 @@ def update(piece_id: str, note: str, body: str | None = None, title: str | None 
         version=version,
         history=[_history_entry(version, origin, note.strip() or "updated"), *current.history],
         visibility=current.visibility,
+        **{key: getattr(current, key) for key in (*_LEARNING_KEYS, "evidence")},
     )
     _write(improved)
     diff = difflib.unified_diff(render(current).splitlines(True), render(improved).splitlines(True),
@@ -320,6 +385,39 @@ def revert(piece_id: str, to: int | None = None) -> Piece:
     restored.history = [f"v{restored.version} {today()}: reverted to v{target}", *current.history]
     _write(restored)
     return restored
+
+
+def set_status(piece_id: str, new: str, note: str) -> Piece:
+    """Move a piece to another status as a new version: the outgoing file is archived first (so `athos revert` brings
+    it back) and `note` says why in its history. Nothing is deleted: retiring a piece supersedes it. The last-used
+    date is not moved; a status change is not a use."""
+    if new not in STATUSES:
+        raise ValueError(f"unknown status {new!r}")
+    current = _require(piece_id)
+    _archive(current)
+    was = status(current)
+    current.version += 1
+    current.status = new
+    current.history = [f"v{current.version} {today()} (athos, grade): {was} → {new}: {note.strip()}",
+                       *current.history]
+    _write(current)
+    return current
+
+
+def set_meta(piece_id: str, **fields) -> Piece | None:
+    """Change bookkeeping fields in place, like `touch` (confidence, last_verified, evidence, risk): not a new
+    version. None for an unknown piece."""
+    piece = get(piece_id)
+    if piece is None:
+        return None
+    changed = False
+    for key, value in fields.items():
+        if key in (*_LEARNING_KEYS, "evidence") and key != "status" and getattr(piece, key) != value:
+            setattr(piece, key, value)
+            changed = True
+    if changed:
+        _write(piece)
+    return piece
 
 
 def touch(piece_id: str) -> None:
