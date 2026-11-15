@@ -586,6 +586,52 @@ save path as before, but never saves on its own. Another agent's models (Codex, 
 until you name them frontier with `athos tiers add frontier <pattern>`. `"autolearn": {"on": false}` in
 `~/.athos/config.json` turns autonomous learning off: a frontier session is then offered [Save] (or asked) as before.
 
+**The worker never grades its own work.** Whether the work was right is decided by an independent verifier, not by
+the model that did it. Right after an autonomous save Athos writes a folder for it, `~/.athos/verify/<id>-v<n>-<task>/`:
+`diff.patch` (from git only: the commits the task made, what is left uncommitted, new untracked files by name),
+`verification.txt` (the output the tool hook kept of each verification command, with its exit status), `piece.md` (the
+candidate as stored) and `checks.json` (its Check commands); then it starts, detached so no hook waits, a headless run
+of your own Claude Code:
+
+```
+claude -p <prompt> --output-format json --model <verifier> --tools Read,Grep,Glob --allowedTools "Read Grep Glob"
+       --permission-mode dontAsk --no-session-persistence --safe-mode --strict-mcp-config
+       --max-budget-usd <cap> --add-dir <folder>          (in that folder, with a throwaway ATHOS_HOME,
+                                                           ATHOS_HOOKS=off and ATHOS_CAPTURE=off)
+```
+
+Read-only tools, a fresh context, no plugins, hooks, CLAUDE.md or MCP servers (`--safe-mode`; `ATHOS_HOOKS=off` makes
+`athos hook` do nothing as well), nothing kept of the session. Its prompt is a fixed text with the four paths and
+nothing else: never the worker's summary or the conversation (`prompt.txt` keeps it, and the `verify` event records
+`paths_only`). It answers a fixed rubric, one verdict per criterion, as JSON:
+
+| criterion | passes when |
+|---|---|
+| `evidence_passed` | the verification output shows the commands ended successfully, with no failure after the last success |
+| `piece_matches_work` | every step of the piece is backed by the diff or the verification output |
+| `checks_runnable` | at least one Check is a concrete command that can be run again later in this repository |
+| `no_private_data` | no secret, credential, personal data or folder of one particular computer |
+| `reusable` | a way of working for a later task, not a narration of this one |
+
+The verdict passes only when every criterion does. It runs on a different frontier model from the one that did the
+work: `autolearn.verifier.models` in `config.json`, or else one per frontier family your tiers name (`claude-fable-*`
+→ `fable`, `claude-opus-*` → `opus`; an exact id as written), the first of another family than the worker's. When
+there is only one, the same model is used and the `verify` event says `same_model_fallback` (and the piece's evidence
+`verifier:pass:same-model`).
+
+Every model run Athos starts (verifiers and replays together) counts against a daily cap: `autolearn.budget` with
+`runs_per_day` (default 6), `usd_per_day` (default US$1.00) and `usd_estimate_per_run` (US$0.25, counted for a run that
+reports no cost); each run is also capped at `autolearn.verifier.max_usd_per_run` (US$0.50) or what is left of the
+day, whichever is less, and stopped after `autolearn.verifier.timeout_s` (300 s). `"verifier": {"on": false}` turns it
+off. A run refused by the cap, failed or timed out leaves the piece a candidate and says why (`grade` and `learn`
+events); a candidate still waiting is picked up at a later end of turn, at most two attempts. `athos verify <id>` runs
+it by hand, in the foreground; `athos verify --pending` the oldest waiting one.
+
+| event | written when | fields |
+|---|---|---|
+| `verify` | a verifier run ends, or is refused | `piece`, `version`, `task_id`, `outcome` (pass, fail, error, skipped), `model`, `worker_model`, `same_model_fallback`, `verdict` (per criterion, true or false), `why` (one line per criterion), `error`, `cost_usd`, `bundle`, `inputs` (the file names it was given), `prompt_file`, `paths_only`, `attempts` |
+| `model_run` | any model run Athos starts, or refuses to start for the cap | `purpose` (verify, replay), `piece`, `version`, `model`, `started`, `refused` (why), `ok`, `error`, `cost_usd`, `cost_estimated`, `usd_cap_run`, `usd_per_day`, `runs_per_day`, `duration_s` |
+
 **Risk lanes.** A step is high risk when its When or Do publishes (`npm publish`, `git push`, `docker push`, `gh
 release create`, the word publish), merges (`gh pr merge`, `git merge`, merge), deploys (deploy, `kubectl apply`,
 `terraform apply|destroy`, `helm install|upgrade`, `vercel --prod`), deletes (`rm -r`, `rm -f`, delete, `DROP TABLE`,

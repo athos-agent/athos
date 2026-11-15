@@ -426,6 +426,8 @@ def _on_stop(event: dict, platform: str) -> None:
     _quietly(cases.on_task_end, event, rec)
     _quietly(evidence.prune)                  # only the last few hundred tasks' evidence stays
     _quietly(replay.maybe_spawn, ME)          # background shadowing, when the person turned it on
+    from athos import verify
+    _quietly(verify.maybe_spawn_pending, ME)  # a candidate still waiting for its independent verdict
     sid = event.get("session_id")
     if sid and not session.load(sid).get("trail"):
         sid = _folder_session_id(event, sid)
@@ -453,7 +455,9 @@ _HOOK_HANDLERS = {"session-start": _on_session_start, "prompt": _on_prompt, "too
 
 def hook(event_name: str, platform: str = "claude-code") -> int:
     """Handle one hook event read from stdin. It always exits 0: a failure is written to stderr and the person's
-    session carries on untouched."""
+    session carries on untouched. With ATHOS_HOOKS=off (the independent verifier's own run) it does nothing at all."""
+    if os.environ.get("ATHOS_HOOKS", "").lower() in ("off", "0", "false", "no"):
+        return 0
     try:
         if platform == "claude-code" and os.environ.get("MUSE_PLUGIN_ID"):
             platform = "muse-code"                  # Muse Code runs the Claude Code plugin as it is, and says so
@@ -558,6 +562,10 @@ def _save_auto(text: str) -> int | None:
     if refused:
         return _fail(line)
     print(line)
+    from athos import verify
+    started = _quietly(verify.after_save, piece, session.load(sid), folder, ME)
+    if started:
+        print("An independent check of the work starts in the background; it decides whether the piece is verified.")
 
 
 def _save_from_audio(args: argparse.Namespace) -> int | None:
@@ -1542,6 +1550,35 @@ def cmd_shadow(args) -> int:
     return 0
 
 
+def cmd_verify(args) -> int:
+    """`athos verify <id> [--bundle DIR] | --pending`: run the independent verifier on a candidate (Athos starts it in
+    the background after an autonomous save; by hand it runs in the foreground and prints the outcome)."""
+    from athos import verify
+    if not verify.take_lock():
+        return 0 if args.quiet else _fail("a verifier is already running; try again later")
+    try:
+        if args.pending:
+            outs = verify.run_pending(limit=args.limit)
+        elif args.id:
+            outs = [verify.run(args.id, Path(args.bundle) if args.bundle else None)]
+        else:
+            return _fail("athos verify <id> | --pending")
+    finally:
+        verify.release_lock()
+    if args.quiet:
+        return 0
+    if args.json:
+        print(json.dumps(outs, indent=1))
+        return 0
+    for o in outs:
+        verdict = ", ".join(f"{c} {'✓' if ok else '✗'}" for c, ok in (o.get("verdict") or {}).items())
+        print(f"{o['piece']} v{o.get('version')}: {o['outcome']}" + (f" ({o['error']})" if o.get("error") else "")
+              + (f" · {o['model']}" if o.get("model") else "") + (f" · {verdict}" if verdict else ""))
+    if not outs:
+        print("no candidate is waiting for its verdict")
+    return 0
+
+
 def cmd_step(args) -> int:
     """Run by the agent, not the person: the step of the person's know-how it is on now, or a step it did that the
     know-how lacks. The pane and `athos watch` show it."""
@@ -1893,6 +1930,14 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--carry", action="append", metavar="ID[,ID…]",
                    help="ways of working to put inside the skill, so Claude follows them even without the connector "
                         "(they are then kept in your Claude account too)")
+    s = sub.add_parser("verify", help="run the independent verifier on a candidate piece (Athos starts it after an "
+                       "autonomous save); read-only tools, another frontier model, paths only")
+    s.add_argument("id", nargs="?")
+    s.add_argument("--bundle", help="the verifier's input folder (default: the piece's latest)")
+    s.add_argument("--pending", action="store_true", help="the candidates still waiting for a verdict")
+    s.add_argument("--limit", type=int, default=1)
+    s.add_argument("--quiet", action="store_true")
+    s.add_argument("--json", action="store_true")
     s = sub.add_parser("step", help="(for the agent) the step of your know-how it is on, shown in Athos's pane")
     s.add_argument("ref", nargs="?", help="<piece>#<statement>")
     s.add_argument("--new", help="a step the task needed that your know-how doesn't have yet")
@@ -1964,7 +2009,8 @@ _HANDLERS = {
     "opencode": cmd_opencode, "project": cmd_project, "dismiss": cmd_dismiss, "revert": cmd_revert,
     "library": cmd_library, "delegate": cmd_delegate, "route": cmd_route, "mark": cmd_mark, "import": cmd_import,
     "report": cmd_report, "bench": cmd_bench, "embed": cmd_embed, "wiki": cmd_wiki, "mcp": cmd_mcp,
-    "watch": cmd_watch, "connector": cmd_connector, "desktop": cmd_desktop, "step": cmd_step, "test": cmd_test,
+    "watch": cmd_watch, "connector": cmd_connector, "desktop": cmd_desktop, "step": cmd_step, "verify": cmd_verify,
+    "test": cmd_test,
     "shadow": cmd_shadow, "status": cmd_status, "doctor": cmd_doctor, "gallery": cmd_gallery, "add": cmd_add, "share": cmd_share,
     "hook": cmd_hook, "audit": cmd_audit, "profile": cmd_profile, "privacy": cmd_privacy,
     "tiers": cmd_tiers, "public": cmd_public,

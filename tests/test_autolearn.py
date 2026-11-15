@@ -457,3 +457,195 @@ class RiskDetectorTest(unittest.TestCase):
         self.assertEqual(autolearn.risky_steps(p), {"ship": ["publish"]})
         self.assertEqual(autolearn.risk_of(p), "high")
         self.assertEqual(autolearn.risk_of(store.Piece(id="y", title="y", when="y", body=BODY)), "normal")
+
+
+PASS = json.dumps({c: {"pass": True, "why": "shown"} for c in
+                   ("evidence_passed", "piece_matches_work", "checks_runnable", "no_private_data", "reusable")})
+
+
+class StubRunner:
+    """Stands in for `claude -p`: records what it was given and answers as told."""
+
+    def __init__(self, text=PASS, ok=True, cost=0.04, error=None):
+        self.text, self.ok, self.cost, self.error, self.calls = text, ok, cost, error, []
+
+    def __call__(self, prompt, bundle, model, timeout, max_usd):
+        self.calls.append({"prompt": prompt, "bundle": bundle, "model": model, "timeout": timeout, "max_usd": max_usd})
+        return {"ok": self.ok, "text": self.text, "cost_usd": self.cost, "error": self.error, "duration_s": 1.0}
+
+
+def candidate(project="demo", body=BODY, task="t1", **more):
+    from athos import evidence
+    evidence.add(task, {"type": "verify", "kind": "test", "label": "unittest", "ok": True, "strength": "strong",
+                        "polarity": "positive"})
+    fields = {"status": "candidate", "learned_by": "claude-opus-5-5", "confidence": "0.3", "risk": "normal", **more}
+    return store.create("Change the parser safely", "changing the parser", body, projects=[project], **fields)
+
+
+class VerifierTest(TempHome):
+    def setUp(self):
+        super().setUp()
+        from athos import verify
+        self.piece = candidate()
+        self.bundle = verify.build_bundle(self.piece, "t1", None)
+
+    def events(self, kind):
+        from athos import eval as ev
+        return [e for e in ev.events() if e.get("type") == kind]
+
+    def test_the_prompt_carries_paths_only(self):
+        from athos import verify
+        prompt, named = verify.prompt_for(self.bundle)
+        self.assertTrue(verify.paths_only(prompt, named, self.bundle))
+        self.assertFalse(verify.paths_only(prompt + "\nThe worker says all tests pass.", named, self.bundle))
+        self.assertFalse(verify.paths_only(prompt, {**named, "piece": "/tmp/elsewhere/piece.md"}, self.bundle))
+        self.assertFalse(verify.paths_only(prompt, {**named, "summary": "done"}, self.bundle))
+        rest = prompt
+        for value in named.values():
+            rest = rest.replace(value, "<path>")
+        self.assertEqual(rest, verify.PROMPT.format(**{k: "<path>" for k in named}))   # fixed text and paths
+
+    def test_a_passing_verdict_is_recorded_with_its_cost_and_model(self):
+        from athos import verify
+        runner = StubRunner()
+        out = verify.run(self.piece.id, self.bundle, runner)
+        self.assertEqual(out["outcome"], "pass")
+        self.assertTrue(out["paths_only"])
+        self.assertEqual(out["inputs"], sorted(verify.INPUTS))
+        self.assertEqual(runner.calls[0]["model"], "fable")                    # not the worker's family
+        self.assertFalse(out["same_model_fallback"])
+        self.assertEqual(Path(self.bundle, "prompt.txt").read_text(), runner.calls[0]["prompt"])
+        again = store.get(self.piece.id)
+        self.assertIn("verifier:pass", again.evidence)
+        self.assertEqual((again.confidence, again.last_verified), ("0.50", store.today()))
+        [run] = self.events("model_run")
+        self.assertEqual((run["purpose"], run["cost_usd"], run["model"]), ("verify", 0.04, "fable"))
+        self.assertEqual(self.events("grade")[-1]["basis"], "verifier_passed")
+        self.assertEqual(self.events("learn")[-1]["decision"], "graded")
+
+    def test_the_worker_never_sees_its_own_summary(self):
+        from athos import verify
+        runner = StubRunner()
+        verify.run(self.piece.id, self.bundle, runner)
+        sent = runner.calls[0]["prompt"]
+        self.assertNotIn("Change the parser safely", sent)                     # the piece itself is only a path
+        self.assertEqual(sorted(p.name for p in Path(self.bundle).iterdir() if p.name in verify.INPUTS),
+                         sorted(verify.INPUTS))
+
+    def test_the_same_model_is_a_recorded_fallback(self):
+        from athos import tiers, verify
+        tiers.add("apply", ["claude-fable-*", "claude-mythos-*"])              # only opus is frontier now
+        runner = StubRunner()
+        out = verify.run(self.piece.id, self.bundle, runner)
+        self.assertEqual((runner.calls[0]["model"], out["same_model_fallback"]), ("opus", True))
+        self.assertIn("verifier:pass:same-model", store.get(self.piece.id).evidence)
+
+    def test_a_failing_verdict_names_the_criteria(self):
+        from athos import verify
+        bad = json.loads(PASS)
+        bad["checks_runnable"] = {"pass": False, "why": "vague"}
+        out = verify.run(self.piece.id, self.bundle, StubRunner(json.dumps(bad)))
+        self.assertEqual(out["outcome"], "fail")
+        self.assertEqual(store.get(self.piece.id).status, "candidate")
+        self.assertEqual(self.events("grade")[-1]["basis"], "verifier_failed: checks_runnable")
+
+    def test_a_timeout_or_an_unreadable_answer_leaves_a_candidate_and_says_why(self):
+        from athos import verify
+        out = verify.run(self.piece.id, self.bundle, StubRunner(ok=False, cost=None, error="timeout after 300 s"))
+        self.assertEqual((out["outcome"], out["error"]), ("error", "timeout after 300 s"))
+        self.assertEqual(store.get(self.piece.id).status, "candidate")
+        self.assertIn("timeout", self.events("grade")[-1]["basis"])
+        self.assertTrue(self.events("model_run")[-1]["cost_estimated"])
+        out = verify.run(self.piece.id, self.bundle, StubRunner(text="looks fine to me"))
+        self.assertEqual(out["error"], "the answer held no readable verdict")
+
+    def test_caps_are_enforced(self):
+        from athos import start, verify
+        start.config_file().write_text(json.dumps({"autolearn": {"budget": {"runs_per_day": 1}}}))
+        verify.run(self.piece.id, self.bundle, StubRunner(ok=False, cost=None, error="boom"))
+        runner = StubRunner()
+        out = verify.run(self.piece.id, self.bundle, runner)
+        self.assertEqual((out["outcome"], runner.calls), ("skipped", []))
+        self.assertIn("daily cap of 1 runs", out["error"])
+        start.config_file().write_text(json.dumps({"autolearn": {"budget": {"runs_per_day": 9, "usd_per_day": 0.3}}}))
+        runner = StubRunner(cost=0.1)
+        verify.run(self.piece.id, self.bundle, runner)
+        self.assertEqual(runner.calls[0]["max_usd"], 0.05)          # what was left of the day: 0.3 - 0.25 estimated
+        out = verify.run(self.piece.id, self.bundle, StubRunner())
+        self.assertIn("US$0.3", out["error"])
+        self.assertEqual(self.events("model_run")[-1]["refused"], out["error"])
+
+    def test_the_verifier_can_be_turned_off(self):
+        from athos import start, verify
+        start.config_file().write_text(json.dumps({"autolearn": {"verifier": {"on": False}}}))
+        runner = StubRunner()
+        self.assertEqual(verify.run(self.piece.id, self.bundle, runner)["outcome"], "skipped")
+        self.assertEqual(runner.calls, [])
+        spawned = []
+        self.assertFalse(verify.after_save(self.piece, {"task_id": "t1"}, None, Path("athos"), spawned.append))
+        self.assertEqual(spawned, [])
+        self.assertEqual(self.events("grade")[-1]["basis"], "verifier_off")
+
+    def test_after_a_save_it_starts_detached(self):
+        from athos import verify
+        calls = []
+        started = verify.after_save(self.piece, {"task_id": "t1"}, None, Path("/x/bin/athos"),
+                                    lambda argv, **kw: calls.append((argv, kw)))
+        self.assertTrue(started)
+        argv, kw = calls[0]
+        self.assertIn("verify", argv)
+        self.assertTrue(kw["start_new_session"])
+        self.assertEqual(kw["stdout"], verify.subprocess.DEVNULL)
+
+    def test_the_child_run_is_isolated_and_read_only(self):
+        from athos import verify
+        cmd = verify.command("p", "fable", self.bundle, 0.5)
+        for flag in ("--safe-mode", "--no-session-persistence", "--strict-mcp-config"):
+            self.assertIn(flag, cmd)
+        self.assertEqual(cmd[cmd.index("--tools") + 1], "Read,Grep,Glob")
+        self.assertEqual(cmd[cmd.index("--max-budget-usd") + 1], "0.50")
+        env = verify.child_env("/tmp/throwaway")
+        self.assertEqual((env["ATHOS_HOME"], env["ATHOS_HOOKS"], env["ATHOS_CAPTURE"]), ("/tmp/throwaway", "off", "off"))
+
+    def test_athos_hooks_are_inert_in_the_child(self):
+        from athos import cli, eval as ev
+        with mock.patch.dict(os.environ, {"ATHOS_HOOKS": "off"}), \
+                mock.patch("sys.stdin", io.StringIO(json.dumps({"session_id": "v", "prompt": "hi", "cwd": self.home}))), \
+                redirect_stdout(io.StringIO()) as out:
+            cli.hook("prompt")
+        self.assertEqual((out.getvalue(), [e for e in ev.events() if e.get("session_id") == "v"]), ("", []))
+
+    def test_the_bundle_is_built_from_git_and_the_hooks_output(self):
+        import subprocess
+        from athos import evidence, verify
+        repo = os.path.join(self.home, "repo")
+        os.makedirs(repo)
+        git = ["git", "-c", "user.email=a@example.com", "-c", "user.name=a"]
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        Path(repo, "a.py").write_text("x = 1\n")
+        subprocess.run([*git, "add", "a.py"], cwd=repo, check=True)
+        subprocess.run([*git, "commit", "-qm", "first"], cwd=repo, check=True)
+        Path(repo, "a.py").write_text("x = 2\n")
+        Path(repo, "out.txt").write_text("Ran 3 tests OK\n")
+        evidence.add("t2", {"type": "verify", "kind": "test", "label": "pytest", "ok": True, "strength": "strong",
+                            "polarity": "positive", "output": str(Path(repo, "out.txt"))})
+        folder = verify.build_bundle(self.piece, "t2", repo)
+        self.assertIn("-x = 1", Path(folder, "diff.patch").read_text())
+        self.assertIn("Ran 3 tests OK", Path(folder, "verification.txt").read_text())
+        self.assertEqual(json.loads(Path(folder, "checks.json").read_text())[0]["command"],
+                         "python3 -m unittest discover -s tests")
+
+    def test_pending_candidates_are_retried_a_bounded_number_of_times(self):
+        from athos import verify
+        self.assertEqual([p for p, _ in verify.pending()], [self.piece.id])
+        verify.run(self.piece.id, self.bundle, StubRunner(ok=False, error="boom", cost=None))
+        verify.run(self.piece.id, self.bundle, StubRunner(ok=False, error="boom", cost=None))
+        self.assertEqual(verify.pending(), [])                                 # two attempts, then left alone
+
+    def test_verdict_parsing(self):
+        from athos import verify
+        partial = verify.verdict_of('Here: {"evidence_passed": {"pass": true, "why": "ok"}}')
+        self.assertTrue(partial["evidence_passed"]["pass"])
+        self.assertFalse(partial["reusable"]["pass"])
+        self.assertEqual(partial["reusable"]["why"], "not answered")
+        self.assertIsNone(verify.verdict_of("no json"))
