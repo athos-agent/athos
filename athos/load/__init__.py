@@ -458,7 +458,7 @@ def decide(prompt: str, pieces: list[store.Piece], meaning=None) -> tuple[list[s
                 seen.append({"piece": p.id, "score": round(score, 2), "shared": 0, "projects": list(p.projects),
                              "kept": False, "reason": "meaning"})
     chosen, used = _within_budget(ranked)
-    extra = _handed_over(chosen, used)
+    extra = _handed_over(chosen, used, pieces)
     _budget_reasons(ranked, chosen, seen)
     picked = {p.id for p in chosen}
     top = [c for c in seen if c["piece"] in picked] + sorted(
@@ -488,14 +488,17 @@ def _budget_reasons(ranked: list[tuple[float, store.Piece]], chosen: list[store.
             c["kept"] = c["piece"] in picked
 
 
-def _handed_over(loaded: list[store.Piece], used: int) -> list[store.Piece]:
+def _handed_over(loaded: list[store.Piece], used: int, pool: list[store.Piece]) -> list[store.Piece]:
     """The pages a loaded piece's steps hand over to (**Calls:** / **If:**), while they fit the budget: the model
-    needs them at the step that calls them, not after a search. Each one is taken at most once."""
+    needs them at the step that calls them, not after a search. Each one is taken at most once, and only from `pool`,
+    the pieces this session may be given: a hand-over once brought any page of the store, another project's private
+    one included, past the scope, the public marker and what the model's tier may use."""
     extra: list[store.Piece] = []
+    reach = {p.id: p for p in pool}
     for piece in loaded:
         targets = dict.fromkeys(call["page"] for statement in _wiki().statements(piece) for call in statement.calls)
         for target_id in targets:
-            target = store.get(target_id)
+            target = reach.get(target_id)
             if not target or target in loaded or target in extra:
                 continue
             size = len(store.render(target))
@@ -883,10 +886,10 @@ def pull_index(found: list[store.Piece], trace: dict, pool: list[store.Piece], c
     hooks apply: this project's and the profile, never a piece the session may not see), most recently used first;
     one line each with id, title and "when", at most `lines` lines and `cap` characters. Returns the text and the ids
     it lists."""
-    byid = {p.id: p for p in pool}
+    byid = {p.id: p for p in pool}                     # only what the session may see: never the store at large
     order = [p.id for p in found] + [c["piece"] for c in trace.get("candidates") or []] + \
         [p.id for p in _most_recent_first(pool)]
-    picked = [byid.get(pid) or next((p for p in found if p.id == pid), None) for pid in dict.fromkeys(order)]
+    picked = [byid.get(pid) for pid in dict.fromkeys(order)]
     head = PULL_HEAD.format(cmd=cmd)
     out, ids, used = [head], [], len(head) + 1         # each line costs its own length and a newline
     for p in picked:

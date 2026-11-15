@@ -104,6 +104,7 @@ class _Ctx:
         self.starts, self.ends, self.routes = self.of("task_start"), self.of("task_end"), self.of("route")
         self.project = _project_of(evs)
         self.byid = {p.id: p for p in pieces}
+        self.profile = set(control.profile_ids())
         self.own = [p for p in pieces if self.project and self.project in p.projects]
         self.start_of = {e.get("task_id"): e for e in self.starts}
         self.routed_tasks = {e.get("task_id") for e in self.routes}
@@ -116,8 +117,9 @@ class _Ctx:
         return "a piece of another project"
 
     def foreign(self, pid: str) -> bool:
+        """Another project's piece. A profile piece is not, whatever its tags: it applies in every project."""
         p = self.byid.get(pid)
-        return bool(p and p.projects and self.project and self.project not in p.projects)
+        return bool(p and p.projects and self.project and self.project not in p.projects and pid not in self.profile)
 
     def loads(self) -> list[tuple[str, str, str]]:
         """(task id, piece id, how it is known) for every load of the session: the route event's choice when the task
@@ -125,6 +127,8 @@ class _Ctx:
         `piece_opened`), else the pieces its task_end lists (which also count pages the model opened itself)."""
         out = [(r.get("task_id"), pid, "route") for r in self.routes if r.get("delivery") != "index"
                for pid in r.get("chosen") or []]
+        out += [(r.get("task_id"), pid, "handed_over") for r in self.routes if r.get("delivery") != "index"
+                for pid in r.get("handed_over") or []]
         out += [(e.get("task_id"), e.get("piece"), "opened") for e in self.of("piece_opened") if e.get("piece")]
         for e in self.ends:
             if e.get("task_id") not in self.routed_tasks:
@@ -133,8 +137,12 @@ class _Ctx:
 
 
 def _other_project_load(c: _Ctx) -> dict:
+    """Loads (the router's choice, the pages it handed over to, the pages the model opened) and, for a frontier
+    model, the pieces its index offered: naming another project's piece to the model is already reaching it."""
     found, partial = [], False
-    for tid, pid, how in c.loads():
+    offered = [(r.get("task_id"), pid, "offered") for r in c.routes if r.get("delivery") == "index"
+               for pid in r.get("offered") or []]
+    for tid, pid, how in list(dict.fromkeys(c.loads() + offered)):
         if not c.foreign(pid):
             continue
         route = next((r for r in c.routes if r.get("task_id") == tid), None)
@@ -151,7 +159,8 @@ def _other_project_load(c: _Ctx) -> dict:
         if not named:
             found.append({"task_id": tid, "piece": c.name(pid), "from": how,
                           **({} if known else {"note": "only the request's first 120 characters were kept"})})
-    basis = ("route events" if c.routes and not partial else
+    basis = ("route events (chosen, handed over, offered in an index) and the pieces the model opened"
+             if c.routes and not partial else
              "task_end pieces (pages the model opened count too), the 120-character request head, and each piece's "
              "projects in today's store")
     return _result("other_project_load", _status(found, partial), found, basis)
@@ -169,7 +178,8 @@ def _load_without_own_pieces(c: _Ctx) -> dict:
                 found.append({"task_id": r.get("task_id"), "loaded": len(chosen)})
             elif reason.startswith("auto:no-own-pieces"):
                 named = set(r.get("named_projects") or [])
-                odd = [pid for pid in chosen if c.foreign(pid) and not named & set(c.byid[pid].projects)]
+                reached = list(chosen) + list(r.get("handed_over") or [])
+                odd = [pid for pid in reached if c.foreign(pid) and not named & set(c.byid[pid].projects)]
                 if odd:
                     found.append({"task_id": r.get("task_id"), "loaded": len(odd)})
         return _result("load_without_own_pieces", _status(found, False), found, "route events (scope_reason)")

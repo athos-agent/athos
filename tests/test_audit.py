@@ -386,6 +386,25 @@ class RulesTest(TempHome):
         r = self.rule([start("t1"), routed("t1", chosen=["a1", "g1"]), end("t1", ["a1", "g1"])], "other_project_load")
         self.assertEqual(r["status"], "clean")
 
+    def test_other_project_load_sees_hand_overs_and_index_offers(self):
+        r = self.rule([start("t1"), {**routed("t1", chosen=["a1"]), "handed_over": ["b1"]}], "other_project_load")
+        self.assertEqual((r["status"], r["count"], r["found"][0]["from"]), ("flagged", 1, "handed_over"))
+        r = self.rule([start("t1"), {**routed("t1", chosen=["a1"]), "delivery": "index", "offered": ["a1", "b1"]}],
+                      "other_project_load")
+        self.assertEqual((r["status"], r["count"], r["found"][0]["from"]), ("flagged", 1, "offered"))
+        r = self.rule([start("t1"), {**routed("t1", chosen=["a1"], named=["beta"]), "handed_over": ["b1"]}],
+                      "other_project_load")
+        self.assertEqual(r["status"], "clean")
+
+    def test_a_profile_piece_tagged_with_another_project_is_not_foreign(self):
+        from athos import control
+        control.profile_add(["b1"])
+        r = self.rule([start("t1"), routed("t1", chosen=["b1"]), end("t1", ["b1"])], "other_project_load")
+        self.assertEqual(r["status"], "clean")
+        r = self.rule([start("t1"), routed("t1", chosen=["b1"], reason="auto:no-own-pieces")],
+                      "load_without_own_pieces")
+        self.assertEqual(r["status"], "clean")
+
     def test_other_project_load_on_old_data_is_partial(self):
         r = self.rule([start("t1", request="like we did in beta"), end("t1", ["b1"])], "other_project_load")
         self.assertEqual(r["status"], "partial")

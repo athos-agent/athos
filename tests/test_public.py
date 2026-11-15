@@ -133,3 +133,60 @@ class DeclareTest(Folders):
         subprocess.run(["git", "-C", str(self.root), "remote", "set-url", "origin", "/srv/git/demo.git"], check=True)
         self.assertEqual(paths.code_remotes(self.root), [])
         self.assertEqual(self.audit_rule()["status"], "clean")
+
+
+CALLER = ("## #draft\n**When:** drafting the alpha release notes.\n**Do:** write the notes.\n"
+          "**Calls:** [[beta-secret]]\n\n## #check\n**When:** after drafting.\n**Do:** read them again.\n"
+          "**If:** the notes mention money → [[beta-ledger]]\n")
+
+
+class HandOverTest(Folders):
+    """A hand-over (`**Calls:**` / `**If:**`) brings a page only from the pieces this session may see: never another
+    project's private page, never anything of another project in a repository marked public."""
+
+    def setUp(self):
+        super().setUp()
+        piece("alpha-notes", "Draft the alpha release notes", "drafting the alpha release notes", ["alpha"],
+              body=CALLER)
+        piece("beta-secret", "Beta secret steps", "the beta secret steps", ["beta"], visibility="private",
+              body="## #s\n**When:** at s.\n**Do:** the zebra quartz marmalade.\n")
+        piece("beta-ledger", "Beta ledger", "the beta ledger", ["beta"],
+              body="## #l\n**When:** at l.\n**Do:** the ledger thing.\n")
+        self.root = Path(self.folder("alpha"))
+
+    def written(self):
+        return "".join(f.read_text(errors="ignore") for f in Path(self.home).rglob("*")
+                       if f.is_file() and "know-how" not in f.parts)
+
+    def test_a_private_page_of_another_project_never_comes_along(self):
+        added = self.hook("prompt", {"session_id": "h1", "cwd": str(self.root),
+                                     "prompt": "draft the alpha release notes"})
+        self.assertIn("Draft the alpha release notes", added)
+        self.assertNotIn("zebra quartz", added)
+        self.assertNotIn("Beta secret steps", added)
+        (r,) = events("route")
+        self.assertNotIn("beta-secret", r["handed_over"])
+        self.assertNotIn("beta-secret", self.written())
+
+    def test_in_a_public_repository_nothing_of_another_project_comes_along(self):
+        (self.root / paths.MARKER).write_text('name = "alpha"\npublic = true\n')
+        for sid, model in (("h2", None), ("h3", "claude-opus-5-5")):
+            payload = {"session_id": sid, "cwd": str(self.root), "prompt": "draft the alpha release notes"}
+            if model:
+                self.hook("session-start", {"session_id": sid, "cwd": str(self.root), "model": model})
+            added = self.hook("prompt", payload)
+            self.assertIn("alpha-notes", added)
+            # The caller's own body links to them (the person wrote that); their titles and steps never come along.
+            for other in ("Beta secret steps", "Beta ledger", "zebra quartz", "the ledger thing", "`beta-"):
+                self.assertNotIn(other, added)
+        for r in events("route"):
+            self.assertEqual(r["handed_over"], [])
+            self.assertNotIn("beta-", json.dumps(r["offered"]))
+        written = self.written()
+        self.assertNotIn("beta-secret", written)
+        self.assertNotIn("beta-ledger", written)
+
+    def test_outside_a_public_repository_another_projects_shared_page_still_comes_along_when_named(self):
+        added = self.hook("prompt", {"session_id": "h4", "cwd": str(self.root),
+                                     "prompt": "draft the alpha release notes for beta"})
+        self.assertIn("Beta ledger", added)                # named in the request: in scope, so it may come along
