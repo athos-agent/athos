@@ -478,3 +478,50 @@ class NoFlockTest(MemoryCase):
         with mock.patch.object(fcntl, "flock", side_effect=OSError(45, "Operation not supported")):
             ev.append({"type": "probe_no_flock", "at": stamp(0)})
         self.assertEqual(sum(1 for e in ev.live_events() if e.get("type") == "probe_no_flock"), 1)
+
+
+class StuckCycleTest(MemoryCase):
+    """A cycle that is due but cannot make progress backs off and says why once; it is never started in a loop."""
+
+    def spawns(self):
+        calls = []
+        cycle.maybe_spawn(Path("/x/athos"), lambda argv, **kw: calls.append(argv))
+        return len(calls)
+
+    def stuck_events(self):
+        return [e for e in ev.live_events() if e.get("type") == "memory_cycle" and e.get("phase") == "stuck"]
+
+    def test_keep_days_above_trigger_days(self):
+        (Path(self.home) / "config.json").write_text(json.dumps({"memory": {"keep_days": 70}}))
+        cycle.run()
+        self.assertEqual(self.spawns(), 0)
+
+    def test_a_first_line_stamped_in_the_future(self):
+        log = paths.events_file()
+        future = (ev.now() + 3 * DAY).isoformat(timespec="milliseconds")
+        log.write_text(json.dumps({"type": "clock_skew", "at": future}) + "\n" + log.read_text())
+        out = cycle.run()
+        self.assertGreater(out["replay"]["archived_lines"], 50)
+        self.assertEqual(self.spawns(), 0)
+
+    def test_a_log_too_big_for_its_window(self):
+        (Path(self.home) / "config.json").write_text(json.dumps({"memory": {"trigger_bytes": 1000,
+                                                                                           "keep_bytes": 500}}))
+        cycle.run(auto=True)                              # archives what is old; the rest is all inside the window
+        self.assertEqual(cycle.due(), "size")
+        cycle.run(auto=True)
+        self.assertEqual(len(self.stuck_events()), 1)
+        self.assertIn("window", self.stuck_events()[0]["why"])
+        self.assertEqual(self.spawns(), 0)                # backs off instead of starting again at every Stop
+        cycle.run(auto=True)
+        self.assertEqual(len(self.stuck_events()), 1)     # said once
+
+    def test_a_cycle_that_raises_leaves_an_event_and_backs_off(self):
+        with mock.patch.object(cycle, "abstraction", side_effect=RuntimeError("boom")), \
+                self.assertRaises(RuntimeError):
+            cycle.run(auto=True)
+        failed = [e for e in ev.live_events() if e.get("type") == "memory_cycle" and e.get("phase") == "failed"]
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(failed[0]["error"], "RuntimeError")
+        with mock.patch.object(cycle, "due", return_value="size"):
+            self.assertEqual(self.spawns(), 0)

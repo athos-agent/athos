@@ -187,6 +187,52 @@ def _first_at(raw: bytes) -> str | None:
     return None
 
 
+def triggers(s: dict | None = None) -> tuple[int, float]:
+    """`trigger_bytes` and `trigger_days` as they act: always past what the window keeps (`keep_bytes`, `keep_days`),
+    or a cycle would be due that can archive nothing."""
+    s = s or memory.settings()
+    keep_days = max(float(s["keep_days"]), float(s["min_keep_days"]))
+    return max(int(s["trigger_bytes"]), int(s["keep_bytes"]) + 1), max(float(s["trigger_days"]), keep_days + 1)
+
+
+def state_file() -> Path:
+    return memory.root() / "cycle-state.json"
+
+
+def _state() -> dict:
+    try:
+        data = json.loads(state_file().read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+BACKOFF_S = 3600              # a cycle that could not make progress waits this long before the hooks start one again,
+BACKOFF_MAX_S = 24 * 3600     # ...twice as long each time it still cannot, up to a day
+
+
+def backing_off(reason: str, now: float | None = None) -> bool:
+    """Whether the last cycle could not make progress (or raised) for this same reason, recently enough that the
+    hooks should not start another yet."""
+    st = _state()
+    if not st.get("streak") or (st.get("reason") != reason and st.get("outcome") != "failed"):
+        return False
+    wait = min(BACKOFF_MAX_S, BACKOFF_S * 2 ** (int(st["streak"]) - 1))
+    return (now or time.time()) - float(st.get("at") or 0) < wait
+
+
+def _record(reason: str, progress: bool, outcome: str) -> dict:
+    """The last cycle's attempt: when, why it was due, what came of it, and how many in a row made no progress."""
+    st = _state()
+    streak = 0 if progress else (int(st.get("streak") or 0) + 1 if st.get("reason") == reason else 1)
+    new = {"at": time.time(), "reason": reason, "outcome": outcome, "streak": streak}
+    try:
+        paths.write_atomic(state_file(), json.dumps(new))
+    except OSError:
+        pass
+    return {**new, "first": streak == 1 or (streak and st.get("outcome") != outcome)}
+
+
 def due(now: _dt.datetime | None = None) -> str:
     """Why a cycle should run now ("" when it need not): a segment was left half done, a line an older Athos wrote
     into the log just trimmed waits to be carried over, the live log is past `trigger_bytes`, its oldest event is
@@ -201,7 +247,8 @@ def due(now: _dt.datetime | None = None) -> str:
         return "resume"
     if any(unswept(f) for f in sidecars()):
         return "sweep"
-    if size > int(s["trigger_bytes"]):
+    trigger_bytes, trigger_days = triggers(s)
+    if size > trigger_bytes:
         return "size"
     try:
         with paths.events_file().open("rb") as f:
@@ -210,7 +257,7 @@ def due(now: _dt.datetime | None = None) -> str:
         head = b""
     first = _first_at(head)
     now = now or _now()
-    if first and _days(now, first) > float(s["trigger_days"]):
+    if first and _days(now, first) > trigger_days:
         return "age"
     if memory.has_archive() and (memory.load_rollups() is None or memory.view().stale):
         return "late" if memory.load_rollups() is not None else "rollups"
@@ -238,7 +285,10 @@ def maybe_spawn(athos_cmd: Path, popen=subprocess.Popen) -> bool:
     `popen` is passed."""
     if os.environ.get("ATHOS_SPAWN", "").lower() == "off" and popen is subprocess.Popen:
         return False
-    if not memory.settings().get("auto") or running() or not due():
+    if not memory.settings().get("auto") or running():
+        return False
+    why = due()
+    if not why or backing_off(why):
         return False
     argv = [sys.executable, str(athos_cmd), "memory", "cycle", "--quiet"]
     if os.name == "posix" and Path("/usr/bin/nice").exists():
@@ -276,6 +326,8 @@ def _cut_stream(f, total: int, now: _dt.datetime, s: dict | None = None) -> int:
         except (ValueError, AttributeError):
             stamp = None
         t = ev._parse(stamp) if isinstance(stamp, str) else None
+        if t is not None and _days(now, stamp) < -1:
+            t = None                                      # stamped in the future (a clock that was wrong): no time
         if t is None:
             old = previous_old
         else:
@@ -986,23 +1038,40 @@ def _event(run_id: str, phase: str, started: float, **counts) -> None:
                                                         if not isinstance(v, (dict, list))))
 
 
-def run(now: _dt.datetime | None = None, model: bool | None = None, runner=None) -> dict:
+STUCK = {"size": "the live log is past trigger_bytes but all of it is inside the window it keeps (min_keep_days)",
+         "age": "its oldest event is past trigger_days but nothing outside the window could be cut",
+         "resume": "a segment left half done could not be finished"}
+
+
+def run(now: _dt.datetime | None = None, model: bool | None = None, runner=None, auto: bool = False) -> dict:
     """One whole cycle, under its lock: replay and prune, abstraction, consolidation, and (only when asked or turned
-    on, and idle) the model pass. Returns what each phase did; `skipped` when another cycle holds the lock."""
+    on, and idle) the model pass. Returns what each phase did; `skipped` when another cycle holds the lock. `auto`: a
+    cycle a hook started; one that archived nothing and found nothing late skips the counting and the pages, and
+    says once why it could make no progress (a `stuck` event), after which the hooks back off. A cycle that raises
+    leaves a `failed` event (its error's kind and where), and the hooks back off from it too."""
     if not take_lock():
         return {"skipped": "another cycle is running"}
     run_id = uuid.uuid4().hex[:12]
     out: dict = {"run_id": run_id}
+    reason = due() or "asked"
     try:
         t0 = time.perf_counter()
         before = memory.sizes()
         out["replay"] = replay_and_prune(now)
         after = memory.sizes()
-        _event(run_id, "replay", t0, archived_lines=out["replay"]["archived_lines"],
-               archived_bytes=out["replay"]["archived_bytes"], compressed_bytes=out["replay"]["compressed"],
-               resumed=out["replay"]["resumed"], live_before=before["live"], live_after=after["live"],
-               rollup_bytes=after["rollups"], segments=after["segments"],
-               **{k: out["replay"][k] for k in ("refused", "trimmed_again") if out["replay"].get(k)})
+        r = out["replay"]
+        _event(run_id, "replay", t0, archived_lines=r["archived_lines"], archived_bytes=r["archived_bytes"],
+               compressed_bytes=r["compressed"], resumed=r["resumed"], live_before=before["live"],
+               live_after=after["live"], rollup_bytes=after["rollups"], segments=after["segments"],
+               **{k: r[k] for k in ("refused", "trimmed_again") if r.get(k)})
+        progress = bool(r["archived_lines"] or r.get("trimmed_again") or r["resumed"].get("pruned")
+                        or r["resumed"].get("folded")) or reason in ("late", "rollups", "sweep", "asked")
+        if auto and not progress:
+            rec = _record(reason, False, "stuck")
+            if rec["first"]:
+                _event(run_id, "stuck", t0, reason=reason, why=r.get("refused") or STUCK.get(reason, reason),
+                       streak=rec["streak"])
+            return {**out, "stuck": reason}
         t1 = time.perf_counter()
         out["abstraction"] = abstraction()
         _event(run_id, "abstraction", t1, **out["abstraction"])
@@ -1019,6 +1088,13 @@ def run(now: _dt.datetime | None = None, model: bool | None = None, runner=None)
         swept = sweep()                       # what reached the trimmed log's old file while the cycle ran
         _event(run_id, "done", t0, spend_usd=(out.get("model") or {}).get("spend_usd", 0.0),
                swept_bytes=swept["swept_bytes"])
+        _record(reason, progress or not auto, "done")
+    except Exception as problem:
+        from athos import eval as ev
+        _record(reason, False, "failed")
+        _event(run_id, "failed", time.perf_counter(), reason=reason, error=type(problem).__name__,
+               line=ev._place(problem))
+        raise
     finally:
         release_lock()
     return out

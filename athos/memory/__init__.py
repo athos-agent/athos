@@ -301,7 +301,7 @@ GRADE_PER_CLASS = 4        # per piece and version, the latest reuses of each (t
 GRADE_VERSIONS = 2         # ...for the two newest versions seen (a change, a revert, a status move: a new version)
 GRADE_PASSES = 8           # the verifier's latest pass for each of the last 8 texts of the piece
 SHADOW_KEEP = 10           # the shadow runs per piece and model: the suggestion reads the last 10, and needs 5
-RATINGS_KEEP = 50          # stars per page and step
+RATINGS_KEEP = 20          # stars per page and step
 TAIL_MAX = 2000            # archived uses kept one by one near the cut (see `aggregate`)
 BLOOM_BITS = 1 << 19       # a fixed-size filter of the archived task ids (64 KB at most, less compressed)
 

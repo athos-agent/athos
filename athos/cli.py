@@ -2019,7 +2019,7 @@ def cmd_memory(args) -> int:
     from athos.memory import cycle
     action = args.action
     if action == "cycle":
-        out = cycle.run(model=True if args.model else None)
+        out = cycle.run(model=True if args.model else None, auto=bool(args.quiet))
         if not args.quiet:
             print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else _cycle_text(out))
         return 0 if "skipped" not in out else 1

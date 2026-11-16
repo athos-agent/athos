@@ -362,7 +362,7 @@ is not in the rollups' filter of archived ids: a stop with no start anywhere, sa
 What the rollups keep of a long history: of a learned piece's grading history, the latest move to candidate, the
 verifier's latest pass for each of its last 8 texts, and for its two newest versions the last 5 judged reuses and the
 latest 4 of each kind (the rules compare counts with thresholds of 1 to 3, so they decide the same as on the whole
-history); the last 10 shadow runs per piece and model; the last 50 stars per page and step (a star's account of what
+history); the last 10 shadow runs per piece and model; the last 20 stars per page and step (a star's account of what
 was done there is dropped when it repeats four words of the request it was given on). The filter of archived task
 ids is 64 KB at most: past a few hundred thousand tasks it says "maybe archived" more often, and such a line then
 waits for a cycle, as before.
@@ -419,8 +419,14 @@ on `memory/.cycle.lock` held for the whole run, so it is never taken from a live
 died. The
 Stop hook starts it detached and at low priority, the way it starts the verifier, when the live log passes
 `trigger_bytes` (6 MB) or its oldest event is older than `trigger_days` (37), or a segment was left half done, or a
-late line waits; `"memory": {"auto": false}` turns that off. Each phase is a `memory_cycle` event (`run_id`, `phase`
-(replay, abstraction, consolidation, model, done), its counts, `duration_ms`, for replay `archived_lines`,
+late line waits; `"memory": {"auto": false}` turns that off. `trigger_bytes` and `trigger_days` always act past
+what the window keeps (above `keep_bytes` and `keep_days`), and a line stamped more than a day in the future (a wrong
+clock) counts as having no time. A cycle the hooks started that can make no progress (a log larger than
+`trigger_bytes` all of it inside the last `min_keep_days`, say) skips the counting and the pages, leaves one
+`memory_cycle` event with `phase` stuck and `why`, and the hooks wait an hour before starting another, twice as long
+each time it still cannot, up to a day (`memory/cycle-state.json`); a cycle that raises leaves a `failed` event (the
+error's kind and where) and the hooks back off from it the same way. Each phase is a `memory_cycle` event (`run_id`, `phase`
+(replay, abstraction, consolidation, model, done; stuck, failed), its counts, `duration_ms`, for replay `archived_lines`,
 `archived_bytes`, `compressed_bytes`, `live_before`, `live_after`, `rollup_bytes`, and `spend_usd` at the end).
 
 ```
