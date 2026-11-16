@@ -207,7 +207,8 @@ def named_projects(known, prompt: str) -> list[str]:
     heat-v2, not heat). A short one-word name ("api", "heat") counts only as a word of its own, not as part of a
     compound ("api.js", "heat-v2"). A project named like a common word is still named by that word ("the api")."""
     words = _NOT_A_NAME_CHAR.sub(" ", (prompt or "").lower()).split()
-    raw = {tok.strip(".,;:!?()[]{}\"'`") for tok in (prompt or "").lower().split()}
+    # A word of its own: split at spaces and slashes ("~/api", "api/x.py"), with "'s" off ("api's repo").
+    raw = {re.sub(r"['’]s$", "", tok.strip(".,;:!?()[]{}\"'`~")) for tok in re.split(r"[\s/]+", (prompt or "").lower())}
     spans: dict[str, list[tuple[int, int]]] = {}
     for q in dict.fromkeys(known):
         name = _NOT_A_NAME_CHAR.sub(" ", str(q).lower()).split()
@@ -235,7 +236,11 @@ def _named(project: str, prompt: str) -> bool:
 COMMON_SHARE = 0.10        # a name found in at least this share of the other projects' pieces is a common word...
 COMMON_MIN = 2             # ...and in at least this many of them (a tiny store says little)
 VERY_SHORT = 3             # a one-word name this short ("api", "web", "cli") is ambiguous whatever the store says
-_PROJECT_NOUNS = r"(?:repo|repos|repository|repositorio|project|proyecto|codebase|folder|carpeta|app|workspace)"
+# A noun that names a project outright, and one that only does after a preposition or with "of" ("the billing app
+# crashes" is about an app for billing; "the api repo" is the project; "in the api directory" is the folder).
+_STRONG_NOUNS = r"(?:repo|repos|repository|repositorio|project|proyecto|codebase|workspace)"
+_WEAK_NOUNS = r"(?:folder|carpeta|directory|dir|directorio|app|service|servicio|package|paquete|module|m[oó]dulo)"
+_PROJECT_NOUNS = rf"(?:{_STRONG_NOUNS}|{_WEAK_NOUNS})"
 _QUOTES = "`\"'«“‘"
 _CLOSE = "`\"'»”’"
 
@@ -249,27 +254,40 @@ def _name_regex(name: str) -> str:
 
 def has_cue(name: str, prompt: str) -> bool:
     """Whether a request refers to the project with a reference cue, not merely uses its name as a word:
-    - a preposition or phrase of reference with no article ("in api", "from api", "like we did in api", "como hicimos
-      en api", "desde api"), or with a project noun ("from the api repo", "in the api project", "del proyecto api",
-      "en el repo api", "the api repo");
-    - a path (`~/api`, `api/`, `/api/`);
-    - the name inside backticks or quotes (`` `api` ``, "api", «api»).
-    "the api returns 500", "rate limits in the api" and "api.js" have no cue."""
+    - a preposition with the name alone at the end of a phrase ("from api", "en api.", "the conventions of api");
+    - a phrase of reference ("like we did in the api", "como hicimos en el api", "igual que en billing", "mirá cómo lo
+      hace billing", "as in api");
+    - a project noun with it: a repository or project anywhere ("the api repo", "el proyecto de billing", "repo api",
+      "api's repo"), a folder, service, app, package or module after a preposition or with "of" ("in the api
+      directory", "en el directorio api", "from the api service", "la carpeta de billing"), or the name quoted before
+      one ('the "api" folder');
+    - a path (`~/api`, `api/`, `/api/`).
+    "the api returns 500", "rate limits in the api", "the timeout in api calls", "the billing app crashes", "the
+    `api` key" and "api.js" have no cue."""
     text = (prompt or "").lower()
     n = _name_regex(name)
+    nq = rf"[{_QUOTES}]?{n}[{_CLOSE}]?"
     pre = r"(?:in|into|inside|within|from|at|en|desde|dentro de)"
+    art = r"(?:the|el|la|los|las|this|that|our|nuestro|nuestra|ese|esa|este|esta)"
+    end = r"(?=\s*(?:$|[.,;:!?)]))"
     patterns = (
-        rf"(?<![\w-]){pre}\s+{n}",                                         # in api · en api · from api
-        rf"(?<![\w-]){pre}\s+(?:the|el|la|this|our|nuestro|ese|este)\s+{_PROJECT_NOUNS}\s+{n}",  # in the repo api
-        rf"(?<![\w-]){pre}\s+(?:the|el|la|this|our)\s+{n}\s+{_PROJECT_NOUNS}\b",   # from the api repo
-        rf"(?<![\w-])(?:del|de la|of the|of)\s+{_PROJECT_NOUNS}\s+{n}",   # del proyecto api · of the project api
-        rf"(?<![\w-]){_PROJECT_NOUNS}\s+{n}",                              # proyecto api · repo api
-        rf"{n}\s+{_PROJECT_NOUNS}\b",                                      # the api repo
-        rf"~/{n}",                                                         # ~/api
-        rf"/{n}(?=/)",                                                     # /work/api/
-        rf"(?<![\w./-]){n}/(?=[\w.-])",                                    # api/handlers.py
-        rf"[{_QUOTES}]{n}[{_CLOSE}]",                                      # `api` · "api"
-        rf"`[^`\n]*{n}[^`\n]*`",                                           # inside a code span
+        rf"(?<![\w-])(?:{pre}|of|de|del|para|for)\s+{nq}{end}",                    # from api · the conventions of api
+        rf"(?<![\w-])(?:like|as)\s+(?:we|i|you|they)\s+did(?:\s+it)?\s+(?:in|on|with|for|at)\s+(?:{art}\s+)?{nq}",
+        rf"(?<![\w-])como\s+(?:lo\s+)?(?:hicimos|hice|hiciste|hicieron|hacemos)\s+en\s+(?:{art}\s+)?{nq}",
+        rf"(?<![\w-])igual\s+que\s+en\s+(?:{art}\s+)?(?:{_PROJECT_NOUNS}\s+(?:de\s+)?)?{nq}",
+        rf"(?<![\w-])c[oó]mo\s+lo\s+(?:hace|hacen|hacemos|resuelve|resuelven|hicimos)\s+(?:en\s+)?(?:{art}\s+)?{nq}",
+        rf"(?<![\w-])how\s+{nq}\s+does\s+it",
+        rf"(?<![\w-])as\s+in\s+(?:{art}\s+)?{nq}",                                   # as in api
+        rf"(?<![\w-]){pre}\s+(?:{art}\s+)?{nq}\s+{_PROJECT_NOUNS}\b",                 # in the api directory
+        rf"(?<![\w-]){pre}\s+(?:{art}\s+)?{_PROJECT_NOUNS}\s+{nq}",                    # en el directorio api
+        rf"(?<![\w-]){_PROJECT_NOUNS}\s+(?:de|del|of)\s+(?:{art}\s+)?{nq}",             # la carpeta de billing
+        rf"(?<![\w-]){_STRONG_NOUNS}\s+{nq}",                                          # proyecto api · repo api
+        rf"{nq}\s+{_STRONG_NOUNS}\b",                                                  # the api repo
+        rf"[{_QUOTES}]{n}[{_CLOSE}]\s+{_PROJECT_NOUNS}\b",                               # the "api" folder
+        rf"{n}['’]s\s+{_PROJECT_NOUNS}\b",                                              # api's repo
+        rf"~/{n}",                                                                     # ~/api
+        rf"/{n}(?=/)",                                                                 # /work/api/
+        rf"(?<![\w./-]){n}/(?=[\w.-])",                                                # api/handlers.py
     )
     return any(re.search(p, text) for p in patterns)
 

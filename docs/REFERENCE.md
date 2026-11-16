@@ -206,13 +206,29 @@ counts only as a word of its own ("api" is named by "the api", not by "api.js").
 **A project named like a common word needs a cue** (since 0.1.165). A name that is also a common word in your store
 (every word of it is in at least 10% of the other projects' pages, and in two of them: the same word rarity the router
 weighs words by, with the project's own pages left out) or a one-word name of three letters or fewer ("api", "web") is
-ambiguous: "the api returns 500" may not mean the project at all. Such a name counts only with a reference cue: a
-preposition or phrase of reference ("in api", "from api", "from the api repo", "the api project", "como hicimos en api",
-"del proyecto api", "en el repo api"), a path (`~/api`, `api/`, `/api/`), or the name in backticks or quotes. A
-distinctive name ("heat-v2") keeps working without one. Without a cue, on a frontier model, the request's index gets one
+ambiguous: "the api returns 500" may not mean the project at all. Such a name counts only with a reference cue (since
+0.1.177 in both directions):
+
+- a preposition with the name alone at the end of a phrase ("from api", "en api.", "the conventions of api"), but not
+  before another word ("the timeout in api calls", "errors from billing data", "en billing hay un error");
+- a phrase of reference ("like we did in the api", "como hicimos en el api", "igual que en billing", "mirá cómo lo
+  hace billing", "as in api");
+- a repository or project noun anywhere ("the api repo", "el proyecto de billing", "repo api", "api's repo"), and a
+  folder, directory, service, app, package or module only after a preposition or with "of" ("in the api directory",
+  "en el directorio api", "from the api service", "la carpeta de billing"), so "the billing app crashes" and "the docs
+  folder is stale" are not;
+- a path (`~/api`, `api/`, `/api/`).
+
+The name in backticks or quotes alone is no longer a cue ("the `api` key", 'the "billing" column'); before a project
+noun it is ('the "api" folder'). A distinctive name ("heat-v2") keeps working without one. On a small store almost
+every name is distinctive (a word must be in 10% of the other projects' pages, and in two of them, to be common: with
+nine of a hundred other pages saying "billing" it is still distinctive), so there "billing" still brings its project's
+pages in by the word alone, as before 0.1.165; only a one-word name of three letters or fewer needs a cue whatever the
+store. Without a cue, on a frontier model, the request's index gets one
 line instead (the request may also mean the project `api`, with how many pages it has, and `athos list --project api`
 to list them), so the model decides; nothing of that project is loaded or listed by id. On an apply model the mention is
-dropped. In a repository marked public nothing is offered. The `route` event records how each mentioned project was
+dropped: nothing of that project is brought in, and nothing is offered either (an apply model is given pages, not an
+index to choose from), so a request that did mean the project needs a cue there. In a repository marked public nothing is offered. The `route` event records how each mentioned project was
 decided (`named_how`: cue, distinctive, offered, rejected; in a public repository only `named_how_count`) and the
 projects offered (`offered_projects`), never the words; `athos audit` does not flag a piece of an offered project the
 model opened itself. Measured on 2026-11-15 over one person's 1769 recorded request heads: 40 named another project

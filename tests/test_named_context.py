@@ -14,12 +14,32 @@ class CueTest(HookCase):
         cue = control.has_cue
         for text in ("fix it like we did in api", "copy the handler from the api repo", "in the api project, please",
                      "como hicimos en api", "usá lo del proyecto api", "the api repo has it", "open ~/api/src/main.py",
-                     "see api/handlers.py", "it is under /work/api/ too", "read `api` first", 'the "api" folder',
+                     "see api/handlers.py", "it is under /work/api/ too", 'the "api" folder',
                      "en el repo api", "from api", "desde api"):
             self.assertTrue(cue("api", text), text)
+        # A name in backticks or quotes alone is no cue: `api` may be a key, a column, a word (until 0.1.177 it was).
         for text in ("the api returns 500", "add pagination to the api", "an api for the reports",
-                     "rate limits in the api", "la api devuelve 500", "update api.js", "apiary notes"):
+                     "rate limits in the api", "la api devuelve 500", "update api.js", "apiary notes",
+                     "read `api` first"):
             self.assertFalse(cue("api", text), text)
+
+    def test_cues_people_write_and_words_that_are_not_cues(self):
+        names = {"api", "billing", "docs"}
+        for name, text in (("api", "do it like we did in the api"), ("api", "como hicimos en el api"),
+                           ("api", "use the conventions of api"), ("api", "in the api directory there is a helper"),
+                           ("api", "en el directorio api hay un helper"),
+                           ("api", "copy the retry helper from the api service"),
+                           ("billing", "igual que en la carpeta de billing"),
+                           ("billing", "el proyecto de billing ya lo resuelve"),
+                           ("billing", "mirá cómo lo hace billing"),
+                           ("api", "look at ~/api for the pattern"), ("api", "as in api's repo")):
+            self.assertEqual(control.named_projects(names, text), [name], text)
+            self.assertTrue(control.has_cue(name, text), text)
+        for name, text in (("api", "fix the timeout in api calls"), ("billing", "errors from billing data are wrong"),
+                           ("billing", "en billing hay un error de redondeo"),
+                           ("api", "the `api` key in config is missing"), ("billing", 'rename the "billing" column'),
+                           ("billing", "the billing app crashes on login"), ("docs", "the docs folder is stale")):
+            self.assertFalse(control.has_cue(name, text), text)
 
     def test_a_multiword_name_takes_its_cues_too(self):
         self.assertTrue(control.has_cue("heat-v2", "as we did in heat v2"))
@@ -59,6 +79,21 @@ class CommonnessTest(HookCase):
         pool, why = control.select(pieces, None, "the api returns 500", project="alpha")
         self.assertEqual((why["named"], why["ambiguous"]), ([], ["api"]))
         self.assertNotIn("api-1", [p.id for p in pool])
+
+
+class TinyStoreTest(HookCase):
+    def test_on_a_small_store_a_longer_name_is_distinctive_and_a_short_one_still_needs_a_cue(self):
+        # Two other pages: nothing is common in so small a store, so "billing" is named by the word (as before the
+        # cue rule); a name of three letters or fewer needs a cue whatever the store.
+        piece("other-1", "Close the month", "closing the billing month", ["ledger"])
+        piece("bill-1", "Send the invoices", "sending the invoices", ["billing"])
+        piece("api-1", "Version the endpoints", "versioning the endpoints", ["api"])
+        pieces = store.all_pieces()
+        self.assertEqual(control.name_commonness("billing", pieces)["why"], "distinctive")
+        _pool, why = control.select(pieces, None, "the billing totals look wrong", project="alpha")
+        self.assertEqual(why["named_how"], {"billing": "distinctive"})
+        _pool, why = control.select(pieces, None, "the api returns 500", project="alpha")
+        self.assertEqual((why["named"], why["ambiguous"]), ([], ["api"]))
 
 
 class OfferedTest(HookCase):
