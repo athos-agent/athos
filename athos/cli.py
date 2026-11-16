@@ -2208,13 +2208,29 @@ def cmd_memory(args) -> int:
         return 0
     if action == "check":
         bad = cycle.check_archive()
+        repaired = None
+        if memory.manifest_problem():             # rebuilt from the segments in the folder, never left to wait
+            if cycle.take_lock():
+                try:
+                    cycle.recover()
+                    repaired = not memory.manifest_problem()
+                finally:
+                    cycle.release_lock()
+            else:
+                repaired = False
         same = cycle.compare_rebuild() if not bad and memory.has_archive() else {}
-        out = {"archive_failures": bad, **same}
+        out = {"archive_failures": bad, **same, **({"manifest_rebuilt": repaired} if repaired is not None else {})}
         if args.json:
             print(json.dumps(out))
         else:
-            print("archive: " + ("every segment matches its manifest" if not bad else
-                                 f"{len(bad)} segment(s) fail their integrity check"))
+            segs_bad = sum(1 for b in bad if b["segment"] != "manifest.json")
+            print("archive: " + ("every segment matches its manifest" if not bad else "; ".join(
+                [b["problem"] for b in bad if b["segment"] == "manifest.json"]
+                + ([f"{segs_bad} segment(s) fail their integrity check"] if segs_bad else []))))
+            if repaired is not None:
+                print("manifest: " + ("rebuilt from the segments in the folder (the old one is in "
+                                      "memory/archive/damaged/ when it could not be read)" if repaired else
+                                      "a dream cycle is running; it rebuilds it"))
             if same:
                 print(f"ledger equal to a rebuild: {same['ledger_equal']} · rollups equal to a rebuild: "
                       f"{same['rollups_equal']}")

@@ -322,3 +322,42 @@ class OlderAthosTest(MemoryCase):
         r = audit._version_mismatch(audit._Ctx("s", [], [], False), None)
         self.assertEqual(r["status"], "flagged")
         self.assertTrue(any("imported again" in f["what"] for f in r["found"]))
+
+
+class ManifestTest(MemoryCase):
+    def check(self, *more):
+        import contextlib
+        import io
+        from athos import cli
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = cli.main(["memory", "check", *more])
+        return code, out.getvalue()
+
+    def test_an_unreadable_manifest_is_reported_and_rebuilt_by_check(self):
+        total = count("task_end")
+        cycle.run()
+        memory.manifest_file().write_text("{half a manif")
+        self.assertEqual(cycle.due(), "resume")
+        code, text = self.check()
+        self.assertEqual(code, 1)
+        self.assertIn("cannot be read", text)
+        self.assertIn("rebuilt", text)
+        self.assertEqual(len(memory.manifest()["segments"]), 1)
+        self.assertEqual(count("task_end"), total)
+        self.assertEqual(self.check()[0], 0)
+
+    def test_an_empty_or_missing_manifest_is_never_read_as_no_archive(self):
+        total = count("task_end")
+        cycle.run()
+        for broken in ("empty", "missing"):
+            if broken == "empty":
+                memory.manifest_file().write_text("")
+            else:
+                memory.manifest_file().unlink()
+            self.assertTrue(memory.has_archive(), broken)
+            self.assertEqual(cycle.due(), "resume", broken)
+            code, text = self.check("--json")
+            self.assertEqual(code, 1, broken)
+            self.assertTrue(json.loads(text)["manifest_rebuilt"], broken)
+            self.assertEqual(count("task_end"), total, broken)

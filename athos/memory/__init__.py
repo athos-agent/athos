@@ -123,10 +123,37 @@ def manifest() -> dict:
 
 
 def has_archive() -> bool:
+    """Whether there is an archive: the manifest lists a segment, or cannot be read, or the folder holds one (a
+    manifest lost or emptied never makes the archive look absent)."""
     try:
-        return manifest_file().stat().st_size > 0 and bool(manifest()["segments"])
-    except (OSError, paths.StateUnreadable):
-        return manifest_file().exists()
+        if manifest()["segments"]:
+            return True
+    except paths.StateUnreadable:
+        return True
+    return bool(segment_files())
+
+
+def segment_files() -> list:
+    try:
+        return sorted(archive_dir().glob("events-*.jsonl.gz"))
+    except OSError:
+        return []
+
+
+def manifest_problem() -> str:
+    """What is wrong with the archive's table, "" when nothing: it cannot be read (an empty file too), or it lists
+    fewer segments than the folder holds (lost, or older than the folder)."""
+    files = segment_files()
+    try:
+        listed = {e.get("file") for e in manifest()["segments"]}
+    except paths.StateUnreadable:
+        return "the archive's manifest cannot be read"
+    missing = [f for f in files if f.name not in listed]
+    if missing:
+        return (f"the archive's manifest does not list {len(missing)} of the {len(files)} segment(s) in its folder"
+                if manifest_file().exists() else f"the archive's manifest is missing ({len(files)} segment(s) in "
+                                                 "its folder)")
+    return ""
 
 
 def segment_path(entry: dict) -> Path:

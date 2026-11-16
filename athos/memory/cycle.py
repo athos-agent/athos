@@ -243,7 +243,7 @@ def due(now: _dt.datetime | None = None) -> str:
         size = paths.events_file().stat().st_size
     except OSError:
         return ""
-    if memory.pending_segment():
+    if memory.pending_segment() or memory.manifest_problem():
         return "resume"
     if any(unswept(f) for f in sidecars()):
         return "sweep"
@@ -941,9 +941,13 @@ def replay_and_prune(now: _dt.datetime | None = None) -> dict:
 
 # ------------------------------------------------------------------------------------------------ rebuild and check
 def check_archive() -> list[dict]:
-    """Every segment against its manifest entry: present, readable, the same bytes and sha256. Returns the failures."""
+    """Every segment against its manifest entry: present, readable, the same bytes and sha256; and the manifest
+    itself: readable, listing every segment in the folder. Returns the failures."""
     bad = []
-    for entry in memory.manifest()["segments"]:
+    problem = memory.manifest_problem()
+    if problem:
+        bad.append({"segment": "manifest.json", "problem": problem})
+    for entry in memory.segments():
         try:
             memory.read_segment(entry)
         except (OSError, ValueError) as problem:
