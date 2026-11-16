@@ -156,6 +156,9 @@ def add(ref: str, fetch=None, dry_run: bool = False) -> dict:
         out.append({"id": p.id, "title": p.title, "status": status,
                     "steps": [trail.label(s.when, s.do, s.id) for s in wiki.statements(p)]})
     if any(x["status"] == "added" for x in out):
+        # A way of working taken from the gallery applies anywhere the person works: it joins the profile.
+        from athos import control
+        control.profile_add([x["id"] for x in out if x["status"] == "added"], cap=False)
         try:
             wiki.rebuild()
         except OSError:

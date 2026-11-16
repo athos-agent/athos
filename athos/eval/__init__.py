@@ -13,6 +13,27 @@ Kinds of line written to the log:
     test_run    `athos test` replaying a piece's recorded corrections on its latest version (athos/replay.py)
     shadow      `athos shadow` running an approved task again on a cheaper model and scoring the result
 
+The audit log (`athos audit` reads it; none of these lines keeps any text of a request, only its length and a short
+hash):
+
+    route       one per request the prompt hook sees, loaded or not: the scope that applied and why, the best
+                candidates with their scores, what was chosen, the characters added and the time it took
+    edit_seen   the edit detector: a file the agent wrote (snapshot) or one found changed and given to the person
+    model       the model the hook recorded for a session or task, where it read it, and what the transcript says
+    trigger     a special request path fired (save, adjust, gallery, share) and whether the text was the person's
+    hook_error  an exception a hook swallowed so the session carried on
+    learn       autonomous learning asked, saved, skipped or graded a piece, with its evidence (athos/autolearn.py)
+    grade       a piece moving between candidate, verified and retired, or staying, with its basis (athos/grade.py)
+    reuse       how a task went for a piece it used, judged at the next request (athos/grade.py)
+    verify      the independent verifier's outcome (athos/verify.py); model_run: any model run Athos started
+    ui          (reserved) the state a panel shows (learning, collaborating, idle)
+    correction  `athos repair`: a line written earlier was wrong (a use counted by mistake, an edit given to the
+                person without evidence); the statistics skip it, the line itself stays
+
+Next to it, `<home>/log.md` gets one header line per operation (`## [YYYY-MM-DD HH:MM] kind | project | what`, UTC),
+for a person or an agent to read with grep and tail; it never holds a request or a piece's content, and names a piece
+only when it belongs to that project or to none. It is rotated to `log.1.md` past LOG_CAP bytes.
+
 Comparisons: the task that first saved a piece ran without it, so it is that piece's baseline. Every later task
 that loaded the piece is measured against the baseline on time, tokens and request length.
 """
@@ -91,6 +112,102 @@ def append(event: Event) -> None:
         out.write(line + "\n")
 
 
+# ================================================================================================ the audit log
+LOG_CAP = 256_000           # log.md past this many bytes is moved to log.1.md (the previous one is dropped)
+LOG_PREFIX = "## ["         # every header line starts so: `grep '^## \[' log.md | tail`
+
+
+def log_file() -> Path:
+    return paths.home() / "log.md"
+
+
+def request_sha(text: str | None) -> str:
+    """A short fingerprint of a request, so two lines about the same request can be matched without keeping it."""
+    import hashlib
+    return hashlib.sha256((text or "").strip().encode("utf-8", "ignore")).hexdigest()[:12]
+
+
+def request_print(text: str | None) -> dict:
+    """What the audit events keep of a request: its length and its fingerprint, never its words."""
+    return {"request_chars": len((text or "").strip()), "request_sha": request_sha(text)}
+
+
+_VERSION: list[str] = []
+
+
+def version() -> str:
+    """The version of the Athos this code belongs to (its plugin manifest), read once."""
+    if not _VERSION:
+        manifest = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
+        try:
+            _VERSION.append(str(json.loads(manifest.read_text())["version"]))
+        except (OSError, ValueError, KeyError):
+            _VERSION.append("unknown")
+    return _VERSION[0]
+
+
+def _one_line(text: str) -> str:
+    return " ".join(str(text).split())
+
+
+def log_line(kind: str, project: str | None, what: str, at: Moment | None = None) -> None:
+    """One header line in log.md, rotating it first when it has grown past LOG_CAP."""
+    target = log_file()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if target.stat().st_size > LOG_CAP:
+            # Under a lock, and only if it is still past the cap: two hooks that both saw it full once rotated twice,
+            # the second moving a fresh, nearly empty log over the full one just rotated.
+            with paths.locked(target):
+                if target.stat().st_size > LOG_CAP:
+                    target.replace(target.with_name("log.1.md"))
+    except OSError:
+        pass
+    stamp = (at or now()).astimezone(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M")
+    with target.open("a") as out:
+        out.write(f"{LOG_PREFIX}{stamp}] {_one_line(kind)} | {_one_line(project or '-')} | {_one_line(what)}\n")
+
+
+def audit(event: Event, line: str | None = None, project: str | None = None) -> None:
+    """Record one audit event (and, with `line`, its log.md header). It never raises: the audit trail must not cost
+    the person the load or the capture it describes."""
+    try:
+        event.setdefault("at", _iso(now()))
+        event.setdefault("v", version())
+        append(event)
+        if line is not None:
+            log_line(event.get("type", "?"), project if project is not None else event.get("project"), line)
+    except Exception as problem:  # noqa: BLE001
+        import sys
+        print(f"athos: audit log: {type(problem).__name__}", file=sys.stderr)
+
+
+def _place(problem: BaseException) -> str:
+    """Where an exception was raised inside Athos: `file.py:line`, or "" when no frame of Athos is in it."""
+    import traceback
+    frames = [f for f in traceback.extract_tb(problem.__traceback__) if "/athos/" in f.filename.replace("\\", "/")]
+    last = frames[-1] if frames else None
+    return f"{Path(last.filename).name}:{last.lineno}" if last else ""
+
+
+def problem_line(problem: BaseException) -> str:
+    """An exception as a hook may print it: its kind and where it was raised, never its message, which may quote a
+    request, a file's content or a path."""
+    place = _place(problem)
+    return type(problem).__name__ + (f" at {place}" if place else "")
+
+
+def hook_error(hook: str, where: str, problem: BaseException, session_id: str | None = None,
+               project: str | None = None) -> None:
+    """A hook swallowed an exception: its kind and where it was raised (file and line inside Athos), never its
+    message, which may quote a request or a file."""
+    place = _place(problem)
+    audit({"type": "hook_error", "session_id": session_id, "hook": hook, "where": where,
+           "error": type(problem).__name__, "line": place},
+          line=f"{hook}: {where} raised {type(problem).__name__}" + (f" at {place}" if place else ""),
+          project=project)
+
+
 def _decoded(lines: Iterable[str]) -> Iterator[Any]:
     for line in lines:
         try:
@@ -106,9 +223,21 @@ def _log_text() -> str:
         return ""
 
 
+_EVENTS_CACHE: dict = {}
+
+
 def events() -> list[Event]:
-    """Every readable event in the log, oldest first; an absent log is simply empty."""
-    return list(_decoded(_log_text().splitlines()))
+    """Every readable event in the log, oldest first; an absent log is simply empty. One hook process asks for it many
+    times (grading each piece, the verifier's caps, the audit): the log is parsed once and parsed again only when the
+    file changed (its size, time or inode). Each caller gets its own copies of the events."""
+    try:
+        st = paths.events_file().stat()
+        key = (str(paths.events_file()), st.st_ino, st.st_size, st.st_mtime_ns)
+    except OSError:
+        return []
+    if _EVENTS_CACHE.get("key") != key:
+        _EVENTS_CACHE.update(key=key, rows=list(_decoded(_log_text().splitlines())))
+    return [dict(e) if isinstance(e, dict) else e for e in _EVENTS_CACHE["rows"]]
 
 
 # ================================================================================================ tokens
@@ -117,13 +246,16 @@ _USAGE_FIELDS = (("input", "input_tokens"), ("output", "output_tokens"),
 
 
 def _replies_in_window(handle, since: Moment | None, until: Moment | None):
-    """The (key, usage) of each transcript line that carries a model reply's usage inside the window."""
+    """The (key, usage, model, sidechain) of each transcript line that carries a model reply's usage inside the
+    window."""
     for row in _decoded(handle):
         message = row.get("message") if isinstance(row, dict) else None
         when = _parse(row.get("timestamp", "")) if isinstance(message, dict) else None
         has_usage = when is not None and isinstance(message.get("usage"), dict)
         if has_usage and not (since and when < since) and not (until and when > until):
-            yield message.get("id") or row.get("uuid"), message["usage"]
+            model = message.get("model")
+            model = model if isinstance(model, str) and model and not model.startswith("<") else None
+            yield message.get("id") or row.get("uuid"), message["usage"], model, bool(row.get("isSidechain"))
 
 
 def _open_quietly(path: str | None):
@@ -141,44 +273,59 @@ def tokens_between(transcript_path: str | None, start: str, end: str) -> Tokens 
 
     The transcript is the platform's private format, so this is a best effort that answers None when it finds
     nothing. A single reply is written over several lines that share its id: it is added only once."""
+    return replies_between(transcript_path, start, end)[0]
+
+
+def replies_between(transcript_path: str | None, start: str, end: str) -> tuple[Tokens | None, list[str]]:
+    """`tokens_between`, plus the models that wrote the session's own replies in the window (subagents' left out),
+    in the order they first answered: one pass over the transcript for both."""
     handle = _open_quietly(transcript_path)
     if handle is None:
-        return
+        return None, []
     totals = {name: 0 for name, _ in _USAGE_FIELDS}
     counted: set = set()
+    models: list[str] = []
     with handle:
-        for key, usage in _replies_in_window(handle, _parse(start), _parse(end)):
+        for key, usage, model, sidechain in _replies_in_window(handle, _parse(start), _parse(end)):
+            if model and not sidechain and model not in models:
+                models.append(model)
             if key not in counted:
                 counted.add(key)
                 for name, field in _USAGE_FIELDS:
                     totals[name] += int(usage.get(field) or 0)
-    return {**totals, "total": sum(totals.values())} if counted else None
+    return ({**totals, "total": sum(totals.values())} if counted else None), models
 
 
-def _tokens(platform: str, transcript_path: str | None, since: str, until: str, sid: str = "") -> Tokens | None:
-    """Token usage for a task, read from wherever its platform keeps it."""
+def _tokens(platform: str, transcript_path: str | None, since: str, until: str,
+            sid: str = "") -> tuple[Tokens | None, list[str]]:
+    """Token usage for a task, read from wherever its platform keeps it, and the models that answered when the
+    platform's log says (Claude Code's transcript; [] elsewhere)."""
     if platform == "muse-code":
         # Muse's hooks carry no transcript path; its own session log has the usage instead.
         from athos.adapters import muse
-        return muse.tokens_between(sid, since, until)
+        return muse.tokens_between(sid, since, until), []
     if platform != "codex":
-        return tokens_between(transcript_path, since, until)
+        return replies_between(transcript_path, since, until)
     from athos.adapters import codex
-    return codex.tokens_between(transcript_path, since, until)
+    return codex.tokens_between(transcript_path, since, until), []
 
 
 # ================================================================================================ recording tasks
-def request_fields(text: str) -> dict:
+def request_fields(text: str, public: bool = False) -> dict:
     """What the log keeps of a request: a short head to recognise it by, and its full length. The bars compare
-    that length with the first run's, which is how much explaining the know-how saved."""
+    that length with the first run's, which is how much explaining the know-how saved. In a repository whose
+    `.athos.toml` says `public = true`, only the length: nothing taken from the request is stored."""
     cleaned = (text or "").strip()
+    if public:
+        return {"request": "", "request_chars": len(cleaned), "public": True}
     return {"request": cleaned[:120], "request_chars": len(cleaned)}
 
 
-def _start_event(task_id: TaskId, sid: str, platform: str, model: str, project, at: str, request) -> Event:
+def _start_event(task_id: TaskId, sid: str, platform: str, model: str, project, at: str, request,
+                 public: bool = False) -> Event:
     """The task_start line, shared by tasks seen through hooks and tasks reported from elsewhere."""
     return {"type": "task_start", "task_id": task_id, "session_id": sid, "platform": platform, "model": model,
-            "project": project, "at": at, **request_fields(request)}
+            "project": project, "at": at, **request_fields(request, public)}
 
 
 def _end_event(task_id: TaskId, at: str, duration_s: float, tokens, model: str, loaded, saved,
@@ -201,7 +348,8 @@ def _fresh_task_state(task_id: TaskId, started: str, prompt: str) -> dict:
     """The per-request part of a session's state. Capture works per request, so its counters start again here."""
     return {
         "task_id": task_id, "task_started": started,
-        "task_loaded": [], "task_saved": [], "task_why": {}, "trail": [],
+        "task_loaded": [], "task_route": [], "task_saved": [], "task_why": {}, "trail": [],
+        "task_offered": [], "task_opened": [], "task_delivery": None,
         "tools_since_capture": 0, "work_since_capture": 0, "edits_since_capture": 0,
         "task_request": prompt[:200],
         # The full request stays here (this session only, overwritten by the next request) until the task is
@@ -212,44 +360,167 @@ def _fresh_task_state(task_id: TaskId, started: str, prompt: str) -> dict:
 
 def _sent_model(event: Event) -> str | None:
     model = event.get("model")
+    if isinstance(model, dict):                  # an object with an id or a display name (session start)
+        model = model.get("id") or model.get("display_name")
     return model if isinstance(model, str) and model else None
-
-
-def _transcript_model(event: Event) -> str:
-    return session.model_from_transcript(event.get("transcript_path"))
 
 
 def _is_scratch(cwd) -> bool:
     return str(cwd or "").startswith(SCRATCH_PREFIXES)
 
 
+def _newer(a: str | None, b: str | None) -> bool:
+    """Whether time `a` is later than time `b` (a missing time is never later; anything is later than none)."""
+    ta, tb = _parse(a or ""), _parse(b or "")
+    if ta is None:
+        return False
+    if tb is None:
+        return True
+    try:
+        return ta > tb
+    except TypeError:                            # one of them without a time zone
+        return ta.replace(tzinfo=None) > tb.replace(tzinfo=None)
+
+
+def resolve_model(event: Event, state: dict, platform: str = "claude-code") -> tuple[str, str, dict]:
+    """The model that will answer this request, where it was read, and what the transcript's tail said.
+
+    1. The hook event's own field (Codex on every event, Claude Code's interactive SessionStart): `event`.
+    2. The main conversation in the transcript, which at prompt time does not hold this request's reply yet, and on a
+       session's first prompt does not exist at all: of a `/model` switch (`transcript_switch`), the latest request
+       sent (`transcript_request`, its `api-request` row) and the latest reply (`transcript_reply`), the newest one.
+       Never the advisor model, never a subagent's. The model the session reported at its start wins over them when
+       it was reported later (a resumed session on another model): `session`.
+    3. The session's last observed model (`session`).
+    4. A guess (session.configured_model): the `--model` Claude Code was launched with (`launch_flag`),
+       ANTHROPIC_MODEL (`env`), or the person's default model in Claude Code's settings (`settings`); only on Claude
+       Code, whose settings these are. A guess picks
+       the delivery and the guide; it never lets a model save, and the first observation replaces it (refresh_model).
+    5. `unknown`. A switch whose name can't be read to an id leaves the model `unknown` until an observation settles
+       it."""
+    sent = _sent_model(event)
+    tail = session.models_in_tail(event.get("transcript_path"))
+    if sent:
+        return sent, "event", tail
+    reported, reported_at = state.get("model_reported"), state.get("model_reported_at")
+    candidate, at, source = session.newest_in_tail(tail)
+    if source and reported and _newer(reported_at, at):
+        return reported, "session", tail
+    if source == "transcript_switch" and not candidate:
+        return session.UNKNOWN_MODEL, source, tail
+    if candidate:
+        return candidate, source, tail
+    if state.get("model") and state["model"] != session.UNKNOWN_MODEL and session.observed(state):
+        return state["model"], "session", tail
+    guess, how, where = session.configured_model(event.get("cwd")) if platform == "claude-code" else (None,) * 3
+    if guess:
+        return guess, how, {**tail, "guessed_from": where}
+    return session.UNKNOWN_MODEL, "unknown", tail
+
+
+def _is_observed(model: str | None, source: str) -> bool:
+    """Whether a resolved model was seen rather than guessed (or not known at all)."""
+    return bool(model) and model != session.UNKNOWN_MODEL and source not in (*session.GUESS_SOURCES, "unknown")
+
+
 def task_start(event: Event, platform: str = "claude-code") -> TaskId:
-    """Open a task for a new request: reset the session's per-task state and log a task_start. Returns its id."""
+    """Open a task for a new request: reset the session's per-task state and log a task_start, with the model resolved
+    for this request (`resolve_model`). Returns its id."""
     sid, state = _hook_session(event)
-    if _sent_model(event):
-        state["model"] = _sent_model(event)      # Codex repeats the model on every hook event
+    model, source, tail = resolve_model(event, state, platform)
     new_id, opened_at = _new_id(), _iso(now())
-    model = state.get("model") or _transcript_model(event)
     prompt = str(event.get("prompt") or "")
-    session.save(sid, {**state, "platform": platform, **_fresh_task_state(new_id, opened_at, prompt)})
-    opened = _start_event(new_id, sid, platform, model, paths.project_of(event.get("cwd")), opened_at,
-                          event.get("prompt"))
+    project = paths.project_of(event.get("cwd"))
+    public = paths.is_public(event.get("cwd"))
+    before = state.get("model")
+    observed = _is_observed(model, source)
+    session.save(sid, {**state, "platform": platform, **_fresh_task_state(new_id, opened_at, "" if public else prompt),
+                       "model": model, "model_source": source, "model_observed": observed, "task_model": model,
+                       "public": public})
+    opened = _start_event(new_id, sid, platform, model, project, opened_at, event.get("prompt"), public)
     if _is_scratch(event.get("cwd")):
         opened["scratch"] = True                 # a test or rehearsal: curating ignores it
     append(opened)
+    extra = {"switch_name": tail["switch_name"]} if source == "transcript_switch" and model == session.UNKNOWN_MODEL \
+        else {}
+    if tail.get("guessed_from"):
+        extra["guessed_from"] = tail["guessed_from"]
+    note_model(sid, new_id, model, source, tail["reply"], project, changed=before != model, stage="prompt",
+               observed=observed, **extra)
     return new_id
 
 
-def _settle_model(sid: str, state: dict, event: Event) -> None:
-    """Fill in the session's model at the end of a task when the start could not tell which one it was."""
-    if state.get("model") in (None, "", "unknown"):
-        state["model"] = _sent_model(event) or _transcript_model(event)
+def note_model(sid: str, task_id: TaskId | None, model: str | None, source: str, seen: str | None,
+               project: str | None, changed: bool = True, stage: str = "prompt", observed: bool | None = None,
+               **more) -> None:
+    """The `model` audit event: the model Athos records, where it read it (`event`: the hook said so;
+    `transcript_switch` / `transcript_request` / `transcript_reply`: the transcript's latest `/model` switch, request
+    or reply; `session`: what the session reported or last observed; `replies`: the replies that answered the task;
+    `launch_flag` / `env` / `settings`: a guess; `unknown`), whether it was `observed` (false for a guess or unknown),
+    the model of the transcript's latest reply when it could be read, the model's tier and mode, and the moment
+    (`stage`: session_start, prompt, tool_start, tool, save, stop, end). The log.md line is written only when the model
+    changes."""
+    from athos import tiers
+    if observed is None:
+        observed = _is_observed(model, source)
+    differs = bool(seen and model and seen != model)
+    line = None
+    if changed:
+        line = f"{model or 'unknown'} (from {source}{'' if observed else ', a guess'}, {stage})" + (
+            f"; the transcript's last reply is {seen}" if differs and stage == "prompt" else "")
+    audit({"type": "model", "session_id": sid, "task_id": task_id, "model": model, "source": source,
+           "observed": observed, "seen_in_transcript": seen, "stage": stage, "changed": changed,
+           **tiers.describe(model), **more}, line=line, project=project)
+
+
+def refresh_model(sid: str | None, transcript_path: str | None, stage: str) -> dict | None:
+    """Replace a guessed or unknown model with the first observation, at a tool hook, at a save and at the end of a
+    turn: the newest trace of the main conversation in the transcript (its request row, there before any reply; a
+    reply; a `/model` switch). Nothing to do when the session's model was already observed or the transcript names
+    none. On a change of the session's model, a `model` event (`corrects`: the value replaced, `corrects_source`).
+    Returns {model, before, before_source, before_observed, tier, before_tier} when it settled one, else None."""
+    from athos import tiers
+    if not sid:
+        return None
+    state = session.load(sid)
+    if not state or session.observed(state):
+        return None
+    path = transcript_path or state.get("transcript_path")
+    model, _at, source = session.newest_in_tail(session.models_in_tail(path))
+    if not model:
+        return None
+    before, before_source = state.get("model") or session.UNKNOWN_MODEL, state.get("model_source") or "unknown"
+    session.update(sid, model=model, model_source=source, model_observed=True)
+    note_model(sid, state.get("task_id"), model, source, None, state.get("project"), changed=model != before,
+               stage=stage, observed=True, corrects=before, corrects_source=before_source)
+    return {"model": model, "before": before, "before_source": before_source, "tier": tiers.tier_of(model),
+            "before_tier": tiers.tier_of(before) if before != session.UNKNOWN_MODEL else None}
+
+
+def _settle_model(sid: str, state: dict, event: Event, answered: list[str]) -> tuple[str, str]:
+    """The model to record for the task that ends, and where it was read: the last of the models whose replies
+    answered it, when the transcript says (`replies`); else the hook's field (`event`); else the session's, which
+    refresh_model has just replaced with the transcript's request row when it was a guess. The session keeps it for
+    the next request."""
+    model, source = (answered[-1], "replies") if answered else (_sent_model(event), "event")
+    if not model:
+        model, source = state.get("model") or session.UNKNOWN_MODEL, state.get("model_source") or "unknown"
+        if not session.observed(state) and model != session.UNKNOWN_MODEL:
+            return model, source                 # still a guess: kept as one
+    if model != state.get("model") or not session.observed(state):
+        state.update(model=model, model_source=source, model_observed=_is_observed(model, source))
         session.save(sid, state)
+    return model, source
 
 
 def task_end(event: Event) -> Event | None:
-    """Close the session's open task: log a task_end with its duration, tokens and pieces, and return it.
-    None when the session has no task open."""
+    """Close the session's open task: log a task_end with its duration, tokens, pieces and the model that answered
+    (and the model recorded at its start, `model_at_start`, when they differ), and return it. None when the session
+    has no task open."""
+    sid = event.get("session_id", "default")
+    guessed = session.load(sid)
+    # A turn without tools has no reply row yet at Stop, but its request row is there: a guess ends here.
+    fixed = refresh_model(sid, event.get("transcript_path"), "stop") if guessed.get("task_id") else None
     sid, state = _hook_session(event)
     open_id = state.get("task_id")
     if not open_id:
@@ -257,16 +528,28 @@ def task_end(event: Event) -> Event | None:
     finished = now()
     opened_at = state.get("task_started", "")
     began = _parse(opened_at) or finished
-    _settle_model(sid, state, event)
     if isinstance(event.get("tokens"), dict):
-        used = event["tokens"]                   # OpenCode counts its own tokens and sends them
+        used, answered = event["tokens"], []     # OpenCode counts its own tokens and sends them
     else:
-        used = _tokens(state.get("platform", "claude-code"), event.get("transcript_path"),
-                       opened_at, _iso(finished), sid)
+        used, answered = _tokens(state.get("platform", "claude-code"), event.get("transcript_path"),
+                                 opened_at, _iso(finished), sid)
+    # The model the request was decided on: the one recorded at its start, whatever a tool hook corrected since.
+    at_start = guessed.get("task_model") or guessed.get("model") or session.UNKNOWN_MODEL
+    held = state.get("model")
+    model, source = _settle_model(sid, state, event, answered)
     closed = _end_event(open_id, _iso(finished), (finished - began).total_seconds(), used,
-                        state.get("model", "unknown"), state.get("task_loaded", []), state.get("task_saved", []),
-                        sid=sid)
+                        model, state.get("task_loaded", []), state.get("task_saved", []), sid=sid)
+    if model != at_start:
+        closed["model_at_start"] = at_start
+    if not session.observed(state):
+        closed["model_observed"] = False         # a guess or unknown to the end: the audit counts it
     append(closed)
+    if answered:
+        note_model(sid, open_id, model, "replies", None, state.get("project"), changed=model != held,
+                   stage="end", answered=answered, at_start=at_start)
+    elif fixed is None and model != held:
+        note_model(sid, open_id, model, source, None, state.get("project"), changed=True, stage="end",
+                   at_start=at_start)
     return closed
 
 
@@ -360,8 +643,10 @@ def infer_mark(session_id: str, prompt: str) -> str | None:
     if any(e.get("type") == "mark" and e.get("task_id") == tid for e in events()):
         return None
     append({"type": "mark", "task_id": tid, "result": res, "by": "inferred", "at": _iso(now())})
-    # The words that judged the task wrong are the correction itself: the case keeps them as what to check.
-    _keep_case(tid, res, session_id, prompt.strip() if res == "corrected" else None)
+    # The words that judged the task wrong are the correction itself: the case keeps them as what to check (but not
+    # in a public repository, where nothing taken from a request is stored).
+    public = session.load(session_id).get("public")
+    _keep_case(tid, res, session_id, prompt.strip() if res == "corrected" and not public else None)
     return res
 
 
@@ -411,12 +696,20 @@ def tasks() -> list[Task]:
     """The log folded into one dict per finished task (one that has stopped at least once), in the order the
     tasks first appear: its start, its stops, and its latest verdict (`unevaluated` when there is none)."""
     folded: dict[TaskId, Task] = {}
+    wrong: set[tuple] = set()
     for line in filter(lambda e: e.get("task_id"), events()):
+        if line.get("type") == "correction":
+            if line.get("target") == "task_pieces":
+                wrong.add((line["task_id"], line.get("piece")))     # `athos repair`: a use counted by mistake
+            continue
         task = folded.setdefault(line["task_id"],
                                  {"task_id": line["task_id"], "result": UNMARKED, "pieces": [], "saved": []})
         handler = _FOLD.get(line.get("type"))
         if handler:
             handler(task, line)
+    for tid, pid in wrong:
+        if tid in folded:
+            folded[tid]["pieces"] = [p for p in folded[tid]["pieces"] if p != pid]
     return [task for task in folded.values() if "ended" in task]
 
 
@@ -469,7 +762,14 @@ def _review_flags(idle: int | None, rate: float | None, judged: int) -> list[str
     return [flag for flag, raised in ((f"not used in {STALE_DAYS} days", stale), ("low success", failing)) if raised]
 
 
-def _piece_row(pid: PieceId, piece, ts: list[Task], today: _dt.date) -> dict:
+def _graded(pid: PieceId, reuses: list[Event]) -> tuple[int, int]:
+    """(clean, evaluated) graded reuses of a piece (athos/grade.py): the latest judgement of each task that used it,
+    those that proved something either way (not `unverified`)."""
+    mine = [e for e in reuses if e.get("piece") == pid and e.get("outcome") not in (None, "unverified")]
+    return sum(1 for e in mine if e.get("outcome") in ("clean", "replay_pass")), len(mine)
+
+
+def _piece_row(pid: PieceId, piece, ts: list[Task], today: _dt.date, reuses: list[Event] | None = None) -> dict:
     uses = [t for t in ts if pid in t["pieces"]]            # a task that loaded and improved it still used it
     base = _baseline(pid, ts)
     rate, judged = _rate(uses)
@@ -484,6 +784,10 @@ def _piece_row(pid: PieceId, piece, ts: list[Task], today: _dt.date) -> dict:
            "mean_duration_s": mean_s, "mean_tokens": mean_tok, "time_saved_s": None, "tokens_saved": None,
            "prompt_saved": _shorter(base, uses), "last_used": last or None,
            "review": _review_flags(_idle_days(last, today), rate, judged)}
+    clean, graded = _graded(pid, reuses or [])
+    row.update(reuses_clean=clean, reuses_evaluated=graded,
+               status=(piece.status or None) if piece is not None else None,
+               confidence=store.confidence(piece) if piece is not None else None)
     if base:
         row["baseline"] = {"task_id": base["task_id"], "duration_s": base.get("duration_s"), "tokens": _tok(base)}
         row["time_saved_s"] = _minus(base.get("duration_s"), mean_s)
@@ -516,7 +820,26 @@ def report(today: _dt.date | None = None) -> dict:
     ts = tasks()
     known = {p.id: p for p in store.all_pieces()}
     mentioned = {pid for t in ts for pid in t["pieces"] + t["saved"]}
-    rows = [_piece_row(pid, known.get(pid), ts, today) for pid in sorted(known.keys() | mentioned)]
+    from athos import grade
+    reuses = grade.counted_reuses(events())
+    rows = [_piece_row(pid, known.get(pid), ts, today, reuses) for pid in sorted(known.keys() | mentioned)]
+    aside = {pid: m for pid, m in grade.reviews().items() if (m or {}).get("kind") in ("set_aside", "overlap")}
+    for row in rows:              # the verifier kept rejecting it, or it repeats the person's own piece: theirs to decide
+        if row["piece"] in aside:
+            row["review"] = [*row["review"], aside[row["piece"]].get("why") or "set aside"]
+    from athos import wiki
+    try:
+        twins = wiki.overlapping(list(known.values()))
+    except OSError:
+        twins = []
+    by_id = {row["piece"]: row for row in rows}
+    for pair in twins:                         # two pieces for one way of working: the person decides, nothing merges
+        row = by_id.get(pair["piece"])
+        if row is not None:
+            owned = " (your own piece, not changed)" if pair["other_owned"] else ""
+            line = f"same way of working as {pair['other']}{owned}"
+            if line not in row["review"]:
+                row["review"] = [*row["review"], line]
     return {"generated": _iso(now()), "tasks": len(ts),
             "evaluated": sum(1 for t in ts if t["result"] != UNMARKED),
             "pieces": rows, "models": _model_rows(ts),
@@ -605,7 +928,12 @@ def _num(value: float | None, unit: str = "") -> str:
 
 
 def _piece_lines(p: dict) -> list[str]:
-    lines = [f"  {p['piece']}  uses {p['uses']}  success {_pct(p['success_rate'])} ({p['evaluated']} evaluated)"]
+    head = f"  {p['piece']}  uses {p['uses']}  success {_pct(p['success_rate'])} ({p['evaluated']} evaluated)"
+    if p.get("reuses_evaluated"):            # graded on objective evidence (athos/grade.py), beside the person's marks
+        head += f"  graded reuses {p['reuses_clean']} clean of {p['reuses_evaluated']}"
+    if p.get("status"):
+        head += f"  {p['status']}" + (f", confidence {p['confidence']:.2f}" if p.get("confidence") is not None else "")
+    lines = [head]
     if p["baseline"] and p.get("prompt_saved") is not None:
         lines.append(f"    vs the first run, which taught it: requests {p['prompt_saved'] * 100:.0f}% shorter")
     if p["review"]:

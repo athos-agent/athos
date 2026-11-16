@@ -20,7 +20,9 @@ import time
 
 from athos import paths, session, store
 
-SHOW = re.compile(r"(?:^|[\s/;&|])athos\s+show\s+([A-Za-z0-9_-]+)")
+# `athos show <id>` as the agent typed it (also through a quoted full path, and with flags before the id): the tool
+# hook sees it, so the piece counts as used for the task without `show` itself writing anything.
+SHOW = re.compile(r"(?:^|[\s/;&|'\"])athos['\"]?\s+show\s+(?:--?[A-Za-z][\w-]*\s+)*([A-Za-z0-9][A-Za-z0-9_-]*)")
 # `athos step …` as the agent typed it, seen by the tool hook: in a sandbox (Codex, Muse Code) the command itself may
 # not reach ~/.athos, but the hook runs outside it.
 STEP = re.compile(r"(?:^|[\s/;&|'\"])athos['\"]?\s+step\s+(?:--new\s+(?:\"([^\"]*)\"|'([^']*)'|(\S+))|([^\s;&|'\"]+))")
@@ -95,17 +97,28 @@ def on_tool(event: dict) -> None:
                 step(sid, None if new else m.group(4), new, (did.group(1) or did.group(2)) if did else None)
             except SystemExit:
                 pass
+    elif SHOW.search(str(tin.get("command", ""))):
+        # The agent opened a piece with `athos show`: that is using it for this task (the frontier index offers pieces
+        # to open this way). The command itself writes nothing, so a person or another agent reading a piece leaves
+        # no trace (2026-11-15: reading rules marked them used in an old session).
+        from athos import control, load
+        here, mark = paths.locate(event["cwd"]) if event.get("cwd") else (None, {})
+        for m in SHOW.finditer(str(tin.get("command", ""))):
+            p = store.get(m.group(1))
+            if p and (not mark.get("public") or control.may_see(p, here, True)):   # refused in a public repository
+                note(sid, {"kind": "read", "piece": p.id, "title": p.title})
+                load.note_opened(sid, p, "show", event.get("cwd"))
     else:
-        pid = None
-        m = SHOW.search(str(tin.get("command", "")))
-        if m:
-            pid = m.group(1)
-        else:
-            f = str(tin.get("file_path") or tin.get("path") or tin.get("filePath") or "")
-            kh = str(paths.know_how())
-            if f.startswith(kh) and f.endswith(".md"):
-                pid = os.path.basename(f)[:-3]
-        p = store.get(pid) if pid else None
+        # Its file read straight from the store: drawn on the trail, but not counted as used (reading a piece as a
+        # file is how one looks at it without touching anything).
+        f = str(tin.get("file_path") or tin.get("path") or tin.get("filePath") or "")
+        kh = str(paths.know_how())
+        p = store.get(os.path.basename(f)[:-3]) if f.startswith(kh) and f.endswith(".md") else None
+        if p and event.get("cwd"):
+            from athos import control
+            here, mark = paths.locate(event["cwd"])
+            if mark.get("public") and not control.may_see(p, here, True):
+                p = None                           # a public repository's pane never names another project's piece
         if p:
             note(sid, {"kind": "read", "piece": p.id, "title": p.title})
 
@@ -147,18 +160,32 @@ def label(when: str, do: str, sid: str) -> str:
     return sid.replace("_", " ").replace("-", " ").capitalize()
 
 
-def view(state: dict) -> dict:
+def view(state: dict, here=None) -> dict:
     """What the pane draws: each piece the task walks, as a page (what it is for, its steps as a task list with what
     to do and why, the pages it leads to), the steps the agent reported (done, current, ahead), what happened beside
-    them, and the steps that were new."""
+    them, and the steps that were new. `here` (control.Here): only the pages that may be named where it is drawn (a
+    repository marked public), linked or handed over to included."""
     from athos import eval as ev, wiki
+    if here is not None:
+        ok = here.may_name
+    elif state.get("public") and state.get("project"):
+        # A session in a repository marked public (the hooks recorded it): wherever the pane is drawn (athos watch,
+        # Claude Desktop's panel), only what may load there.
+        from athos import control
+
+        def ok(q) -> bool:
+            q = store.get(q) if isinstance(q, str) else q
+            return q is not None and control.may_see(q, state["project"], True)
+    else:
+        def ok(_q) -> bool:
+            return True
     trail = state.get("trail") or []
     # The piece the agent reports steps of comes first, then the others by relevance (task_why keeps the ranking;
     # task_loaded is sorted by name, and put an unrelated piece first on screen, 2026-10-30).
     order: list[str] = []
     for pid in ([x["piece"] for x in trail if x.get("kind") == "step"] + list(state.get("task_why") or {})
                 + list(state.get("task_loaded") or []) + [x["piece"] for x in trail if x.get("piece")]):
-        if pid not in order:
+        if pid not in order and ok(pid):
             order.append(pid)
     why = state.get("task_why") or {}
     tasks = ev.tasks()
@@ -193,7 +220,7 @@ def view(state: dict) -> dict:
             # (a contract review → its data clause → the firm's clause format), never a page already on the path.
             for c in s.calls:
                 q = store.get(c["page"])
-                if not q or q.id in seen or depth >= 3:
+                if not q or q.id in seen or depth >= 3 or not ok(q):
                     continue
                 subs = wiki.statements(q)
                 if c["statement"]:
@@ -216,8 +243,10 @@ def view(state: dict) -> dict:
         for x in steps[:max(last, 0)]:
             if x["state"] == "ahead":
                 x["state"] = "skipped"
-        how = "loaded" if pid in (state.get("task_loaded") or []) else "read"
-        see = [{"id": q, "title": store.get(q).title} for q in wiki.links_of(p)[:3] if store.get(q)]
+        opened = pid in (state.get("task_opened") or []) and pid not in (state.get("task_why") or {})
+        how = "loaded" if pid in (state.get("task_loaded") or []) and not opened else "read"
+        see = [{"id": q, "title": store.get(q).title} for q in [q for q in wiki.links_of(p) if ok(q)][:3]
+               if store.get(q)]
         pieces.append({"id": pid, "title": p.title, "version": p.version, "when": p.when[:600], "how": how,
                        "why": why.get(pid, []), "record": ev.record(pid, tasks), "see": see, "steps": steps})
     beside = [{k: v for k, v in x.items() if k != "t"} for x in trail if x["kind"] in ("agent", "skill")]

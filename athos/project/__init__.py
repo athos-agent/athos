@@ -38,7 +38,17 @@ NEGATIVE = re.compile(r"^\s*(never|don'?t|do not|no |nunca|no hay que|jamás)", 
 
 def select(root: Path, ids: list[str] | None = None, everything: bool = False) -> list[store.Piece]:
     """The pieces that belong in this project: the ones named, every piece, or those tagged with the project or
-    loaded or saved by one of its tasks."""
+    loaded or saved by one of its tasks. In a repository marked public only those that may load there
+    (control.may_see), whatever was asked: another project's pieces are never written into one."""
+    chosen = _select(root, ids, everything)
+    if paths.is_public(root):
+        from athos import control
+        name = paths.project_of(root)
+        chosen = [p for p in chosen if control.may_see(p, name, True)]
+    return chosen
+
+
+def _select(root: Path, ids: list[str] | None = None, everything: bool = False) -> list[store.Piece]:
     pieces = store.all_pieces()
     if ids:
         missing = sorted(set(ids) - {p.id for p in pieces})

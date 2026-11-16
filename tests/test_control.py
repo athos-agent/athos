@@ -18,6 +18,7 @@ class ControlTest(TempHome):
             ("Write commit messages", "writing a commit message", "c", None),
         ):
             store.create(title, when, body, projects=projects)
+        control.profile_add([GENERAL_PAGE])                                # what applies in every project
 
     def folder(self, name: str) -> str:
         path = Path(self.home) / name
@@ -42,7 +43,13 @@ class ControlTest(TempHome):
         self.assertNotIn("Release site", load.on_prompt({"session_id": "s", "cwd": athos,
                                                           "prompt": "release a new version"}))
 
-    def test_a_folder_no_piece_belongs_to_sees_every_piece(self):
+    def test_a_folder_no_piece_belongs_to_sees_only_the_profile(self):
+        self.assertEqual(self.loaded(self.folder("elsewhere")), [GENERAL_PAGE])
+        self.assertEqual(control.select(store.all_pieces(), self.folder("elsewhere"))[1]["reason"],
+                         "auto:no-own-pieces")
+        # Naming a project from there still lets its pages through, and `athos load all` brings everything back.
+        self.assertEqual(self.loaded(self.folder("elsewhere"), "release the site"), [SITE_PAGE, GENERAL_PAGE])
+        self.choose("all")
         self.assertEqual(len(self.loaded(self.folder("elsewhere"))), 3)
 
     def test_project_mode_keeps_that_project_and_the_general_pages(self):
@@ -83,16 +90,57 @@ class ControlTest(TempHome):
         self.assertEqual(control.describe({"mode": "pieces", "pieces": ["a", "b"]}), "pieces a, b")
         self.assertEqual(control.describe({"mode": "all"}), "all")
 
-    def test_the_session_index_lists_other_projects_in_one_line_each(self):
+    def test_the_session_index_only_counts_other_projects(self):
         athos = self.folder("athos")
         text = load.on_session_start({"session_id": "s", "cwd": athos})
         self.assertIn("`release-athos`", text)
         self.assertNotIn("`release-site`", text)                       # its page doesn't mix in
-        self.assertIn("- site (1 way of working): e.g. «Release site»", text)
-        (Path(self.home) / "projects").mkdir()
-        (Path(self.home) / "projects" / "site.md").write_text("# site\nThe marketing site: releases and copy.\n")
-        self.assertIn("- site (1 way of working): The marketing site: releases and copy.",
-                      load.on_session_start({"session_id": "s", "cwd": athos}))
+        self.assertIn("- 1 way of working in 1 other project", text)       # counted, never named
+        self.assertNotIn("Release site", text)
+        self.assertNotIn("site (", text)
 
     def test_harness_messages_are_not_requests(self):
         self.assertEqual(load.relevant("<agent-message from=\"x\"> release athos", load.enabled()), [])
+
+
+class NamedProjectsTest(TempHome):
+    """Which projects a request names: the longest name wins over one it contains, and a short name counts only as
+    a word of its own."""
+
+    def test_names(self):
+        named = control.named_projects
+        self.assertEqual(named(["heat", "heat-v2"], "fix the heat-v2 login"), ["heat-v2"])
+        self.assertEqual(named(["heat"], "fix the heat-v2 login"), [])
+        self.assertEqual(named(["heat"], "the heat pump, as in heat: again"), ["heat"])
+        self.assertEqual(named(["api"], "update api.js and api-docs"), [])
+        self.assertEqual(named(["api", "billing"], "billing api"), ["api", "billing"])
+        self.assertEqual(named(["my-app"], "like in my app please"), ["my-app"])
+        self.assertEqual(named(["heat-v2", "heat-v2-mobile"], "heat v2 mobile crash"), ["heat-v2-mobile"])
+        self.assertTrue(control._named("billing", "the billing report"))
+        self.assertFalse(control._named("heat", "heat-v2"))
+
+    def test_defined_once(self):
+        import inspect
+        self.assertEqual(inspect.getsource(control).count("def _named("), 1)
+
+    def test_the_scope_uses_them(self):
+        for pid, project in (("h1", "heat"), ("h2", "heat-v2"), ("a1", "alpha")):
+            store._write(store.Piece(id=pid, title=f"{project} thing", when=f"{project} work", body="b",
+                                     projects=[project], created="2026-11-01", last_used="2026-11-01",
+                                     origin={"platform": "t", "model": "t"}))
+        pool, why = control.select(store.all_pieces(), None, "the heat-v2 login", project="alpha")
+        self.assertEqual(why["named"], ["heat-v2"])
+
+
+class RootFolderTest(TempHome):
+    def test_the_filesystem_root_is_a_folder_not_no_folder(self):
+        for pid, project, vis in (("b1", "beta", "private"), ("b2", "beta", ""), ("g1", "", "")):
+            store._write(store.Piece(id=pid, title=f"{pid} thing", when=f"{pid} work", body="b",
+                                     projects=[project] if project else [], created="2026-11-01",
+                                     last_used="2026-11-01", origin={"platform": "t", "model": "t"}, visibility=vis))
+        pool, why = control.select(store.all_pieces(), "/", "")
+        self.assertNotEqual(why["reason"], "auto:no-folder")
+        self.assertNotIn("b1", [p.id for p in pool])               # a private piece never outside its project
+        self.assertNotIn("b2", [p.id for p in pool])
+        pool, why = control.select(store.all_pieces(), None, "")   # no folder at all (Claude Desktop's chat)
+        self.assertEqual(why["reason"], "auto:no-folder")

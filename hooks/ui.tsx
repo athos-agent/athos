@@ -1,10 +1,15 @@
-// Athos in the terminal and in Desktop. A greeting when the session starts; a pane with the current task's trail
-// (the person's know-how it walks, step by step, and the subagents and skills beside it). The status line counts the know-how ("N ways of working · K in use · M to mark"; the engine
+// Athos in the terminal and in Desktop. By default (the minimal interface) one small mark in the prompt footer's mode
+// labels and nothing else: a red square with "Athos is learning", a green one with "Athos is collaborating", nothing
+// while idle. It reads `athos status --ui`, which in this interface is the state alone.
+//
+// ATHOS_UI=classic (or "ui": "classic" in config.json) brings back the old interface: a greeting when the session
+// starts; a pane with the current task's trail (the person's know-how it walks, step by step, and the subagents and
+// skills beside it). The status line counts the know-how ("N ways of working · K in use · M to mark"; the engine
 // prefixes the plugin's name); the band above the prompt says when the last task saved or improved a piece and, while
-// it has no verdict, offers one-key marking. Both read `athos status --json` and stay silent with nothing to say.
-import { atom, read, type EngineInterface, type Register, update } from 'claude-code'
+// it has no verdict, offers one-key marking. Both read the whole status and stay silent with nothing to say.
+import { atom, read, type EngineInterface, type Register, type Timer, update } from 'claude-code'
 
-import type { Bar, Status, Trail } from '../types'
+import type { Bar, Indicator, Status, Trail } from '../types'
 
 // Per-session memory, one engine atom each under the plugin's name: the last status read, and which task the person
 // already answered (marked, offered a save, said a load didn't apply), whether they were greeted and which task's pane
@@ -15,7 +20,21 @@ const offered = atom({ plugin: 'athos', key: 'offered' } as const, null)
 const misfired = atom({ plugin: 'athos', key: 'misfired' } as const, null)
 const greeted = atom({ plugin: 'athos', key: 'greeted' } as const, false)
 const paneFor = atom({ plugin: 'athos', key: 'paneFor' } as const, null)
+// What the minimal interface draws: the state, the person's language and which interface is on.
+const shown = atom({ plugin: 'athos', key: 'shown' } as const, null as Indicator | null)
 const PANE = 'athos-trail'
+
+/** The one mark of the minimal interface, in the person's language; undefined while idle or in the classic one. */
+export function indicatorText(i: Indicator | null): { color: 'red' | 'green'; text: string } | undefined {
+  if (!i || i.ui === 'classic') return undefined
+  const es = i.lang === 'es'
+  if (i.state === 'learning') return { color: 'red', text: es ? 'Athos está aprendiendo' : 'Athos is learning' }
+  if (i.state === 'collaborating') return { color: 'green', text: es ? 'Athos está colaborando' : 'Athos is collaborating' }
+  return undefined
+}
+
+/** Whether the classic interface is on (the last status read said so). */
+const classic = async ($: EngineInterface) => (await read($, shown))?.ui === 'classic'
 
 // What the person reads, in the language they chose with `athos start` (English by default), in plain words.
 const WORDS = {
@@ -221,19 +240,43 @@ async function toastRun($: EngineInterface, args: string[]): Promise<void> {
 /** The last status read, as every render sees it. */
 const latest = ($: EngineInterface) => read($, snap)
 
-/** Reads the store again (`athos status --json`, whose last line is the JSON), keeps it for the renders and updates
- * the status line. When anything fails the line is cleared rather than left stale. */
+/** Reads the store again (`athos status --ui`, whose last line is the JSON: the state alone in the minimal interface,
+ * everything in the classic one), keeps it for the renders and, in the classic interface, updates the status line.
+ * When anything fails the line is cleared rather than left stale, and the mark goes away. */
 async function refresh($: EngineInterface): Promise<void> {
   // Reading, parsing and storing are one chain: a failure anywhere in it blanks the line and never throws, since a
   // hook that throws shows the person an error line.
-  const line = await athos($, ['status', '--json'])
+  const line = await athos($, ['status', '--ui'])
     .then(async out => {
-      const fresh = JSON.parse(out.split('\n').pop() || 'null') as Status | null
+      const fresh = JSON.parse(out.split('\n').pop() || 'null') as (Status & Partial<Indicator>) | null
+      const look: Indicator | null = fresh
+        ? { state: fresh.state ?? 'idle', why: fresh.why ?? '', ui: fresh.ui === 'classic' ? 'classic' : 'minimal',
+            lang: fresh.lang }
+        : null
+      await update($, shown, () => look)
+      if (look?.ui !== 'classic') return undefined
       await update($, snap, () => fresh)
       return statusText(fresh)
     })
-    .catch(() => undefined)
+    .catch(async () => {
+      await update($, shown, () => null).catch(() => undefined)
+      return undefined
+    })
   $.ui.status(line)
+}
+
+let watching: Timer | null = null
+
+/** After a turn, while the mark is still on (a background verification), look again every 5 s until it goes. */
+async function watchUntilIdle($: EngineInterface): Promise<void> {
+  const on = indicatorText(await read($, shown))
+  if (!on) {
+    watching?.cancel()
+    watching = null
+    return
+  }
+  if (watching) return
+  watching = $.clock.every(5000, () => void refresh($).then(() => watchUntilIdle($)))
 }
 
 let lastRefresh = 0
@@ -243,6 +286,7 @@ async function follow($: EngineInterface): Promise<void> {
   if (Date.now() - lastRefresh < 1500) return
   lastRefresh = Date.now()
   await refresh($)
+  if (!(await classic($))) return
   const t = (await read($, snap))?.trail
   if (!t?.busy || !t.task_id || (await read($, paneFor)) === t.task_id) return
   await update($, paneFor, () => t.task_id)
@@ -325,12 +369,32 @@ export const register: Register = on => {
     const done = await next(e)
     await refresh($)
     // The Stop hook may still be writing the [Save] offer when the turn completes: look once more shortly after.
-    $.clock.after(2000, () => void refresh($))
+    $.clock.after(2000, () => void refresh($).then(() => watchUntilIdle($)))
     return done
   }).catch(passOn)
 
-  // Under the prompt: the engine's own line, then one bar per agent for the piece this project used last.
+  // The minimal interface's only mark, beside the engine's own mode labels at the right of the prompt footer: the
+  // quietest place that stays on screen while the agent works and while it waits, on the terminal and on desktop.
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    const mark = indicatorText(await read($, shown))
+    if (!mark || (e.surface !== 'terminal' && e.surface !== 'desktop')) return next(e)
+    const { Box, Text } = $.ui.resolve(e)
+    // The engine's labels (and any other plugin's) are drawn after the mark, as they would be without it.
+    const beneath = await next(e)
+    return (
+      <Box>
+        <Text color={mark.color}>■</Text>
+        <Text dimColor>{` ${mark.text}`}</Text>
+        {e.props.modes.length ? <Text dimColor>{' & '}</Text> : null}
+        {beneath}
+      </Box>
+    )
+  }).catch(passOn)
+
+  // Under the prompt (classic interface): the engine's own line, then one bar per agent for the piece this project
+  // used last.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
+    if (!(await classic($))) return next(e)
     const s = await latest($)
     const bars = s?.bars
     const card = e.props.isWorking ? followingText(s) : undefined
@@ -372,7 +436,7 @@ export const register: Register = on => {
   // The band above the prompt: the greeting or where the trail is, then about the last task (what it loaded and why,
   // what it saved, whether to save it, and its verdict). A survey of the engine's own takes the place first.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey) return next(e)
+    if (e.props.hasSurvey || !(await classic($))) return next(e)
     const s = await latest($)
     const task = s?.last
     const w0 = words(s)

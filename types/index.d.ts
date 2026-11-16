@@ -10,8 +10,19 @@ export type Counts = { pieces: number; enabled: number; to_mark: number }
 /** The loading mode `athos load` set, and the ids this session has loaded so far. */
 export type Loading = { loading: string; loaded: string[] }
 
-/** Everything `athos status --json` prints on its last line, which the hooks module reads after each event. */
-export type Status = Counts & Loading & {
+/** What the person sees of Athos (athos/indicator.py): learning, collaborating or idle, a short reason, which
+ * interface is on (`minimal` by default, `classic` with ATHOS_UI=classic), and their language. In the minimal interface
+ * `athos status --ui` prints only this. */
+export type Indicator = {
+  state: 'learning' | 'collaborating' | 'idle'
+  why: string
+  ui: 'minimal' | 'classic'
+  lang?: 'en' | 'es'
+}
+
+/** Everything `athos status --json` prints on its last line, which the hooks module reads after each event in the
+ * classic interface. */
+export type Status = Counts & Loading & Partial<Indicator> & {
   /** The language the person chose with `athos start`: what they read follows it. */
   lang?: 'en' | 'es'
   /** The piece this session saved or improved last, and the agents where it is ready. */
@@ -96,6 +107,8 @@ declare module 'claude-code' {
       greeted: boolean
       /** The task whose trail the pane was opened for (once per task, unasked). */
       paneFor: string | null
+      /** The last state read for the minimal interface's mark (and which interface is on). */
+      shown: Indicator | null
     }
   }
 }

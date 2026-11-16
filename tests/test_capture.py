@@ -143,6 +143,13 @@ class QuietCaptureTest(TempHome):
         self.assertTrue(str(skills).startswith(self.home))
         (skills / "athos-old").mkdir(parents=True)
         piece, _ = capture.save_text(FLAKY_PIECE, "s5")
+        # That folder is read in every project: a piece of this project stays out of it...
+        self.assertFalse((skills / f"athos-{piece.id}").exists())
+        self.assertEqual(session.load("s5")["last_saved"]["platforms"], ["Claude Code"])
+        # ...and a piece in the profile goes in, refreshed on the next save.
+        from athos import control
+        control.profile_add([piece.id])
+        capture.save_text(FLAKY_PIECE.replace("---\n", f"---\nid: {piece.id}\nnote: clearer\n", 1), "s5")
         self.assertTrue((skills / f"athos-{piece.id}" / "SKILL.md").exists())
         self.assertEqual(session.load("s5")["last_saved"]["platforms"], ["Claude Code", "Codex", "Muse Code"])
 

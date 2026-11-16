@@ -38,7 +38,7 @@ def _line(t: dict, titles: dict[str, str]) -> str:
     req = " ".join((t.get("request") or "").split())
     req = req[:REQUEST_CHARS] + ("…" if len(req) > REQUEST_CHARS else "")
     followed = [titles[p] for p in t.get("pieces") or [] if p in titles][:2]
-    saved = [titles.get(p, p) for p in t.get("saved") or []][:2]
+    saved = [titles[p] for p in t.get("saved") or [] if p in titles][:2]
     bits = [f"- {_when(t)} · {t.get('platform', '?')} · «{req}»"]
     if followed:
         bits.append("with " + ", ".join(f"«{x}»" for x in followed))
@@ -55,12 +55,18 @@ def tasks_of(project: str) -> list[dict]:
     return sorted(ts, key=lambda t: t.get("started") or "", reverse=True)
 
 
-def text(project: str) -> str:
-    """The journal as the session reads it: the last tasks, what is open, and the older ones counted."""
+def text(project: str, public: bool = False) -> str:
+    """The journal as the session reads it: the last tasks, what is open, and the older ones counted. In a repository
+    marked public it names only the pieces that may load there (control.may_see)."""
+    from athos import control
     ts = tasks_of(project)
     if not ts:
         return ""
-    titles = {p.id: p.title for p in store.all_pieces() if not p.projects or project in p.projects}
+    if public:
+        titles = {p.id: p.title for p in store.all_pieces() if control.may_see(p, project, True)}
+    else:
+        titles = {p.id: p.title for p in store.all_pieces() if (not p.projects and not store.private(p))
+                  or project in p.projects}
     lines = [f"Recently in {project} (newest first):"] + [_line(t, titles) for t in ts[:RECENT]]
     cutoff = time.strftime("%Y-%m-%d", time.gmtime(time.time() - OPEN_DAYS * 86400))
     open_ = [t for t in ts if t.get("result") in ("corrected", "failed") and (t.get("started") or "") >= cutoff]

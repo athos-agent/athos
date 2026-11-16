@@ -37,7 +37,7 @@ class Fake:
 class WithPiece(TempHome):
     def setUp(self):
         super().setUp()
-        self.piece, _ = capture.save_text(PIECE, "setup")
+        self.piece, _ = capture.save_text(PIECE, "setup", self.home)        # this folder's piece
 
     def task(self, sid, prompt=REQUEST, answer="Clause 3 is fine.", transcript=None):
         ev.task_start({"session_id": sid, "prompt": prompt, "cwd": self.home})
@@ -182,6 +182,7 @@ class ReplayTest(WithPiece):
                        "model": model, "score": 90, "equivalent": i < matched, "at": ev._iso(ev.now())})
 
     def test_athos_suggests_a_hand_off_once_a_cheaper_model_keeps_matching(self):
+        self.classic()      # the classic interface: the person reads this
         self.shadowed(4, 4)
         self.assertEqual(replay.handoffs(), [])                         # fewer than 5 runs: too early
         self.shadowed(1, 1)
@@ -197,6 +198,7 @@ class ReplayTest(WithPiece):
         self.assertTrue(replay.handoffs()[0]["told"])
 
     def test_the_suggestion_is_in_the_persons_language_at_session_start(self):
+        self.classic()      # the classic interface: the person reads this
         from athos import start
         start.save_choice("es", "law")
         self.shadowed(10, 9, model="gemma4:12b", platform="local")

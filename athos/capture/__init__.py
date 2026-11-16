@@ -49,6 +49,7 @@ _FRONTMATTER_HINTS = (
 _STATEMENT_TEMPLATE = """## #<statement_id>
 **When:** <the moment in the task this step applies, as you would recognise it mid-task>
 **Do:** <the action, concrete enough to check: a command, a file, a question to the person, a refusal>
+**Check:** <the command in backticks, or the fact anyone can observe, that proves this step went right>
 **Because:** <the reason or the evidence: an incident, a measurement, the person's decision>
 **Links:** <[[page#statement]] of what applies next or alongside, in this piece or another one>
 
@@ -83,13 +84,65 @@ or, if nothing reusable came out of it, just stop. If a piece already loaded in 
 it (its `id:` and a `note:`) instead of creating a new one. Don't announce the save in your answer and don't print the
 piece: Athos itself shows the user one line with what was saved and where it is available.
 
-The person watches the task's trail in Athos's pane. When a task follows none of their know-how but takes several
-steps of real work, run `{cmd} step --new "<the step, in a few words, in the person's language>"` as you start each
-main step (not each action), so the way of working drafts itself as you go. Say nothing about it in your answer."""
+"""
 
 
-def guide(cmd: str = "athos") -> str:
-    """The capture instructions, given once at session start (out of the user's sight) so the Stop hook can be short."""
+AUTO_FORMAT = _save_format().replace("{cmd} save <<'EOF'", "{cmd} save --auto <<'EOF'").replace(
+    'id: <only to improve an existing piece: its id>\nnote: <only when improving: what changed and why>\n', "")
+
+AUTO_GUIDE = """## Learning on its own (Athos)
+
+Athos learns from this session without asking the person. {when}, if the task taught something reusable (how it was
+solved, a non-obvious rule, how to tell it went right), save exactly one piece by running:
+
+{format}
+
+Otherwise do nothing; don't mention Athos. Every step needs a **Check:**: a command in backticks that proves it went
+right and can be rerun here, or a fact anyone can observe; without a runnable Check a piece is
+never verified. Run each verification command on its own at least once before finishing (not piped,
+not chained after `||`): only then is it recorded. Write only what the task showed and someone could check in the repository (its files, its history, what its commands print), and leave out timings and other incidental observations. State the person's preferences as rules to follow, not as things they said. No secrets, emails, links, folders of this computer
+(use paths relative to the repository) or other projects' names: such a piece is not saved. It stays a candidate until
+an independent check, not you, accepts it. If the task followed an Athos piece and taught nothing
+it lacks, save nothing; if what it taught belongs there and the piece has a `status:` (or was rejected), save it whole
+with its `id:` and a `note:`. New pieces only for a different way of working. Don't announce the save or print the
+piece.
+
+"""
+
+
+# When the model keeps what a task taught, by `autolearn.ask`: on its own before its final answer (`guide`, the
+# default: nothing is said at the end of the task), or when the Stop hook's one line asks (`stop`).
+AUTO_WHEN = {
+    "guide": "Before your final answer to a task whose work an objective check proved (a test run, build or linter "
+             "that passed, a commit), as the last thing you do",
+    "stop": "When a task ends after work objective checks proved (a test run, build or linter that passed, a "
+            "commit), Athos's Stop hook says so once, in one short line. Then",
+}
+
+# The person's own save, for a session where they see nothing of Athos (the minimal interface): no button, no line.
+GUIDE_MINIMAL = """## Saving know-how (Athos)
+
+When the person asks to keep how a task was done (a request that starts "Athos · save:", or in their own words), save
+exactly one piece by running:
+
+{format}
+
+If a piece already loaded in this session covers the task, improve it (its `id:` and a `note:`) instead of creating
+a new one. Otherwise never bring saving up. Don't announce the save in your answer and don't print the piece.
+
+"""
+
+
+def guide(cmd: str = "athos", auto: bool = False, ask: str = "guide", minimal: bool = False) -> str:
+    """The capture instructions, given once at session start (out of the user's sight) so the Stop hook can be short
+    or silent. With `auto`, the instructions of autonomous learning (athos/autolearn.py) instead, worded for
+    `autolearn.ask` (`guide`: save before the final answer; `stop`: when the Stop hook's line asks). With `minimal`
+    (and not `auto`), the person's own save only: nothing offers or asks for it."""
+    if auto:
+        return AUTO_GUIDE.format(format=AUTO_FORMAT.format(cmd=cmd), cmd=cmd,
+                                 when=AUTO_WHEN.get(ask, AUTO_WHEN["guide"]))
+    if minimal:
+        return GUIDE_MINIMAL.format(format=FORMAT.format(cmd=cmd), cmd=cmd)
     return GUIDE.format(format=FORMAT.format(cmd=cmd), cmd=cmd)
 
 
@@ -114,19 +167,39 @@ class _Written(NamedTuple):
     improved: bool
 
 
-def _write_piece(text: str, origin: dict, project: str) -> _Written:
-    """Create the piece, or improve the one its `id` names."""
+def _write_piece(text: str, origin: dict, project: str, learning: dict | None = None, here=None) -> _Written:
+    """Create the piece, or improve the one its `id` names. A new piece belongs to the project it was saved in (none
+    when no project is known, as in Claude Desktop's chat): it joins the profile only when the person puts it there
+    (`athos profile add`). A `visibility:` line in what the agent sent is kept for a new piece. With `learning` (an
+    autonomous save: status, learned_by, evidence...), only a new piece is written, with those fields."""
     meta, title, when, piece_id, body = _fields(text)
+    tags = [project] if project else []
+    if piece_id and here is not None and here.public and not here.may_name(piece_id):
+        # A repository marked public: an id that may not be named there is neither changed nor created, and the
+        # answer is the one an id that does not exist gets, so it does not say whether another project has it.
+        raise ValueError(here.refuse(piece_id) + " To save a new piece here, leave out `id:`.")
+    if learning is not None:
+        absent = [name for name, value in (("title", title), ("when", when), ("body", body)) if not value]
+        if absent:
+            raise ValueError("missing " + ", ".join(absent))
+        if piece_id and store.get(piece_id) is not None:
+            raise ValueError("autonomous learning creates new pieces only: leave out `id:`")
+        return _Written(store.create(title, when, body, projects=tags, origin=origin, piece_id=piece_id or None,
+                                     **learning), None, False)
     if piece_id and store.get(piece_id) is not None:
         if not any((body, title, when)):
             raise ValueError("nothing to change")
         piece, diff = store.update(piece_id, meta.get("note", ""), body=body or None, title=title or None,
-                                   when=when or None, origin=origin, projects=[project])
+                                   when=when or None, origin=origin, projects=tags)
         return _Written(piece, diff, True)
     absent = [name for name, value in (("title", title), ("when", when), ("body", body)) if not value]
     if absent:
         raise ValueError("missing " + ", ".join(absent))
-    piece = store.create(title, when, body, projects=[project], origin=origin, piece_id=piece_id or None)
+    piece = store.create(title, when, body, projects=tags, origin=origin, piece_id=piece_id or None)
+    seen = str(meta.get("visibility") or "").strip().lower()
+    if seen in store.VISIBILITIES:
+        piece.visibility = seen
+        store._write(piece)
     return _Written(piece, None, False)
 
 
@@ -137,14 +210,13 @@ def _reset_counters(session_id: str, saved_id: str) -> None:
     ev.note_saved(session_id, saved_id)
 
 
-def _refresh_wiki() -> dict | None:
-    """Rebuild the wiki index (and the trajectory agents, when installed). None when the disk refused."""
+def _refresh_wiki(cwd: str | None = None) -> dict | None:
+    """Rebuild the wiki index, and the installed trajectory agents when the person installed them for one project
+    (never from a repository marked public: wiki.sync_installed). None when the disk refused."""
     from athos import wiki
     try:
         rebuilt = wiki.rebuild()
-        target = wiki.agents_target()
-        if target:
-            wiki.install_agents(target)
+        wiki.sync_installed(cwd)
     except OSError:
         return None
     return rebuilt
@@ -159,19 +231,23 @@ def _overlaps(piece: store.Piece) -> list:
 
 
 def save_text(text: str, session_id: str = "default", cwd: str | None = None,
-              transcript_path: str | None = None) -> tuple[store.Piece, str | None]:
+              transcript_path: str | None = None, learning: dict | None = None) -> tuple[store.Piece, str | None]:
     """`athos save`: store the piece the agent wrote, tagged with this session's origin and the project of `cwd`.
 
     A piece whose `id:` names one already in the store improves it (a new version and a history line, and the diff
     comes back); any other is created, and the diff is None. ValueError when a new piece lacks title, when or body,
     or an improvement changes nothing. Then the session's tallies reset, the wiki and exports refresh, and the
     session learns what was saved for the band to show."""
-    written = _write_piece(text, origin_for(session_id, transcript_path), paths.project_of(cwd))
+    from athos import control
+    here = control.here(cwd) if cwd else None
+    written = _write_piece(text, origin_for(session_id, transcript_path), here.project if here else paths.project_of(cwd),
+                           learning, here)
     piece = written.piece
     _reset_counters(session_id, piece.id)
-    rebuilt = _refresh_wiki()
+    rebuilt = _refresh_wiki(cwd)
     summary = {"id": piece.id, "title": piece.title, "version": piece.version,
-               "platforms": ["Claude Code", *sync_other_agents()]}
+               "platforms": ["Claude Code", *sync_other_agents(piece.id)],
+               **({"status": piece.status} if piece.status else {})}
     if written.improved:
         # The piece changed: the corrections the person made on it before are the tests of the new version.
         pending = recheck(piece.id)
@@ -200,17 +276,24 @@ def recheck_words(n: int) -> str:
     return f"{n} past correction{'s' if n != 1 else ''} to re-check"
 
 
-def sync_other_agents() -> list[str]:
+def sync_other_agents(piece_id: str | None = None) -> list[str]:
     """Where the new piece is also ready: once the person exported the know-how for Codex and Muse Code (both read
-    ~/.agents/skills), every save refreshes that export, so the piece is there with no extra step."""
+    ~/.agents/skills), every save refreshes that export. That folder is read in every project, so it gets only the
+    profile (control.profile_pieces): a project's pieces and private ones stay out of it, and their old copies there
+    are removed (every piece used to be exported there after each save, 2026-11-14). `athos project sync` gives a
+    project's pieces to the agents in that project."""
+    from athos import control
     from athos.adapters import codex
     d = codex.skills_dir()
     try:
         if not any(x.name.startswith(codex.SKILL_PREFIX) for x in d.iterdir()):
             return []
-        codex.export_skills(d)
+        everywhere = control.profile_pieces()
+        codex.export_skills(d, everywhere)
     except OSError:
         return []
+    if piece_id is not None and piece_id not in {p.id for p in everywhere}:
+        return []                        # the saved piece is this project's: not in that folder
     return ["Codex", "Muse Code"]
 
 
@@ -437,6 +520,15 @@ def stop_decision(event: dict, cmd: str = "athos", offer: bool = False) -> dict 
     session_id = event.get("session_id", "default")
     state = session.load(session_id)
     grounds = _grounds_to_ask(state)
+    from athos import autolearn
+    mode = autolearn.mode_for(state.get("model"))
+    if mode == autolearn.APPLY:
+        # An apply model never creates or changes a piece: no offer, no question (athos/autolearn.py).
+        if grounds:
+            autolearn.note_skipped(session_id, state, "apply_model", grounds)
+        return None
+    if autolearn.autonomous(session_id):
+        return autolearn.stop_decision(session_id, state, grounds, cmd)
     if grounds and offer:
         session.update(session_id, offer={"task_id": state.get("task_id"), "reason": grounds})
     if not grounds or offer:
@@ -447,5 +539,6 @@ def stop_decision(event: dict, cmd: str = "athos", offer: bool = False) -> dict 
     # With the guide given at session start (out of the user's sight, and again after a compaction), one line is
     # enough; otherwise the request carries the whole format.
     followed = grounds == "checklist"
-    text = _short_ask(cmd, followed) if state.get("guide") else _full_ask(cmd, followed, state.get("loaded", []))
+    text = _short_ask(cmd, followed) if state.get("guide") in (True, "auto") else \
+        _full_ask(cmd, followed, state.get("loaded", []))
     return dict(decision="block", reason=text)

@@ -41,16 +41,20 @@ class ThroughTheLauncher(TempHome):
 class CliTest(ThroughTheLauncher):
     def test_a_session_saves_know_how_and_the_next_one_gets_it(self):
         first = {"session_id": "s1", "cwd": self.home, "transcript_path": None}
+        # The person's own save path, with autonomous learning off (tests/test_autolearn.py covers it on).
+        Path(self.home, "config.json").write_text(json.dumps({"autolearn": {"on": False}}))
         # Nothing stored yet: the session opens with the saving guide only, so the first task can draft its steps.
         opening = self.context(self.send("session-start", dict(first, model="claude-opus-5-5")))
-        self.assertIn("step --new", opening)
+        self.assertNotIn("athos step", opening)                    # the model is not asked to report steps
         self.assertNotIn("know-how are available", opening)
         self.assertIn("Saving know-how", opening)
         for tool in ["Edit"] * 5:                                   # enough work for the stop hook to ask for a save
             self.send("tool", dict(first, tool_name=tool))
         # Claude Code shows the request to save as feedback for the model, not as a "hook error".
         self.assertIn("athos save", self.context(self.send("stop", first)))
-        # The model saves from the session's folder; the page records the model that wrote it.
+        # The person presses [Save] (a model's own save is never the person's), and the model saves from the
+        # session's folder; the page records the model that wrote it.
+        self.send("prompt", dict(first, prompt="Athos · save: keep this task as a way of working"))
         saved = self.run_athos("save", stdin="---\ntitle: Bump a version\nwhen: releasing a new version of a "
                                              "package\n---\nEdit pyproject.")
         self.assertEqual(saved.returncode, 0, saved.stderr)
@@ -110,12 +114,41 @@ class CliTest(ThroughTheLauncher):
         self.assertTrue(Path(folder, "tag-a-release.md").is_file())
         self.assertEqual(self.run_athos("export").returncode, 1)                # no folder named
 
-    def test_reading_a_piece_during_a_session_counts_as_loading_it(self):
+    def test_a_plain_show_writes_nothing(self):
         from athos import session
         self.run_athos("save", stdin=TAGGING)
         self.send("session-start", {"session_id": "reader", "cwd": self.home})
+        self.send("prompt", {"session_id": "reader", "cwd": self.home, "prompt": "unrelated words here"})
+        state = session._file("reader").read_bytes()
+        piece = Path(self.home, "know-how", "tag-a-release.md")
+        before, stamp = piece.read_bytes(), piece.stat().st_mtime_ns
+        log = Path(self.home, "events.jsonl").read_bytes()
         self.assertEqual(self.run_athos("show", "tag-a-release").returncode, 0)
+        self.assertEqual(session._file("reader").read_bytes(), state)          # the session is untouched
+        self.assertEqual((piece.read_bytes(), piece.stat().st_mtime_ns), (before, stamp))   # so is the piece
+        self.assertEqual(Path(self.home, "events.jsonl").read_bytes(), log)   # and the log
+        # Asked for, it counts as used in this folder's session.
+        self.assertEqual(self.run_athos("show", "--use", "tag-a-release").returncode, 0)
         self.assertEqual(session.load("reader")["loaded"], ["tag-a-release"])
+
+    def test_the_agent_opening_a_piece_through_its_shell_counts_as_use(self):
+        from athos import session
+        self.run_athos("save", stdin=TAGGING)
+        ev = {"session_id": "opener", "cwd": self.home}
+        self.send("prompt", {**ev, "prompt": "unrelated words here"})
+        self.send("tool", {**ev, "tool_name": "Bash",
+                           "tool_input": {"command": "'/opt/athos/bin/athos' show tag-a-release | head -50"}})
+        state = session.load("opener")
+        self.assertEqual((state["loaded"], state["task_loaded"], state["task_route"]),
+                         (["tag-a-release"], ["tag-a-release"], ["tag-a-release"]))
+        rows = [json.loads(x) for x in Path(self.home, "events.jsonl").read_text().splitlines()]
+        (opened,) = [r for r in rows if r.get("type") == "piece_opened"]
+        self.assertEqual((opened["piece"], opened["via"], opened["offered"]), ("tag-a-release", "show", False))
+        # A subagent's read is not the task's use.
+        self.send("prompt", {**ev, "prompt": "more unrelated words"})
+        self.send("tool", {**ev, "agent_id": "sub1", "tool_name": "Bash",
+                           "tool_input": {"command": "athos show tag-a-release"}})
+        self.assertEqual(session.load("opener").get("task_loaded", []), [])
 
     def test_status_reports_the_last_task_before_and_after_its_mark(self):
         folder = {"session_id": "s5", "cwd": self.home}
@@ -126,6 +159,7 @@ class CliTest(ThroughTheLauncher):
         self.send("session-start", folder)
         self.send("prompt", dict(folder, prompt="release a new version"))
         page = "---\ntitle: Release\nwhen: release a new version\n---\nBump the version, then tag it."
+        self.send("prompt", dict(folder, prompt="Athos · save: keep this task as a way of working"))   # the person's
         self.assertEqual(self.run_athos("save", stdin=page).returncode, 0)
         self.send("stop", folder)
         before = snapshot()

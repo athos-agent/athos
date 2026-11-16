@@ -1,10 +1,12 @@
 {
-  "description": "Athos: the trail pane, status line and band (ui.tsx), and the four moments bin/athos records (session start, each request, each tool, each answer).",
+  "description": "Athos: one small mark while it learns or collaborates (ui.tsx; ATHOS_UI=classic brings back the trail pane, status line and band), and the moments bin/athos records (session start, each request, the start of each tool call, each tool and each failed one, each answer).",
   "modules": ["./ui.tsx"],
   "hooks": {
     "SessionStart": [{ "hooks": [{ "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/athos\" hook session-start" }] }],
     "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/athos\" hook prompt" }] }],
+    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/athos\" hook tool-start" }] }],
     "PostToolUse": [{ "hooks": [{ "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/athos\" hook tool" }] }],
+    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/athos\" hook tool-failed" }] }],
     "Stop": [{ "hooks": [{ "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/athos\" hook stop" }] }]
   }
 }

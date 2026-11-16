@@ -43,7 +43,9 @@ class TrailTest(TempHome):
         ev = {"session_id": "t1", "cwd": self.home}
         self.hook("session-start", ev)
         ctx = self.hook("prompt", {**ev, "prompt": "cut a release of the package"})
-        self.assertIn("athos step <piece-id>#<statement_id>", ctx["hookSpecificOutput"]["additionalContext"])
+        added = ctx["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("## #bump", added)
+        self.assertNotIn("athos step", added)        # not asked any more; steps reported anyway still draw the trail
         t = self.status()["trail"]
         self.assertEqual([s["state"] for s in t["pieces"][0]["steps"]], ["ahead", "ahead"])
         self.assertEqual(self.run_athos("step", "cut-a-release#bump").stdout.strip(), "ok")

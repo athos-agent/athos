@@ -180,6 +180,11 @@ class GuildTest(TempHome):
         text = mcp.call("athos_merge", {"id": "review-a-lease", "paths": [str(self.team)]})
         self.assertIn("Proposal in", text)
         self.assertEqual(store.get("review-a-lease").version, 1)
+        with self.assertRaises(ValueError):                  # a model that is not known changes nothing
+            mcp.call("athos_merge", {"id": "review-a-lease", "paths": [str(self.team)], "apply": True})
+        self.assertEqual(store.get("review-a-lease").version, 1)
+        from athos import session
+        session.update(mcp.SESSION, model="claude-opus-5-5")
         text = mcp.call("athos_merge", {"id": "review-a-lease", "paths": [str(self.team)], "apply": True})
         self.assertIn("v2", text)
         with self.assertRaises(LookupError):

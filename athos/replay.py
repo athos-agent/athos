@@ -209,19 +209,21 @@ def settings() -> dict:
 def set_shadow(on: bool, backend_name: str | None = None, model: str | None = None) -> dict:
     """`athos shadow on|off`: stored with the person's other choices (`<home>/config.json`). Meta only when named."""
     from athos import start
-    c = start.config()
-    s = dict(c.get("shadow") or {})
-    s["on"] = on
-    if backend_name:
-        s["backend"] = backend_name
-        s.pop("model", None)                     # a model of the old backend means nothing on the new one
-    if model:
-        s["model"] = model
-    s.setdefault("backend", "ollama")
-    c["shadow"] = s
-    start.config_file().parent.mkdir(parents=True, exist_ok=True)
-    start.config_file().write_text(json.dumps(c, indent=1) + "\n")
-    return s
+    out: dict = {}
+
+    def change(c: dict) -> None:
+        s = dict(c.get("shadow") or {})
+        s["on"] = on
+        if backend_name:
+            s["backend"] = backend_name
+            s.pop("model", None)                 # a model of the old backend means nothing on the new one
+        if model:
+            s["model"] = model
+        s.setdefault("backend", "ollama")
+        c["shadow"] = s
+        out.update(s)
+    start.change_config(change)
+    return out
 
 
 def _lock():
@@ -318,3 +320,72 @@ def offer_text(piece_ids: list[str] | None = None, cmd: str = "athos") -> str:
         return ""
     return ("**Tell the person once**, in one line at the end of your reply, in their language and in plain words "
             "(this is Athos's own news, measured on their approved tasks):\n" + "\n".join(lines))
+
+
+# ------------------------------------------------------------------------------------------------ candidates
+def keep_candidate_case(piece: store.Piece, state: dict, transcript_path: str | None) -> bool:
+    """Right after an autonomous save, with replays on (`autolearn.replay.on`): keep the task as the candidate's case,
+    the request and the frontier model's answer (`mark` frontier: not one the person approved, so `athos shadow`
+    leaves it alone). Never in a public repository, where nothing taken from a request is stored."""
+    from athos import autolearn
+    if not autolearn.settings()["replay"].get("on") or state.get("public"):
+        return False
+    request = state.get("case_request") or ""
+    answer = cases.answer_from_transcript(transcript_path) if transcript_path else None
+    if not (request.strip() and answer):
+        return False
+    cases._write({"task_id": state.get("task_id") or "auto", "piece": piece.id, "version": piece.version,
+                  "request": request[:cases.MAX_TEXT], "answer": answer, "mark": "frontier",
+                  "platform": state.get("platform"), "model": state.get("model"), "at": ev._iso(ev.now())})
+    return True
+
+
+def run_candidate(piece_id: str, runner=None) -> dict:
+    """Replay a candidate's case on the apply model (`autolearn.replay.model`, haiku by default) with the piece as its
+    know-how, and have a frontier model judge it against the frontier answer, as `athos shadow` does. Two model runs,
+    both under the daily cap. The outcome is a `reuse` event (tier apply, replay_pass or replay_fail) that may verify
+    the piece (athos/grade.py)."""
+    from athos import autolearn, grade, verify
+    runner = runner or verify.claude_runner
+    s = autolearn.settings()
+    piece = store.get(piece_id)
+    if piece is None or piece.status != "candidate":
+        return {"piece": piece_id, "outcome": "skipped", "error": "not a candidate"}
+    if not s["replay"].get("on"):
+        return {"piece": piece_id, "outcome": "skipped", "error": "replays are off"}
+    found = [c for c in cases.all_cases(piece_id) if c.get("mark") in ("frontier", "ok") and c.get("request")
+             and c.get("answer")]
+    if not found:
+        return {"piece": piece_id, "outcome": "skipped", "error": "no case to replay"}
+    case = found[-1]
+    apply_model = str(s["replay"].get("model") or "haiku")
+    judge_model, _same = verify.pick_model(apply_model)
+    folder = verify.root() / f"replay-{piece.id}-v{piece.version}"
+    folder.mkdir(parents=True, exist_ok=True)
+    texts = {}
+    for step, model, prompt in (
+            ("answer", apply_model, ANSWER_SYSTEM.format(title=piece.title, body=piece.body)
+             + "\n\n# The person's request\n\n" + case["request"]),
+            ("judge", judge_model, None)):
+        if prompt is None:
+            prompt = JUDGE_SHADOW.format(request=case["request"], approved=case["answer"], answer=texts["answer"])
+        result, why, _cap = verify.run_model("replay", piece, model, prompt, folder, runner,
+                                             float(s["verifier"].get("timeout_s") or 300), step=step)
+        if result is None:
+            return {"piece": piece_id, "outcome": "skipped", "error": why}
+        if not result.get("ok"):
+            return {"piece": piece_id, "outcome": "error", "error": result.get("error")}
+        texts[step] = result.get("text") or ""
+    d = _json(texts["judge"])
+    try:
+        score = max(0, min(100, int(float(d.get("score")))))
+    except (TypeError, ValueError):
+        score = None
+    same = bool(d["equivalent"]) if "equivalent" in d else (score is not None and score >= EQUIVALENT_SCORE)
+    outcome = "replay_pass" if same else "replay_fail"
+    ev.audit({"type": "reuse", "piece": piece.id, "version": piece.version, "task_id": case.get("task_id"),
+              "tier": "apply", "model": apply_model, "judge_model": judge_model, "outcome": outcome,
+              "basis": ["replay", f"score:{score}"], "status": piece.status,
+              "project": piece.projects[0] if piece.projects else None})
+    grade.evaluate(piece.id, trigger=f"replay on {apply_model}: {outcome}")
+    return {"piece": piece_id, "outcome": outcome, "score": score, "model": apply_model, "judge": judge_model}

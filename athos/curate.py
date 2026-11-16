@@ -58,7 +58,7 @@ def state() -> dict:
 
 
 def _save_state(st: dict) -> None:
-    state_file().write_text(json.dumps(st, indent=1))
+    paths.write_atomic(state_file(), json.dumps(st, indent=1))
 
 
 def key(p: dict) -> str:

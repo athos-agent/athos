@@ -109,7 +109,7 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "athos_save", "description": "Save what a task taught as one piece, or improve an existing one (give "
      "its id and a note). The text is a frontmatter (title, when, and id + note to improve) and a body of statements "
-     "(## #id with **When:** **Do:** **Because:** **Links:**).",
+     "(## #id with **When:** **Do:** **Check:** **Because:** **Links:**).",
      "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     {"name": "athos_merge", "description": "Merge colleagues' copies of one of the person's ways of working into one "
      "team version (\"merge my lease review with Ana's version in this folder\"). `id`: the person's piece; `paths`: "
@@ -167,7 +167,14 @@ def app_only(tool: dict) -> bool:
 def tools() -> list[dict]:
     """The tools this host gets: the pages' own ones (and the library, which is a page) only where a page can be
     drawn."""
-    return [t for t in TOOLS if not (app_only(t) or t["name"] in APPS_ONLY) or draws_apps()]
+    listed = [t for t in TOOLS if not (app_only(t) or t["name"] in APPS_ONLY) or draws_apps()]
+    from athos import indicator
+    if not indicator.minimal():
+        return listed
+    # The minimal interface: the trail panel no longer opens on its own when the model calls athos_find or
+    # athos_done (the person did not ask for it); the library, which they ask for, still opens.
+    return [{k: v for k, v in t.items() if k != "_meta"} if (t.get("_meta") or {}).get("ui", {}).get("resourceUri")
+            == UI_URI else t for t in listed]
 
 
 # The panel asks for its state every few seconds; which agents are here and their versions change only when the
@@ -306,7 +313,17 @@ def _call(name: str, args: dict, session_id: str = SESSION) -> str:
     if name == "athos_list":
         return "\n".join(f"- `{p.id}` {p.title}. When: {p.when}" for p in store.all_pieces()) or "No pieces yet."
     if name == "athos_save":
-        piece, diff = capture.save_text(args.get("text", ""), session_id)
+        # The MCP server cannot tell who wrote a request: every athos_save is the model's. On a model that is not a
+        # frontier one (in Claude Desktop the model is not known) nothing is saved; on a frontier one it goes
+        # through the autonomous pipeline, which needs evidence the hooks gather and a project.
+        from athos import autolearn
+        refused = autolearn.refuse_model_save(session_id)
+        if refused:
+            raise ValueError(refused)
+        piece, line, failed = autolearn.save_model(args.get("text", ""), session_id, None, None)
+        if failed:
+            raise ValueError(line)
+        diff = piece.version > 1
         out = f"improved {piece.id} → v{piece.version}" if diff else f"saved {piece.id}"
         from athos import rating
         rating.note_learned(session_id, piece, bool(diff), args.get("text", ""))
@@ -332,6 +349,10 @@ def _call(name: str, args: dict, session_id: str = SESSION) -> str:
         if not r["changed"]:
             return out
         if args.get("apply"):
+            from athos import autolearn
+            refused = autolearn.refuse_model_save(session_id, "merge")
+            if refused:
+                raise ValueError(refused.replace("not saved", "not changed"))
             piece, _ = guild.apply(r)
             return out + f"\n\nSaved as {piece.id} v{piece.version}; the previous version is kept."
         return out + f"\n\nProposal in {guild.write_proposal(r)}. Nothing changed yet: ask the person, then call " \

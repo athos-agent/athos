@@ -212,13 +212,13 @@ def _exported_by_us(folder: Path) -> bool:
     return folder.is_dir() and skill.is_file() and "athos export --codex" in skill.read_text()
 
 
-def export_skills(dest: Path | None = None) -> tuple[int, int]:
-    """Mirror the store into a skills folder: one skill per piece, and the skills of deleted pieces removed.
-    Returns (skills written, skills removed)."""
+def export_skills(dest: Path | None = None, pieces: list[store.Piece] | None = None) -> tuple[int, int]:
+    """Mirror the store (or just `pieces`) into a skills folder: one skill per piece, and the skills of pieces no
+    longer in that set removed. Returns (skills written, skills removed)."""
     target = dest or skills_dir()
     target.mkdir(parents=True, exist_ok=True)
     current = set()
-    for piece in store.all_pieces():
+    for piece in store.all_pieces() if pieces is None else pieces:
         folder = target / _skill_name(piece.id)
         folder.mkdir(exist_ok=True)
         (folder / "SKILL.md").write_text(skill_text(piece))

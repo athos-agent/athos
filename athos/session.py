@@ -1,8 +1,10 @@
 """Per-session scratch state for the hooks.
 
 Each session owns one JSON file, `<home>/sessions/<session_id>.json`. It records things such as the model in use,
-the number of tool calls since the last capture, and the ids of pieces loaded or saved during the session. Missing or
-damaged files simply read as an empty state.
+the number of tool calls since the last capture, and the ids of pieces loaded or saved during the session. Several
+hook processes write one session at once (a tool hook of a subagent, the prompt hook, a background verifier), so the
+file is replaced in one step, updated under a lock, and one that cannot be read is an error (`paths.StateUnreadable`),
+never an empty state written back over it. A missing file reads as an empty state.
 """
 
 from __future__ import annotations
@@ -26,29 +28,37 @@ def _file(session_id: str) -> Path:
 
 
 def load(session_id: str) -> dict:
-    """The stored state of a session, `{}` when there is none or it cannot be read."""
-    try:
-        raw = _file(session_id).read_text()
-    except _UNREADABLE:
-        raw = ""
-    try:
-        state = json.loads(raw) if raw else {}
-    except json.JSONDecodeError:        # a damaged file is treated as empty
-        state = {}
+    """The stored state of a session, `{}` when there is none. paths.StateUnreadable when the file is there but cannot
+    be read after a few tries: a damaged session read as empty, then written back, used to wipe it."""
+    target = _file(session_id)
+    state = paths.read_state(target)
+    if state is None:
+        return {}
+    if not isinstance(state, dict):
+        raise paths.StateUnreadable(f"{target} does not hold a session's state; it was left as it is")
     return state
 
 
+def peek(session_id: str) -> dict:
+    """`load` for a reader that only shows the state (the status line, the indicator): a damaged file reads as {}
+    here, and what it returns is never written back."""
+    try:
+        return load(session_id)
+    except paths.StateUnreadable:
+        return {}
+
+
 def save(session_id: str, state: dict) -> None:
-    """Replace a session's state with `state`."""
-    target = _file(session_id)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(state, indent=1))
+    """Replace a session's state with `state`, in one step (a reader sees the old state or the new one)."""
+    paths.write_atomic(_file(session_id), json.dumps(state, indent=1))
 
 
 def update(session_id: str, **changes) -> dict:
-    """Merge `changes` into a session's state, store it and hand back the merged state."""
-    merged = {**load(session_id), **changes}
-    save(session_id, merged)
+    """Merge `changes` into a session's state, store it and hand back the merged state, under the session's lock so a
+    hook running at the same time loses nothing."""
+    with paths.locked(_file(session_id)):
+        merged = {**load(session_id), **changes}
+        save(session_id, merged)
     return merged
 
 
@@ -79,6 +89,31 @@ def model_from_transcript(transcript_path: str | None) -> str:
     return UNKNOWN_MODEL
 
 
+def latest_model(transcript_path: str | None, max_bytes: int = 512_000) -> str | None:
+    """The model of the latest assistant message in the transcript's last `max_bytes`, or None. For the audit log
+    only: it reads a bounded tail, so a long session costs the same as a short one."""
+    if not transcript_path:
+        return None
+    try:
+        with open(transcript_path, "rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - max_bytes))
+            tail = fh.read().decode("utf-8", "ignore").splitlines()
+    except _UNREADABLE:
+        return None
+    if size > max_bytes and tail:
+        tail = tail[1:]                          # the first line of a cut tail is a fragment
+    for line in reversed(tail):
+        try:
+            found = _model_in(line)
+        except AttributeError:                   # a JSON line that is not an object
+            continue
+        if found is not None:
+            return found
+    return None
+
+
 def _last_lines(path: str) -> list[str]:
     """The final lines of a text file (undecodable bytes dropped), or [] when it cannot be opened."""
     try:
@@ -86,3 +121,318 @@ def _last_lines(path: str) -> list[str]:
             return fh.readlines()[-_TRANSCRIPT_TAIL:]
     except _UNREADABLE:
         return []
+
+
+def _tail_rows(transcript_path: str | None, max_bytes: int = 512_000) -> list[dict]:
+    """The JSON objects in a transcript's last `max_bytes`, oldest first ([] when it cannot be read)."""
+    if not transcript_path:
+        return []
+    try:
+        with open(transcript_path, "rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - max_bytes))
+            lines = fh.read().decode("utf-8", "ignore").splitlines()
+    except _UNREADABLE:
+        return []
+    if size > max_bytes and lines:
+        lines = lines[1:]                        # the first line of a cut tail is a fragment
+    rows = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def _sha(text: str) -> str:
+    import hashlib
+    return hashlib.sha256((text or "").strip().encode("utf-8", "ignore")).hexdigest()[:12]
+
+
+def prompt_entries(transcript_path: str | None, prompt_sha: str) -> int:
+    """How many user entries in the transcript's tail carry a prompt with this fingerprint (`prompt_origin` with a
+    fingerprint skips that many: the ones written before the prompt it verifies)."""
+    return sum(1 for r in _tail_rows(transcript_path) if r.get("type") == "user" and r.get("toolUseResult") is None
+               and _sha(_text_of(r)) == prompt_sha)
+
+
+def _origin_of_row(row: dict) -> str:
+    origin = row.get("origin") if isinstance(row.get("origin"), dict) else {}
+    kind = origin.get("kind")
+    if row.get("isMeta"):
+        return "harness"
+    if kind == "human" or (kind is None and row.get("turnOrigin") == "human"):
+        return "person"
+    if kind == "plugin" and origin.get("name") == "athos" and origin.get("asUser"):
+        return "person"
+    return "harness"
+
+
+def prompt_origin(transcript_path: str | None, prompt_id: str | None, prompt_sha: str | None = None,
+                  skip: int = 0) -> str | None:
+    """Who wrote a prompt, as Claude Code's transcript records it on the prompt's entry (`promptId`): "person" for an
+    entry whose `origin.kind` is `human` (typed, queued, a suggestion accepted), or Athos's own button pressed by the
+    person (`origin.kind` `plugin`, `name` athos, `asUser`); "harness" for anything else the harness sent (a subagent's
+    report, a task notification, a meta entry). None when there is no such entry: Claude Code 2.1 writes it only after
+    the prompt hook has run, so at prompt time it is usually missing.
+
+    Several entries can carry one prompt's id, and the person's is not always the first (a command's own entry may come
+    before it). With the prompt's fingerprint, the entry whose text is that prompt decides; without it, the prompt is
+    the person's when any non-meta entry of that id is theirs."""
+    if not (transcript_path and (prompt_id or prompt_sha)):
+        return None
+    rows = [r for r in _tail_rows(transcript_path) if r.get("type") == "user" and r.get("toolUseResult") is None]
+    if not prompt_id:                    # no id from the hook: the first entry with this text after `skip` older ones
+        rows = [r for r in rows if _sha(_text_of(r)) == prompt_sha][skip:skip + 1]
+        return _origin_of_row(rows[0]) if rows else None
+    mine = [r for r in rows if r.get("promptId") == prompt_id]
+    if not mine:
+        return None
+    if prompt_sha:
+        same = [r for r in mine if _sha(_text_of(r)) == prompt_sha]
+        if same:
+            return _origin_of_row(same[0])
+    return "person" if any(_origin_of_row(r) == "person" for r in mine) else "harness"
+
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+_SWITCH = re.compile(r"<local-command-stdout>\s*Set model to `?([^`<\n]+?)`?(?:\s+and\b|\s*<|\s*$)")
+
+
+def model_id(display: str) -> str | None:
+    """The model id behind the name Claude Code's `/model` prints ("Fable 5.2" → claude-fable-5-2). An id is kept as
+    it is; a name with no version ("Default", an alias) gives None."""
+    name = re.sub(r"\(.*?\)", "", display or "").strip()
+    if re.match(r"^claude-[a-z0-9.-]+(\[[^\]]*\])?$", name, re.IGNORECASE):
+        return name.lower()
+    m = re.match(r"^(?:claude\s+)?([A-Za-z]+)\s*([0-9]+(?:\.[0-9]+)*)$", name)
+    if not m:
+        return None
+    return f"claude-{m.group(1).lower()}-{m.group(2).replace('.', '-')}"
+
+
+def _text_of(row: dict) -> str:
+    """The text of a transcript row. The layout is the host's: a `message` may be an object with `content`, or a
+    plain string (it once raised here and stopped the prompt hook for the session)."""
+    message = row.get("message")
+    content = row.get("content") if row.get("type") == "system" else \
+        (message.get("content") if isinstance(message, dict) else message)
+    if isinstance(content, list):
+        content = " ".join(str(x.get("text", "")) for x in content if isinstance(x, dict))
+    return content if isinstance(content, str) else ""
+
+
+# The query sources of the main conversation's requests: `sdk` (a `claude -p` run) and `repl_main_thread` (an
+# interactive session). A subagent's are `agent:…` and live in its own file; any other source (a future one, a title,
+# a compaction) may be another model's, so it is not taken.
+_MAIN_QUERY = re.compile(r"^(sdk|repl_main_thread)\b")
+
+
+def _real_model(value) -> str | None:
+    return value if isinstance(value, str) and value and not value.startswith("<") else None
+
+
+def _request_model(row: dict) -> str | None:
+    """The model of a request the main conversation sent, from Claude Code's `api-request` row (`params.model`,
+    written before any reply exists) or its model `attachment` (`identity.modelId`, written when a request goes out
+    on a model). Never the advisor (`advisorModel`, `api-request-shape`), never a subagent's request."""
+    if row.get("agentId") or row.get("isSidechain"):
+        return None
+    kind = row.get("type")
+    if kind == "api-request":
+        params = row.get("params") if isinstance(row.get("params"), dict) else {}
+        return _real_model(params.get("model")) if _MAIN_QUERY.match(str(row.get("querySource") or "")) else None
+    if kind == "attachment" and isinstance(row.get("attachment"), dict) and row["attachment"].get("type") == "model":
+        found = row["attachment"].get("identity")
+        return _real_model(found.get("modelId")) if isinstance(found, dict) else None
+    return None
+
+
+def models_in_tail(transcript_path: str | None) -> dict:
+    """What a transcript's tail says about the model: the latest assistant reply (`reply`, `reply_at`), the latest
+    request the main conversation sent (`request`, `request_at`: its `api-request` row, there before the reply), and
+    the latest `/model` switch (`switch`, the id or None when its name can't be read; `switch_name`; `switch_at`), and
+    which came last in the file (`newest`: "reply", "request", "switch" or None). Subagents' rows don't count."""
+    out: dict = {"reply": None, "reply_at": None, "request": None, "request_at": None, "switch": None,
+                 "switch_name": None, "switch_at": None, "newest": None}
+    before = ""                                  # the text of the previous user entry
+    for row in _tail_rows(transcript_path):
+        if row.get("isSidechain") or row.get("agentId"):
+            continue
+        kind = row.get("type")
+        requested = _request_model(row)
+        if requested:
+            out.update(request=requested, request_at=row.get("timestamp"), newest="request")
+        elif kind == "assistant":
+            model = _real_model((row.get("message") or {}).get("model")) if isinstance(row.get("message"), dict) \
+                else None
+            if model:
+                out.update(reply=model, reply_at=row.get("timestamp"), newest="reply")
+        elif kind in ("user", "system"):
+            text = _text_of(row)
+            previous, before = before, (text if kind == "user" else before)
+            if "Set model to" not in text:
+                continue
+            # Only the output of a local `/model` command switches: an entry that opens with it, written by
+            # Claude Code (not the person's own entry, which pasted output could look like) right after the
+            # command's own entry.
+            origin = row.get("origin") if isinstance(row.get("origin"), dict) else {}
+            local = _ANSI.sub("", text).lstrip().startswith("<local-command-stdout>")
+            if not local or origin.get("kind") in ("human", "plugin") or (
+                    kind == "user" and "<command-name>/model" not in previous):
+                continue
+            m = _SWITCH.search(_ANSI.sub("", text))
+            if m:
+                out.update(switch=model_id(m.group(1)), switch_name=m.group(1).strip(),
+                           switch_at=row.get("timestamp"), newest="switch")
+    return out
+
+
+def newest_in_tail(tail: dict) -> tuple[str | None, str | None, str | None]:
+    """The model the tail's newest trace names, when it was written, and where it was read (`transcript_switch`,
+    `transcript_request`, `transcript_reply`); (None, None, None) when the tail names none. A switch whose name can't
+    be read gives no model, with its source."""
+    kind = tail.get("newest")
+    if not kind:
+        return None, None, None
+    return tail.get(kind), tail.get(kind + "_at"), "transcript_" + kind
+
+
+# ------------------------------------------------------------------------------------------------ guesses
+# Where a model can only be guessed: what Claude Code was launched with (`--model`), the ANTHROPIC_MODEL variable,
+# and the person's default model in Claude Code's settings files. A guess picks how the know-how is delivered (an index
+# or the pieces) and which guide the session gets; it never lets a model save (autolearn.save_mode).
+GUESS_SOURCES = ("launch_flag", "env", "settings")
+_MODEL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9]+\])?$")
+
+
+def observed(state: dict) -> bool:
+    """Whether the session's model was seen (the hook said so, or the transcript, or the replies), not guessed. A
+    state written before guesses existed holds an observed model whenever it holds one."""
+    if "model_observed" in state:
+        return bool(state["model_observed"])
+    return state.get("model") not in (None, "", UNKNOWN_MODEL) and state.get("model_source") not in GUESS_SOURCES
+
+
+def model_flag(argv: list[str]) -> str | None:
+    """The value of `--model` in a command line, when it reads as a model name or alias."""
+    for i, arg in enumerate(argv):
+        value = arg.split("=", 1)[1] if arg.startswith("--model=") else (
+            argv[i + 1] if arg == "--model" and i + 1 < len(argv) else None)
+        if value is not None:
+            return value if _MODEL_NAME.match(value) else None
+    return None
+
+
+def _launch_args() -> list[str]:
+    """The command line of the Claude Code process the hook runs under (CLAUDE_PID), read only for its `--model`.
+    Linux keeps the exact arguments; elsewhere `ps` joins them with spaces, so a request that itself contains the words
+    `--model x` can mislead it, which is why it stays a guess."""
+    import os
+    import subprocess
+    pid = os.environ.get("CLAUDE_PID", "")
+    if not pid.isdigit():
+        return []
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+            return [a.decode("utf-8", "ignore") for a in fh.read().split(b"\0") if a]
+    except OSError:
+        pass
+    try:
+        out = subprocess.run(["ps", "-o", "command=", "-p", pid], capture_output=True, text=True, timeout=1).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return out.split()
+
+
+def _settings_model(path: Path) -> str | None:
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    value = data.get("model") if isinstance(data, dict) else None
+    return value.strip() if isinstance(value, str) and value.strip() and _MODEL_NAME.match(value.strip()) else None
+
+
+def configured_model(cwd: str | None = None) -> tuple[str | None, str | None, str | None]:
+    """A guess at the model a Claude Code session runs on, for when nothing has been observed yet: (model, source,
+    where). In Claude Code's own order: the `--model` it was launched with, ANTHROPIC_MODEL, then the `model` of the
+    project's `.claude/settings.local.json`, the project's `.claude/settings.json` and the person's
+    `settings.json` (in CLAUDE_CONFIG_DIR, else ~/.claude). (None, None, None) when none names one."""
+    import os
+    flag = model_flag(_launch_args())
+    if flag:
+        return flag, "launch_flag", "--model"
+    env = os.environ.get("ANTHROPIC_MODEL", "").strip()
+    if env and _MODEL_NAME.match(env):
+        return env, "env", "ANTHROPIC_MODEL"
+    places = []
+    project = os.environ.get("CLAUDE_PROJECT_DIR") or cwd
+    if project:
+        places += [("project_local", Path(project) / ".claude" / "settings.local.json"),
+                   ("project", Path(project) / ".claude" / "settings.json")]
+    config = os.environ.get("CLAUDE_CONFIG_DIR")
+    places.append(("user", Path(config) / "settings.json" if config else Path.home() / ".claude" / "settings.json"))
+    for where, path in places:
+        found = _settings_model(path)
+        if found:
+            return found, "settings", where
+    return None, None, None
+
+
+# ------------------------------------------------------------------------------------------------ live tool calls
+LIVE_MAX_S = 2 * 3600            # a tool call still open after this long is taken as one whose end never came
+
+
+def _live_file(session_id: str) -> Path:
+    return paths.sessions() / "live" / (_UNSAFE_CHARS.sub("_", session_id or "default") + ".json")
+
+
+def live(session_id: str) -> dict:
+    """The session's tool calls that started (PreToolUse) and have not ended yet: {tool_use_id: {at, tool, agent,
+    background, ...}}. Calls older than LIVE_MAX_S are left out; an unreadable file reads as one live call of unknown
+    kind, so whoever asks "is anything running?" hears yes."""
+    import time
+    try:
+        data = paths.read_state(_live_file(session_id), retries=2)
+    except paths.StateUnreadable:
+        return {"?": {"at": time.time(), "tool": "?", "unknown": True}}
+    if not isinstance(data, dict):
+        return {}
+    now = time.time()
+    return {k: v for k, v in data.items() if isinstance(v, dict) and now - float(v.get("at") or 0) < LIVE_MAX_S}
+
+
+def live_start(session_id: str, call_id: str, info: dict) -> None:
+    """A tool call started: stamp it (its start time is the hook's own clock, not an estimate)."""
+    target = _live_file(session_id)
+    with paths.locked(target):
+        calls = {k: v for k, v in live(session_id).items() if k != "?"}
+        calls[call_id] = info
+        paths.write_atomic(target, json.dumps(calls))
+
+
+def live_end(session_id: str, call_id: str | None) -> dict | None:
+    """A tool call ended: its stamp, taken off the live calls (None when it had none)."""
+    if not call_id:
+        return None
+    target = _live_file(session_id)
+    if not target.exists():
+        return None
+    with paths.locked(target):
+        calls = {k: v for k, v in live(session_id).items() if k != "?"}
+        found = calls.pop(call_id, None)
+        paths.write_atomic(target, json.dumps(calls))
+    return found
+
+
+def live_clear(session_id: str) -> None:
+    """The turn ended: no tool call of it is still running (a background one is what the Stop hook reports)."""
+    try:
+        _live_file(session_id).unlink()
+    except FileNotFoundError:
+        pass

@@ -49,3 +49,17 @@ class PieceFilesTest(TempHome):
             out = Path(tmp) / "out"
             self.assertEqual(store.export(out), 2)
             self.assertEqual(sorted(f.name for f in out.glob("*.md")), ["alpha.md", "beta.md"])
+
+
+class RevertKeepsWhoMaySeeTest(TempHome):
+    def test_a_revert_keeps_the_visibility_and_projects_the_piece_has_now(self):
+        store.create("Ship", "shipping", "## #a\n**Do:** v1.\n", projects=["alpha"], piece_id="ship")
+        store.update("ship", "v2", body="## #a\n**Do:** v2.\n")
+        p = store.get("ship")
+        # The person marks it private by hand, and tags it with a second project: no new version, no archive.
+        p.path.write_text(p.path.read_text().replace("projects: [alpha]", "projects: [alpha, beta]\nvisibility: private"))
+        restored = store.revert("ship")
+        self.assertIn("v1.", restored.body)
+        self.assertEqual((restored.visibility, restored.projects), ("private", ["alpha", "beta"]))
+        again = store.get("ship")
+        self.assertEqual((again.visibility, again.projects), ("private", ["alpha", "beta"]))

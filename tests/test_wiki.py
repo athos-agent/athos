@@ -75,23 +75,66 @@ class WikiTest(TempHome):
         self.assertEqual(wiki.rebuild()["removed"], ["athos-land.md"])
 
     def test_save_rebuilds_and_installs_when_chosen(self):
+        from athos import wiki as w
         target = Path(self.home) / "claude-agents"
-        (Path(self.home) / "agents-install").write_text(str(target))
         self.pages()
+        for pid in ("land", "bump-version"):
+            store.update(pid, "tagged", projects=["alpha"])
+        w.remember_install(target, "alpha")
         capture.save_text("---\ntitle: Land a change\nwhen: committing\nid: land\nnote: same\n---\n" + LAND, "w1")
         self.assertTrue((target / "athos-land.md").exists())
         self.assertTrue((Path(self.home) / "know-how" / "Index.md").exists())
         self.assertEqual(session.load("w1")["wiki"]["broken"], [])
 
+    def test_installed_agents_keep_to_one_project_and_an_old_install_is_not_kept_in_step(self):
+        from athos import paths
+        target = Path(self.home) / "claude-agents"
+        self.pages()                                            # untagged pages: no project's, not in the profile
+        store.create("Beta", "beta work", "## #b\n**Do:** b\n**Links:** [[beta-two#c]]", piece_id="beta-one",
+                     projects=["beta"])
+        store.create("Beta two", "more beta work", "## #c\n**Do:** c", piece_id="beta-two", projects=["beta"])
+        self.assertEqual(wiki.install_agents(target, "alpha"), 0)  # nothing of alpha's: no agent at all
+        self.assertEqual(sorted(f.name for f in target.glob("athos-*.md")), [])
+        self.assertEqual(wiki.install_agents(target, "beta"), 1)
+        text = (target / "athos-beta-one.md").read_text()
+        self.assertIn("Beta two", text)
+        self.assertNotIn("Land a change", text)
+        # A note left by an older Athos (a bare path) is not kept in step after a save.
+        stale = Path(self.home) / "elsewhere"
+        (Path(self.home) / "agents-install").write_text(str(stale))
+        capture.save_text("---\ntitle: Land a change\nwhen: committing\nid: land\nnote: same\n---\n" + LAND, "w2")
+        self.assertFalse(stale.exists())
+        # Nor from a repository marked public.
+        wiki.remember_install(target, "beta")
+        (target / "athos-beta-one.md").unlink()
+        repo = Path(self.home) / "pub"
+        repo.mkdir()
+        (repo / paths.MARKER).write_text('name = "pub"\npublic = true\n')
+        # (a new page: an id of a page that may not be named there is refused before anything is written)
+        capture.save_text("---\ntitle: Land a public change\nwhen: committing here\n---\n" + LAND, "w3", str(repo))
+        self.assertFalse((target / "athos-beta-one.md").exists())
+        self.assertIsNone(wiki.sync_installed(str(repo)))
+
     def test_cli(self):
-        from athos import cli
+        import contextlib
+        import os
+        from athos import cli, paths
         self.pages()
+        for pid in ("land", "bump-version"):
+            store.update(pid, "tagged", projects=["proj"])
         self.assertEqual(cli.main(["wiki"]), 0)
+        repo = Path(self.home) / "proj"
+        repo.mkdir()
         target = Path(self.home) / "agents-out"
-        self.assertEqual(cli.main(["wiki", "agents", "--install", "--dir", str(target)]), 0)
-        self.assertTrue((target / "athos-land.md").exists())
-        self.assertEqual(cli.main(["wiki", "agents", "--uninstall", "--dir", str(target)]), 0)
-        self.assertFalse((target / "athos-land.md").exists())
+        with contextlib.chdir(repo):
+            self.assertEqual(cli.main(["wiki", "agents", "--install", "--dir", str(target)]), 0)
+            self.assertTrue((target / "athos-land.md").exists())
+            self.assertEqual(cli.main(["wiki", "agents", "--uninstall", "--dir", str(target)]), 0)
+            self.assertFalse((target / "athos-land.md").exists())
+            self.assertEqual(cli.main(["wiki", "agents", "--install"]), 0)        # default: this repository's own
+            self.assertTrue((repo / ".claude" / "agents" / "athos-land.md").exists())
+            (repo / paths.MARKER).write_text('public = true\n')
+            self.assertEqual(cli.main(["wiki", "agents", "--install"]), 1)        # never in a public repository
 
 
 class LoopTest(TempHome):

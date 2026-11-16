@@ -8,6 +8,11 @@ A piece is a page. Its body is a list of **statements**, the smallest unit you c
     **Because:** a private name reached a public PR once.
     **Links:** [[bump-the-plugin-version#bump]] · [[land-a-change#open_pr]]
     **Model:** local
+    **Check:** `python3 tools/guard.py .` exits 0
+
+`**Check:**` is optional: the command, or the fact anyone can observe, that proves the step went right. It is what
+makes a piece safe for a weaker model (it runs the check instead of judging), and a candidate piece needs at least
+one runnable Check (a command in backticks) before it can be verified (athos/grade.py).
 
 `**Model:**` is optional: the model that step runs on in `athos delegate --by-step` (`local`, `meta`,
 `ollama:<model>` or `meta:<model>`). A statement without it runs on the task's model.
@@ -37,7 +42,7 @@ from athos import paths, store
 
 INDEX = "Index.md"
 STATEMENT = re.compile(r"^## #([a-z0-9][a-z0-9_-]*)\s*$", re.M)
-FIELD = re.compile(r"^\*\*(When|Do|Because|Links|Calls|If|Model):\*\*\s*(.*)$", re.M)
+FIELD = re.compile(r"^\*\*(When|Do|Because|Links|Calls|If|Model|Check):\*\*\s*(.*)$", re.M)
 LINK = re.compile(r"\[\[([a-z0-9][a-z0-9-]*)(?:#([a-z0-9][a-z0-9_-]*))?(?:\|[^\]]*)?\]\]")
 AGENT_PREFIX = "athos-"
 OVERLAP = 0.4          # share of the words two **When** lines have in common to call them the same moment
@@ -56,6 +61,7 @@ class Statement:
     links: list[tuple[str, str | None]] = field(default_factory=list)
     calls: list[dict] = field(default_factory=list)   # [{"page", "statement", "if"}]: the sub-routines of this step
     model: str = ""                     # `**Model:**`, the model this step asks for; "" = the task's model
+    check: str = ""                     # `**Check:**`, what proves the step went right; "" = none
 
     @property
     def ref(self) -> str:
@@ -71,7 +77,7 @@ def statements(p: store.Piece) -> list[Statement]:
     for sid, text in zip(parts[1::2], parts[2::2]):
         f = {k.lower(): v.strip() for k, v in FIELD.findall(text)}
         out.append(Statement(p.id, sid, f.get("when", ""), f.get("do", ""), f.get("because", ""), LINK.findall(text),
-                             calls_of(f.get("calls", ""), f.get("if", "")), f.get("model", "")))
+                             calls_of(f.get("calls", ""), f.get("if", "")), f.get("model", ""), f.get("check", "")))
     return out
 
 
@@ -159,6 +165,70 @@ def overlaps(piece: store.Piece, pieces: list[store.Piece] | None = None) -> lis
                 if (o.page, o.id) in s.links or (o.page, None) in s.links or (s.page, s.id) in o.links:
                     continue                                   # linked on purpose: applied together
                 out.append(f"{s.ref} ~ {o.ref}")
+    return out
+
+
+# ------------------------------------------------------------------------------------------------ the same way twice
+# Two pages for the same way of working, at the page level (`overlaps` compares single statements). The score is the
+# share of the words two heads (title and **When**, in the router's own words: load._base_words) have in common, plus
+# FILE_BONUS when both heads name the same file and LINK_BONUS when the new page links to the other one. Calibrated on
+# 18 ordered pairs of near-duplicates learned in live tests (the lowest scored 0.55: a narrower page that names the
+# same file and links to the broader one's steps) against 1776 ordered same-project pairs of a person's own pages,
+# genuinely different ways of working (the highest scored 0.49, the 99th percentile 0.33); SAME_WAY sits between them.
+# A page the task itself opened and followed is held to a lower bar, SAME_WAY_OPENED: a page saved right after
+# following another one is most often that one again (2 of the 1776 different pairs reach it; all 18 duplicates do).
+SAME_WAY = 0.5
+SAME_WAY_OPENED = 0.4
+FILE_BONUS = 0.2
+LINK_BONUS = 0.2
+_NAMED_FILE = re.compile(r"(?<![\w/.-])(?:[\w.-]+/)*[\w-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|md|json|jsonl|toml|ya?ml|sh|go|"
+                         r"rs|java|kt|rb|swift|c|h|cpp|css|html|sql|txt|lock|cfg|ini)\b")
+
+
+def named_files(p: store.Piece) -> set[str]:
+    """The files a page's title and **When** name (`benchmark/stories.ts`, `setup.py`): what the task changes."""
+    return set(_NAMED_FILE.findall(f"{p.title} {p.when}"))
+
+
+def same_way_score(new: store.Piece, old: store.Piece) -> float:
+    """How much `new` reads as the same way of working as `old` (see SAME_WAY)."""
+    from athos import load
+    a, b = load._base_words(f"{new.title} {new.when}"), load._base_words(f"{old.title} {old.when}")
+    score = len(a & b) / len(a | b) if a | b else 0.0
+    if named_files(new) & named_files(old):
+        score += FILE_BONUS
+    if any(page == old.id for page, _ in LINK.findall(new.body)):
+        score += LINK_BONUS
+    return round(score, 3)
+
+
+def same_way(new: store.Piece, pieces: list[store.Piece], opened: set[str] | None = None) -> list[tuple[float,
+                                                                                                       store.Piece]]:
+    """The pages among `pieces` (itself and retired ones left out) that read as the same way of working as `new`
+    (SAME_WAY; SAME_WAY_OPENED for those in `opened`, the pages the task opened), best first."""
+    opened = opened or set()
+    found = [(same_way_score(new, p), p) for p in pieces if p.id != new.id and store.status(p) != "retired"]
+    return sorted([(sc, p) for sc, p in found if sc >= (SAME_WAY_OPENED if p.id in opened else SAME_WAY)],
+                  key=lambda pair: (-pair[0], pair[1].id))
+
+
+def overlapping(pieces: list[store.Piece] | None = None) -> list[dict]:
+    """Pairs of pages of the same project that read as the same way of working, at least one of them learned (a page
+    with a status: two of the person's own are theirs to keep): {"piece", "other", "score", "project"}, the learned
+    one first. Nothing is merged or changed: the person decides, and the dream review is where a merge is proposed."""
+    pieces = store.all_pieces() if pieces is None else pieces
+    live = [p for p in pieces if store.status(p) != "retired"]
+    out = []
+    for i, a in enumerate(live):
+        for b in live[i + 1:]:
+            shared = sorted(set(a.projects) & set(b.projects))
+            if not shared or not (a.status or b.status):
+                continue
+            score = max(same_way_score(a, b), same_way_score(b, a))
+            if score >= SAME_WAY:
+                first, second = (a, b) if a.status else (b, a)
+                out.append({"piece": first.id, "other": second.id, "score": score, "project": shared[0],
+                            "other_owned": not second.status})
     return out
 
 
@@ -408,24 +478,62 @@ def rebuild(pieces: list[store.Piece] | None = None) -> dict:
     return {"agents": sorted(keep), "written": written, "removed": removed, "lint": lint(pieces), "stale": retire}
 
 
-def agents_target() -> Path | None:
-    """Where the person chose to install the trajectory agents (`athos wiki agents --install`), if they did."""
+def agents_install() -> dict | None:
+    """Where and for which project the person installed the trajectory agents (`athos wiki agents --install`), when
+    they did so with an Athos that keeps them to one project: `{"target", "project"}`. A note left by an older Athos
+    (a bare path) does not count: those agents carried every project's titles, so they are not kept in step any more
+    until the person installs them again."""
+    import json
     try:
-        t = (paths.home() / "agents-install").read_text().strip()
-    except OSError:
+        data = json.loads((paths.home() / "agents-install").read_text())
+    except (OSError, ValueError):
         return None
-    return Path(t) if t else None
+    if not isinstance(data, dict) or not data.get("target") or not data.get("project"):
+        return None
+    return {"target": Path(data["target"]), "project": str(data["project"])}
 
 
-def install_agents(dest: Path | None = None) -> int:
-    """Copy the trajectory agents where Claude Code finds subagents (default ~/.claude/agents). Only Athos's own
-    `athos-*.md` files are written or removed there."""
-    dest = dest or Path.home() / ".claude" / "agents"
+def agents_target() -> Path | None:
+    """The folder the trajectory agents were installed in, when installed for one project (`agents_install`)."""
+    chosen = agents_install()
+    return chosen["target"] if chosen else None
+
+
+def remember_install(dest: Path, project: str) -> None:
+    import json
+    paths.write_atomic(paths.home() / "agents-install",
+                       json.dumps({"target": str(dest), "project": project, "format": 2}))
+
+
+def project_agents(project: str) -> dict[str, str]:
+    """The trajectory agents of one project: walks over that project's pieces and the profile pieces it may see, never
+    another project's (control.scope_project with no request: nothing named). The installed agents used to walk the
+    whole store, so every project's titles reached every session through their descriptions (2026-11-15)."""
+    from athos import control
+    pieces = control.scope_project(store.all_pieces(), project)
+    pages = {p.id: p for p in pieces}
+    return {f"{AGENT_PREFIX}{start}.md": agent_text(trail, pages) for start, trail in trajectories(pieces).items()}
+
+
+def install_agents(dest: Path, project: str) -> int:
+    """Write one project's trajectory agents (`project_agents`) where Claude Code finds subagents, and remove the
+    other Athos agents there. Only Athos's own `athos-*.md` files are written or removed."""
     dest.mkdir(parents=True, exist_ok=True)
-    src = {f.name: f.read_text() for f in agents_dir().glob(f"{AGENT_PREFIX}*.md")}
+    src = project_agents(project)
     for name, text in src.items():
         (dest / name).write_text(text)
     for f in dest.glob(f"{AGENT_PREFIX}*.md"):
         if f.name not in src and "Generated by Athos" in f.read_text():
             f.unlink()
     return len(src)
+
+
+def sync_installed(cwd: str | None = None) -> int | None:
+    """After a save: rewrite the installed trajectory agents, only when the person installed them for one project with
+    this Athos (`agents_install`), never from a repository marked public, and never into one (the folder they were
+    installed in may belong to a repository declared public since). Returns how many were written, or None when
+    nothing was synced."""
+    chosen = agents_install()
+    if not chosen or (cwd and paths.is_public(cwd)) or paths.is_public(chosen["target"]):
+        return None
+    return install_agents(chosen["target"], chosen["project"])
