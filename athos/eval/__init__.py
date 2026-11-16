@@ -762,7 +762,14 @@ def _review_flags(idle: int | None, rate: float | None, judged: int) -> list[str
     return [flag for flag, raised in ((f"not used in {STALE_DAYS} days", stale), ("low success", failing)) if raised]
 
 
-def _piece_row(pid: PieceId, piece, ts: list[Task], today: _dt.date) -> dict:
+def _graded(pid: PieceId, reuses: list[Event]) -> tuple[int, int]:
+    """(clean, evaluated) graded reuses of a piece (athos/grade.py): the latest judgement of each task that used it,
+    those that proved something either way (not `unverified`)."""
+    mine = [e for e in reuses if e.get("piece") == pid and e.get("outcome") not in (None, "unverified")]
+    return sum(1 for e in mine if e.get("outcome") in ("clean", "replay_pass")), len(mine)
+
+
+def _piece_row(pid: PieceId, piece, ts: list[Task], today: _dt.date, reuses: list[Event] | None = None) -> dict:
     uses = [t for t in ts if pid in t["pieces"]]            # a task that loaded and improved it still used it
     base = _baseline(pid, ts)
     rate, judged = _rate(uses)
@@ -777,6 +784,10 @@ def _piece_row(pid: PieceId, piece, ts: list[Task], today: _dt.date) -> dict:
            "mean_duration_s": mean_s, "mean_tokens": mean_tok, "time_saved_s": None, "tokens_saved": None,
            "prompt_saved": _shorter(base, uses), "last_used": last or None,
            "review": _review_flags(_idle_days(last, today), rate, judged)}
+    clean, graded = _graded(pid, reuses or [])
+    row.update(reuses_clean=clean, reuses_evaluated=graded,
+               status=(piece.status or None) if piece is not None else None,
+               confidence=store.confidence(piece) if piece is not None else None)
     if base:
         row["baseline"] = {"task_id": base["task_id"], "duration_s": base.get("duration_s"), "tokens": _tok(base)}
         row["time_saved_s"] = _minus(base.get("duration_s"), mean_s)
@@ -809,8 +820,9 @@ def report(today: _dt.date | None = None) -> dict:
     ts = tasks()
     known = {p.id: p for p in store.all_pieces()}
     mentioned = {pid for t in ts for pid in t["pieces"] + t["saved"]}
-    rows = [_piece_row(pid, known.get(pid), ts, today) for pid in sorted(known.keys() | mentioned)]
     from athos import grade
+    reuses = grade.counted_reuses(events())
+    rows = [_piece_row(pid, known.get(pid), ts, today, reuses) for pid in sorted(known.keys() | mentioned)]
     aside = {pid: m for pid, m in grade.reviews().items() if (m or {}).get("kind") == "set_aside"}
     for row in rows:                           # the verifier kept rejecting it: only the person can decide now
         if row["piece"] in aside:
@@ -903,7 +915,12 @@ def _num(value: float | None, unit: str = "") -> str:
 
 
 def _piece_lines(p: dict) -> list[str]:
-    lines = [f"  {p['piece']}  uses {p['uses']}  success {_pct(p['success_rate'])} ({p['evaluated']} evaluated)"]
+    head = f"  {p['piece']}  uses {p['uses']}  success {_pct(p['success_rate'])} ({p['evaluated']} evaluated)"
+    if p.get("reuses_evaluated"):            # graded on objective evidence (athos/grade.py), beside the person's marks
+        head += f"  graded reuses {p['reuses_clean']} clean of {p['reuses_evaluated']}"
+    if p.get("status"):
+        head += f"  {p['status']}" + (f", confidence {p['confidence']:.2f}" if p.get("confidence") is not None else "")
+    lines = [head]
     if p["baseline"] and p.get("prompt_saved") is not None:
         lines.append(f"    vs the first run, which taught it: requests {p['prompt_saved'] * 100:.0f}% shorter")
     if p["review"]:

@@ -355,6 +355,7 @@ def _on_session_start(event: dict, platform: str) -> None:
     """A session opens: the know-how that may load for it goes in as context (nothing at all on an empty store), and
     the overnight review runs if it is due; its proposals are offered once, never applied without the person's yes."""
     from athos import grade, verify
+    _quietly(store.move_bookkeeping)         # learned pieces' moving numbers live beside their files, never in them
     _quietly(grade.age_all)                  # verified pieces unused and unverified for too long: back to candidate
     sid = event.get("session_id", "default")
     project = paths.project_of(event["cwd"]) if event.get("cwd") else None

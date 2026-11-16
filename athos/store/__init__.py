@@ -4,12 +4,16 @@ A piece is a plain markdown file, `<home>/know-how/<id>.md`, that a person can o
 with a frontmatter block between two `---` lines holding, in this order: `id`; `title`; `when` (the situation the
 piece is for); `projects` as an inline list such as `[athos, docs]`; an optional `visibility` (`private`,
 `project` or `general`, see `visibility`); the autonomous-learning fields, each written only when set (`status`:
-`candidate`, `verified` or `retired`; `risk`: `normal` or `high`; `confidence`, a number from 0 to 1;
-`last_verified`, a date; `learned_by`, the model that wrote it; `evidence`, an inline list of short `kind:detail`
-items); the `created` and `last_used` dates; an
+`candidate`, `verified` or `retired`; `risk`: `normal` or `high`; `learned_by`, the model that wrote it); the
+`created` and `last_used` dates; an
 `origin` mapping whose indented `platform` and `model` say where it was written; and the `version` number. The
 steps, criteria and mistakes to avoid follow as free markdown. Last comes a `## History` heading over a bullet
 list of changes, newest first, each shaped like `v2 <date> (<platform>, <model>): <what changed>`.
+
+A learned piece's moving numbers (`confidence`, from 0 to 1; `last_verified`, a date; `evidence`, short `kind:detail`
+items) change with every verdict and graded reuse, so they live beside the files, in `<home>/piece-meta.json`, never in
+them (MOVING): the file can never show a stale number, and using a piece never rewrites it. `athos show` prints them.
+A piece the person owns (no status) keeps its file exactly as written.
 
 `render` writes exactly this layout and `parse` reads it back. Changing a piece never loses the text it replaces:
 the outgoing version is first copied to `.history/<id>/v<n>.md` inside the know-how folder.
@@ -287,7 +291,7 @@ def _beside(p: Piece, used: dict, meta: dict) -> Piece:
     """A piece as read, with what Athos keeps beside its file instead of in it: the last use (`last-used.json`, for
     every piece) and, for a learned piece, its bookkeeping (`piece-meta.json`: confidence, last verified, evidence).
     Using and grading a piece used to rewrite its file on every reuse: noise in a synced or git-tracked folder, and a
-    lost update when the person's editor had it open. The file takes these values on its next real change."""
+    lost update when the person's editor had it open. Its moving numbers (MOVING) are never written to the file."""
     day = used.get(p.id)
     if isinstance(day, str) and day > (p.last_used or ""):
         p.last_used = day
@@ -298,12 +302,73 @@ def _beside(p: Piece, used: dict, meta: dict) -> Piece:
     return p
 
 
+# What moves with every verdict and graded reuse of a learned piece: kept only beside its file (`piece-meta.json`),
+# never in it, so the file can never show a number older than the real one, and using a piece never rewrites its file
+# (no churn in a synced or version-controlled know-how folder). `athos show`, `athos report` and every reader of
+# `get` see the real values. A piece the person owns (no status) keeps whatever its file says, untouched.
+MOVING = ("confidence", "last_verified", "evidence")
+
+
+def _on_file(p: Piece) -> Piece:
+    """The piece as its file holds it: a learned piece without its moving numbers (MOVING)."""
+    if legacy(p):
+        return p
+    from dataclasses import replace
+    return replace(p, confidence="", last_verified="", evidence=[])
+
+
 def _write(p: Piece) -> None:
     """Store a piece in its file as is (no archiving, no version bump), in one step: the file is replaced whole, so
-    a hook, the verifier or the person's editor reading it at the same time sees the old piece or the new one. What
-    was kept beside the file for it is in the file now, so it is cleared there."""
-    paths.write_atomic(p.path, render(p))
-    _clear_meta(p.id)
+    a hook, the verifier or the person's editor reading it at the same time sees the old piece or the new one. A
+    learned piece's moving numbers (MOVING) go beside the file instead; anything else kept there is in the file now."""
+    paths.write_atomic(p.path, render(_on_file(p)))
+    if legacy(p):
+        _clear_meta(p.id)
+        return
+    _keep_moving(p.id, {k: getattr(p, k) for k in MOVING if getattr(p, k)})
+
+
+def _keep_moving(piece_id: str, values: dict) -> None:
+    """The moving numbers of a learned piece just written: the ones it carries replace what was kept, the ones it
+    lacks keep their kept value (a revert to a version archived without them keeps today's numbers); the other
+    bookkeeping keys are in its file now."""
+    import json
+    with paths.locked(_meta_file()):
+        data = _meta(strict=True)
+        kept = {k: v for k, v in (data.get(piece_id) or {}).items() if k in MOVING}
+        merged = {**kept, **{k: (list(v) if k == "evidence" else str(v)) for k, v in values.items()}}
+        if merged == data.get(piece_id):
+            return
+        if merged:
+            data[piece_id] = merged
+        else:
+            data.pop(piece_id, None)
+        paths.write_atomic(_meta_file(), json.dumps(data, indent=1, sort_keys=True))
+
+
+_MOVING_LINE = re.compile(r"^(?:confidence|last_verified|evidence):", re.M)
+
+
+def move_bookkeeping() -> list[str]:
+    """Learned pieces whose file still holds moving numbers (written before they moved beside it): the real values
+    (the kept ones over the file's) go beside the file and the file is written once without them. No version, no
+    history line; a piece the person owns is never touched. Returns the ids moved."""
+    folder = paths.know_how()
+    if not folder.is_dir():
+        return []
+    moved = []
+    used, meta = _used(), _meta()
+    for f in _piece_files(folder):
+        text = f.read_text()
+        parts = _split_frontmatter(text)
+        if not parts or not _MOVING_LINE.search(parts[0]):
+            continue
+        p = _beside(parse(text), used, meta)
+        if legacy(p) or not p.id or _file_for(p.id) != f:
+            continue
+        _write(p)
+        moved.append(p.id)
+    return moved
 
 
 def _archive(p: Piece) -> Path:
@@ -485,8 +550,9 @@ def _clear_meta(piece_id: str) -> None:
 
 def set_meta(piece_id: str, **fields) -> Piece | None:
     """Change bookkeeping fields (confidence, last_verified, evidence, risk): not a new version, and not a write of the
-    piece's file. They are kept beside it (`piece-meta.json`) and reach the file with its next status change or
-    improvement. A legacy piece's bookkeeping is never kept at all. None for an unknown piece."""
+    piece's file. They are kept beside it (`piece-meta.json`); the moving ones (MOVING) never reach the file, the
+    others with its next status change or improvement. A legacy piece's bookkeeping is never kept at all. None for an
+    unknown piece."""
     import json
     piece = get(piece_id)
     if piece is None or legacy(piece):

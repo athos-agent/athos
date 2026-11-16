@@ -69,13 +69,17 @@ class FileLeftAloneTest(TempHome):
         self.assertGreater(store.confidence(now), 0.9)
         self.assertEqual(store.last_used(now), store.today())
 
-    def test_a_status_change_writes_the_counters_into_the_file(self):
+    def test_a_status_change_keeps_the_moving_numbers_beside_the_file(self):
+        # The file once took the counters at a status change and then showed them stale until the next one (a live
+        # test read 0.05 in the file while the bookkeeping held 0.25): they never reach the file now.
         p = verified()
         store.set_meta(p.id, confidence="0.9")
         store.set_status(p.id, "candidate", "test")
         text = store.get(p.id).path.read_text()
-        self.assertIn("confidence: 0.9", text)
-        self.assertNotIn(p.id, json.loads((store.paths.home() / "piece-meta.json").read_text()))
+        self.assertNotIn("confidence:", text)
+        self.assertIn("status: candidate", text)
+        self.assertEqual(json.loads((store.paths.home() / "piece-meta.json").read_text())[p.id]["confidence"], "0.9")
+        self.assertEqual(store.confidence(store.get(p.id)), 0.9)
 
 
 if __name__ == "__main__":

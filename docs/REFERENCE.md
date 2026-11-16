@@ -640,10 +640,20 @@ On a frontier model Athos can learn on its own, and only a piece proven by objec
 |---|---|
 | `status` | `candidate` (learned, not proven yet), `verified` (proven: see below), `retired` (superseded after repeated failures; never loads) |
 | `risk` | `normal` or `high` (its steps publish, merge, deploy, delete, force-push or touch production) |
-| `confidence` | a number from 0 to 1 |
-| `last_verified` | the date it was last proven |
 | `learned_by` | the model that wrote it |
-| `evidence` | a short inline list of `kind:detail` items, e.g. `[verify:unittest:ok, commit, task:3f9a1c2b7d10, verifier:pass]` |
+
+A learned page's moving numbers are kept beside its file, never in it: `confidence` (a number from 0 to 1),
+`last_verified` (the date it was last proven) and `evidence` (a short list of `kind:detail` items, e.g.
+`verify:unittest:ok, commit, task:3f9a1c2b7d10, verifier:pass`), in `~/.athos/piece-meta.json`. They change with every
+verdict and graded reuse: a file that took them at its last status change showed a stale number until the next one (a
+live test read 0.05 in the file while the real confidence was 0.25), and writing them on every reuse would rewrite the
+file on every use, noise in a synced or version-controlled know-how folder. `athos show <id>` prints the page with its
+real numbers, and `athos report` adds to its line its status, confidence and, once there are any, its graded reuses
+(`graded reuses 2 clean of 2`: the reuses grading judged on objective evidence, beside the tasks you marked). A
+session start moves the numbers out
+of any learned page whose file still holds them (written by an older version), once, without a new version. The cost:
+a know-how folder copied to another machine without `~/.athos` carries a learned page's status but not its confidence
+(it counts as 0.5 there until graded again; confidence only breaks near ties in the router).
 
 A page with no `status` (every page written before 0.1.122, and any page you write yourself) is **legacy**: it loads,
 is offered and is delivered exactly as a verified one. Its file is yours: Athos never rewrites it unless you ask for
@@ -652,8 +662,8 @@ ageing it and bookkeeping (confidence, evidence) leave it byte for byte as it is
 included; what they would have recorded goes to the audit log (a `grade` event, from legacy to legacy, with what was
 seen), the review marks (the next frontier model's index says it needs review) and, for its last use,
 `~/.athos/last-used.json`. A learned page's file is not rewritten on use or grading either: its last use goes to
-`last-used.json` and its confidence, last verification and evidence to `~/.athos/piece-meta.json`, and the file takes
-them with its next status change or improvement. A status change is a new version, the outgoing one archived in
+`last-used.json` and its moving numbers to `~/.athos/piece-meta.json` (above), and the file takes its last use with its
+next status change or improvement. A status change is a new version, the outgoing one archived in
 `.history` as for any improvement, so `athos revert <id>` brings it back; retiring supersedes a page and deletes nothing.
 
 **Verified means verified for that text.** A change to a verified page's title, when or body, by anyone, makes it a
