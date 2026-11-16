@@ -502,3 +502,23 @@ class StreamTest(MemoryCase):
             cycle.write_rollups()
         self.assertEqual(cycle.compare_rebuild()["rollups_equal"], True)
         self.assertEqual(json.loads(memory.rollups_file().read_bytes())["boundary"], json.loads(before)["boundary"])
+
+
+class MergeProposalTest(MemoryCase):
+    def test_a_merge_the_dream_proposed_is_no_accidental_overlap(self):
+        from athos import audit, store
+        body = "## #one\n**Do:** tag the release, then publish the notes.\n"
+        a = store.create("Tag and publish a release", "tagging and publishing a release", body,
+                         projects=["alpha"], status="candidate", learned_by="m", confidence="0.3")
+        b = store.create("Tag and publish the release", "tagging and publishing the release",
+                         body, projects=["alpha"])
+        merge = store.create("Tag and publish releases", "tagging and publishing a release", body,
+                             projects=["alpha"], status="candidate", learned_by="m", confidence="0.3",
+                             evidence=["dream:merge", f"from:{a.id}", f"from:{b.id}"])
+        evs = [{"type": "task_start", "task_id": "t", "session_id": "s", "project": "alpha", "at": stamp(0)}]
+        r = audit._overlapping_pieces(audit._Ctx("s", evs, store.all_pieces(), False))
+        pairs = [{f["piece"], f["same_as"]} for f in r["found"]]
+        self.assertNotIn({merge.id, a.id}, pairs)
+        self.assertNotIn({merge.id, b.id}, pairs)
+        self.assertIn({a.id, b.id}, pairs)                          # the two it would merge are still the same way
+        self.assertIn("merge the dream cycle proposed", r["basis"])

@@ -626,10 +626,22 @@ def _overlapping_pieces(c: _Ctx) -> dict:
     if not c.project:
         return _result("overlapping_pieces", "not_evaluated", [], "no project for this session")
     mine = [p for p in c.byid.values() if c.project in p.projects]
-    found = [{"piece": c.name(x["piece"]), "same_as": c.name(x["other"]), "score": x["score"],
-              "fix": "athos show both; keep one way of working (improve one, retire the other)"
-              + ("; the other is your own piece" if x["other_owned"] else "")}
-             for x in wiki.overlapping(mine)]
+
+    def merged(a, b) -> bool:                  # the dream cycle's merge of these very pieces (athos/memory/dream_model)
+        return a is not None and b is not None and "dream:merge" in (a.evidence or []) and \
+            f"from:{b.id}" in (a.evidence or [])
+    found, proposals = [], 0
+    for x in wiki.overlapping(mine):
+        a, b = c.byid.get(x["piece"]), c.byid.get(x["other"])
+        merge = a if merged(a, b) else b if merged(b, a) else None
+        if merge is not None and store.status(merge) == "candidate":
+            proposals += 1                     # a proposal to merge them, waiting for the verifier: no accident
+            continue
+        found.append({"piece": c.name(x["piece"]), "same_as": c.name(x["other"]), "score": x["score"],
+                      "fix": ("the dream cycle's merge of them was accepted: retire the pieces it came from"
+                              if merge is not None else
+                              "athos show both; keep one way of working (improve one, retire the other)"
+                              + ("; the other is your own piece" if x["other_owned"] else ""))})
     from athos import grade
     listed = {f["piece"] for f in found}
     for pid, m in grade.reviews().items():     # saved next to a piece the person owns, marked at the save
@@ -639,7 +651,9 @@ def _overlapping_pieces(c: _Ctx) -> dict:
             found.append({"piece": c.name(pid), "same_as": str(m.get("why") or ""), "score": None,
                           "fix": "athos show both; your own piece was not changed"})
     return _result("overlapping_pieces", _status(found, False), found,
-                   f"the project's pieces as they are now, compared page by page (score ≥ {wiki.SAME_WAY})")
+                   f"the project's pieces as they are now, compared page by page (score ≥ {wiki.SAME_WAY})"
+                   + (f"; {proposals} pair(s) left out: a merge the dream cycle proposed of those same pieces, "
+                      "waiting for the verifier" if proposals else ""))
 
 
 def _verifier_over_cap(everything: list[dict]) -> dict:
