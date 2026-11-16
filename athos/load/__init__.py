@@ -960,7 +960,28 @@ def pull_index(found: list[store.Piece], trace: dict, pool: list[store.Piece], c
         out.append(line)
         ids.append(p.id)
         used += len(line) + 1
+    extra = _often_with(found, byid, ids) if ids else None
+    if extra and used + len(extra[1]) + 1 <= cap:
+        out.append(extra[1])
+        ids.append(extra[0])
     return ("\n".join(out) + "\n", ids) if ids else ("", [])
+
+
+def _often_with(found: list[store.Piece], byid: dict, listed: list[str]) -> tuple[str, str] | None:
+    """At most one more index line, when `memory.associations_line` is on: the piece most often used in the same task
+    as the router's first choice, among the pieces in reach and not listed yet (memory.partner)."""
+    from athos import memory
+    if not found or not memory.settings().get("associations_line"):
+        return None
+    try:
+        hit = memory.partner(found[0].id, set(byid), set(listed))
+    except Exception:  # noqa: BLE001 — the index never fails for an extra line
+        return None
+    if not hit:
+        return None
+    p = byid[hit[0]]
+    return p.id, (f"- often used with `{found[0].id}` ({hit[1]} tasks): `{p.id}` — {_short(p.title, 100)}. When: "
+                  f"{_short(p.when, PULL_WHEN)}")
 
 
 def finish_route(sid: str, total: int, added: dict[str, int] | None = None) -> None:

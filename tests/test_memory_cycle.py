@@ -383,3 +383,20 @@ class FindingsTest(MemoryCase):
         self.assertIn({"pieces": ["ship", "ship-again"]}, found["overlaps"])
         self.assertEqual(found["corrected_steps"], [{"piece": "keys", "step": "one", "edits": 2}])
         self.assertEqual(found["checks_failing"], [{"piece": "ship", "check_failed": 2}])
+
+
+class AssociationTest(MemoryCase):
+    """The "often used with" index line: off by default (it did not help on one person's tasks), from the rollups and
+    the live log when turned on."""
+
+    def test_partner_and_the_line(self):
+        from athos import load
+        cycle.run()
+        self.assertEqual(memory.partner("ship", {"keys", "ship"}, set()), ("keys", 10))
+        self.assertIsNone(memory.partner("ship", {"keys", "ship"}, {"keys"}))
+        ship, keys = store.get("ship"), store.get("keys")
+        self.assertIsNone(load._often_with([ship], {"ship": ship, "keys": keys}, ["ship"]))       # off
+        (Path(self.home) / "config.json").write_text(json.dumps({"memory": {"associations_line": True}}))
+        pid, line = load._often_with([ship], {"ship": ship, "keys": keys}, ["ship"])
+        self.assertEqual(pid, "keys")
+        self.assertIn("often used with `ship` (10 tasks): `keys`", line)

@@ -83,7 +83,7 @@ def _trajectories(events: list[dict], ratings: list[dict], walked: dict | None =
     for r in ratings:
         stars[r["piece"]].append(r["stars"])
     return [{"page": page, "tasks": n, "stars": round(sum(stars[page]) / len(stars[page]), 2) if stars[page] else None}
-            for page, n in sorted(walked.items(), key=lambda kv: -kv[1]) if n]
+            for page, n in sorted(walked.items(), key=lambda kv: (-kv[1], kv[0])) if n]     # ties by page: stable
 
 
 # ------------------------------------------------------------------------------------------------ the stored review

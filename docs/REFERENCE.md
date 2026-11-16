@@ -415,6 +415,15 @@ is always a candidate:
 
 Every write is listed in the cycle's `model` event (`wrote`, each with the piece's status before).
 
+**Pieces used together, at load time.** `"memory": {"associations_line": true}` adds at most one line to a frontier
+model's index: the piece most often used in the same task as the router's first choice (three tasks or more, from the
+rollups and the live log), when it is in reach and not listed yet; an apply model gets nothing more. It is off: on one
+person's 343 good tasks (2026-11-15, each task's own pairs left out of the counts), the router chose a piece for 91
+of them per project and 56 of those used another piece too; the line was added to 16 indexes and named a piece the
+task used in none, and the tasks whose other piece reached the index stayed 18 (with one pool: 25 lines, none used,
+20 and 20). The router's choice, and so `bench route`, `--from-store` and the private replay, do not change either
+way.
+
 **`athos dream`** is the star review, unchanged: `athos dream` lists its proposals and `athos dream --apply N` turns
 one into the request your agent carries out. It is now one part of the cycle's abstraction phase, which refreshes it;
 `athos dream --cycle` runs the whole cycle.

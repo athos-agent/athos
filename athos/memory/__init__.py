@@ -41,7 +41,22 @@ DEFAULTS = {
     "trigger_bytes": 6_000_000,  # the hooks start a cycle when the live log is larger than this...
     "trigger_days": 37,      # ...or its oldest event is older than this
     "model": {"on": False, "model": None, "max_usd_per_run": 0.5, "idle_minutes": 30},
+    "associations_line": False,   # a frontier index line "often used with": off, since it did not help (REFERENCE)
 }
+PAIR_MIN = 3                       # two pieces used in at least this many of the same tasks are "often used together"
+
+
+def partner(pid: str, pool_ids: set, skip: set) -> tuple[str, int] | None:
+    """The piece most often used in the same task as `pid` (PAIR_MIN or more), among `pool_ids` and not in `skip`:
+    from the rollups and the live log, never the archive."""
+    best = None
+    for key, n in view().sums()["pairs"].items():
+        a, b = key.split("|", 1)
+        other = b if a == pid else a if b == pid else None
+        if other and n >= PAIR_MIN and other in pool_ids and other not in skip and (best is None or n > best[1]
+                                                                                   or (n == best[1] and other < best[0])):
+            best = (other, n)
+    return best
 
 
 def settings() -> dict:
@@ -553,16 +568,17 @@ class View:
         raw = raw[skip:]
         mark = (self.rollups or {}).get("live_mark") or {}
         known = int(mark.get("bytes") or 0) if mark.get("head") and mark.get("head") == _head_sha(raw) else 0
-        self.events, offsets, at = [], [], 0
-        for line in raw.split(b"\n"):
-            start, at = at, at + len(line) + 1
-            if not line.strip():
+        # The live log decoded once; `cut`: how many of its lines the rollups already looked at.
+        cut = raw[:known].count(b"\n") if known else 0
+        self.events, numbers = [], []
+        for n, line in enumerate(raw.decode("utf-8", errors="replace").split("\n")):
+            if not line:
                 continue
             try:
-                self.events.append(json.loads(line.decode("utf-8", errors="replace")))
-                offsets.append(start)
+                self.events.append(json.loads(line))
             except ValueError:            # a half-written or hand-edited line is skipped, never fatal
-                pass
+                continue
+            numbers.append(n)
         # Lines written after the rollups were made that name an archived task we know nothing of: a late mark or a
         # correction of a task the cycle archived. Left out until a cycle folds them (`stale` asks for one).
         self.stale = False
@@ -570,8 +586,8 @@ class View:
         if self.rollups is not None:
             started = {e.get("task_id") for e in self.events if isinstance(e, dict) and e.get("type") == "task_start"}
             boundary = self.rollups.get("boundary") or {}
-            for e, offset in zip(self.events, offsets):
-                if offset < known or not isinstance(e, dict):
+            for e, n in zip(self.events, numbers):
+                if n < cut or not isinstance(e, dict):
                     continue
                 tid = e.get("task_id")
                 if tid and tid not in started and tid not in boundary and e.get("type") in (

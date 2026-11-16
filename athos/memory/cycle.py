@@ -174,7 +174,8 @@ def cut(raw: bytes, now: _dt.datetime, s: dict | None = None) -> int:
     of the last `min_keep_days`. A line whose time cannot be read goes with the line before it."""
     from athos import eval as ev
     s = s or memory.settings()
-    keep_days, floor_days = float(s["keep_days"]), float(s["min_keep_days"])
+    floor_days = float(s["min_keep_days"])
+    keep_days = max(float(s["keep_days"]), floor_days)    # never the last min_keep_days, whatever keep_days says
     keep_bytes = int(s["keep_bytes"])
     total, at, out, previous_old = len(raw), 0, 0, True
     while at < total:
