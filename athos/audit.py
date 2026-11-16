@@ -41,8 +41,8 @@ RULES = (
     ("weak_evidence_learning", "a piece saved by autonomous learning with only the model's opinion as evidence"),
     ("save_in_apply_mode", "a piece saved on an apply model (it must never happen)"),
     ("promotion_without_verifier", "a piece verified without a passing verdict of the independent verifier"),
-    ("verifier_saw_summary", "a verifier given anything but the paths of its four input files (the worker's summary, "
-                             "the conversation, other text)"),
+    ("verifier_saw_summary", "a verifier given anything but the paths of its fixed input files (the worker's "
+                             "summary, the conversation, other text), or a bundle with any other entry"),
     ("verifier_over_cap", "model runs Athos started in one day above the daily cap of runs or of cost"),
     ("public_not_declared", "the repository the audit runs in is pushed to a code-hosting site and its .athos.toml "
                             "does not say whether it is public"),
@@ -515,8 +515,9 @@ def _promotion_without_verifier(c: _Ctx, everything: list[dict]) -> dict:
 
 
 def _verifier_saw_summary(c: _Ctx, everything: list[dict]) -> dict:
-    """Structurally: the prompt the verifier got (kept in its bundle) must be the fixed text with the four input paths
-    and nothing else, and its inputs must be exactly those four files."""
+    """Structurally: the prompt the verifier got (kept in its bundle) must be the fixed text with the bundle's input
+    paths and nothing else, its inputs exactly the fixed set (verify.INPUTS, or the four files of a run recorded
+    before the repository snapshot), and its bundle only the fixed entries."""
     from athos import verify
     runs = [e for e in _project_events(c, everything, {"verify"}) if e.get("prompt_file") or e.get("inputs")]
     if not runs:
@@ -526,21 +527,21 @@ def _verifier_saw_summary(c: _Ctx, everything: list[dict]) -> dict:
         problems = []
         if e.get("paths_only") is False:
             problems.append("prompt not paths only (recorded)")
-        if sorted(e.get("inputs") or []) != sorted(verify.INPUTS):
-            problems.append("inputs other than the four files")
+        if sorted(e.get("inputs") or []) not in (sorted(verify.INPUTS), sorted(verify.INPUTS_V1)):
+            problems.append("inputs other than the fixed set")
         bundle, prompt_file = e.get("bundle"), e.get("prompt_file")
         if e.get("bundle_clean") is False:
             problems.append("the bundle carried the worker's narrative (recorded)")
         elif bundle and os.path.isdir(bundle) and not verify.bundle_clean(bundle):
-            problems.append("the bundle carries a commit message or the piece's frontmatter")
+            problems.append("the bundle carries a commit message, the piece's frontmatter or an entry outside the "
+                            "fixed set")
         if bundle and prompt_file and os.path.isfile(prompt_file):
-            _expected, named = verify.prompt_for(Path(bundle))
-            if not verify.paths_only(Path(prompt_file).read_text(errors="ignore"), named, bundle):
-                problems.append("the kept prompt is not the fixed text with the four paths")
+            if not verify.kept_prompt_ok(Path(prompt_file).read_text(errors="ignore"), bundle):
+                problems.append("the kept prompt is not the fixed text with the bundle's input paths")
         if problems:
             found.append({"piece": c.name(e.get("piece") or ""), "at": e.get("at"), "problems": problems})
     return _result("verifier_saw_summary", _status(found, False), found,
-                   "verify events, and the prompt each run kept, checked against the fixed text and the four paths")
+                   "verify events, and the prompt each run kept, checked against the fixed text and the input paths")
 
 
 def _verifier_over_cap(everything: list[dict]) -> dict:

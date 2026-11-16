@@ -147,12 +147,50 @@ def _folder_note(cwd: str) -> Path:
 
 
 def _remember_session(event: dict) -> None:
-    """Point the event's folder at the event's session (and transcript), when the event names both."""
+    """Point the event's folder at the event's session (and transcript), when the event names both. The note also
+    keeps the folder's real path and when it was written, so `athos audit` can find the latest session of a whole
+    repository (`_sessions_here`)."""
     folder, sid = event.get("cwd"), event.get("session_id")
     if not (folder and sid):
         return
     paths.write_atomic(_folder_note(folder),
-                       json.dumps({"session_id": sid, "transcript_path": event.get("transcript_path")}))
+                       json.dumps({"session_id": sid, "transcript_path": event.get("transcript_path"),
+                                   "folder": os.path.realpath(folder), "at": time.time()}))
+
+
+def _sessions_here(cwd: str) -> list[str]:
+    """The sessions that worked in this folder, newest first: those noted for this folder or any folder inside its
+    repository (inside this folder, outside any repository), then the ones noted for the folders above it. Never the
+    session of the shell the command runs in: an agent auditing another session's work from its own shell would
+    read its own."""
+    import subprocess
+    real = os.path.realpath(cwd)
+    try:
+        r = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=real, capture_output=True, text=True,
+                           timeout=5)
+        git_top = r.stdout.strip() if r.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        git_top = ""
+    top = os.path.realpath(git_top) if git_top else real
+    found: list[tuple[float, str]] = []
+    for note in (paths.sessions() / "by-cwd").glob("*.json"):
+        try:
+            data = json.loads(note.read_text())
+            when = float(data.get("at") or note.stat().st_mtime)
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+        folder, sid = data.get("folder") if isinstance(data, dict) else None, data.get("session_id")
+        if sid and folder and (folder == top or folder.startswith(top.rstrip(os.sep) + os.sep)):
+            found.append((when, sid))
+    for up in [Path(real), *list(Path(real).parents)[:40]]:         # notes written before they kept their folder
+        note = _folder_note(str(up))
+        data = _current_session(str(up))
+        if data.get("session_id") and not data.get("folder"):
+            try:
+                found.append((note.stat().st_mtime, data["session_id"]))
+            except OSError:
+                pass
+    return list(dict.fromkeys(sid for _when, sid in sorted(found, reverse=True)))
 
 
 def _current_session(cwd: str) -> dict:
@@ -1606,13 +1644,20 @@ def cmd_audit(args) -> int:
         if args.show or (args.project and args.project != here.project):
             return _fail(f"not here: this repository is marked public ({here.marker}); the audit shows only "
                          f"{here.project}'s sessions and names only its pieces. Run it from a folder outside it.")
+    project, last = (here.project if here.public else args.project), args.last
     if not (session_id or args.project or args.last):
-        session_id = _here()[1].get("session_id")       # this folder's session, else the last one anywhere
+        # The latest session that worked in this folder or inside this repository (never the shell's own session,
+        # nor the project's largest or oldest); else this project's latest; else the last one anywhere.
+        events = ev.events()
+        known = audit.sessions(events)
+        session_id = next((s for s in _sessions_here(os.getcwd()) if s in known), None)
+        if session_id is None and audit.pick(events, project=paths.project_of(os.getcwd()), last=1):
+            project, last = paths.project_of(os.getcwd()), 1
     try:
         versions = connect.versions(ask_muse=False)
     except Exception:  # noqa: BLE001 — another agent's config never stops the audit
         versions = None
-    report = audit.run(session_id, here.project if here.public else args.project, args.last, show=args.show,
+    report = audit.run(session_id, project, last, show=args.show,
                        versions=versions, cwd=os.getcwd(), here=here if here.public else None)
     print(json.dumps(report, indent=1, ensure_ascii=False) if args.json else audit.render(report))
     return 0
@@ -1909,8 +1954,9 @@ def cmd_repair(args) -> int:
 
 
 def cmd_verify(args) -> int:
-    """`athos verify <id> [--bundle DIR] | --pending`: run the independent verifier on a candidate (Athos starts it in
-    the background after an autonomous save; by hand it runs in the foreground and prints the outcome)."""
+    """`athos verify <id> [--bundle DIR | --rebuild] | --pending`: run the independent verifier on a candidate (Athos
+    starts it in the background after an autonomous save; by hand it runs in the foreground and prints the outcome).
+    `--rebuild` verifies again from a fresh bundle of the recorded task, e.g. after an earlier verdict failed."""
     from athos import verify
     if not verify.take_lock():
         return 0 if args.quiet else _fail("a verifier is already running; try again later")
@@ -1918,9 +1964,12 @@ def cmd_verify(args) -> int:
         if args.pending:
             outs = verify.run_pending(limit=args.limit)
         elif args.id:
-            outs = [verify.run(args.id, Path(args.bundle) if args.bundle else None)]
+            if args.rebuild and args.bundle:
+                return _fail("--rebuild builds its own bundle: leave out --bundle")
+            outs = [verify.run(args.id, Path(args.bundle) if args.bundle else None, runner=verify.claude_runner,
+                               rebuild=args.rebuild)]
         else:
-            return _fail("athos verify <id> | --pending")
+            return _fail("athos verify <id> [--rebuild] | --pending")
     finally:
         verify.release_lock()
     if args.quiet:
@@ -2310,6 +2359,9 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("id", nargs="?")
     s.add_argument("--bundle", help="the verifier's input folder (default: the piece's latest)")
     s.add_argument("--pending", action="store_true", help="the candidates still waiting for a verdict")
+    s.add_argument("--rebuild", action="store_true", help="verify again from a fresh bundle built from the task the "
+                   "piece's latest bundle recorded (its commits, and the files at its last commit); the new verdict "
+                   "replaces the earlier one for the same text")
     s.add_argument("--limit", type=int, default=1)
     s.add_argument("--quiet", action="store_true")
     s.add_argument("--json", action="store_true")

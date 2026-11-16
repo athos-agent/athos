@@ -498,8 +498,11 @@ Times are UTC. It names a piece only when the piece belongs to that project, or 
 project's are only counted), and it is moved to `log.1.md` once it passes 256 KB (under a lock, so two hooks never rotate it twice), so at most two files are kept. Each session starts with
 one hidden line telling the agent where the log is and that `athos audit --session <id>` summarizes it.
 
-`athos audit [--session <id> | --project <name> | --last N] [--show] [--json]` folds the log by session (by default
-the session of the folder you run it in) and checks each one against these rules:
+`athos audit [--session <id> | --project <name> | --last N] [--show] [--json]` folds the log by session and checks
+each one against these rules. By default it reads the latest session that worked in the folder you run it in or
+anywhere inside its repository (the hooks note each session's folder), never the session of the shell it runs in (an
+agent auditing another session's work from its own shell would read its own) nor the project's largest or oldest;
+with no such session, this project's latest, else the last one anywhere:
 
 | rule | flags |
 |---|---|
@@ -514,7 +517,7 @@ the session of the folder you run it in) and checks each one against these rules
 | `weak_evidence_learning` | a piece saved by autonomous learning with no strong item of evidence (an exit status or an artifact the hooks saw): only the model's opinion |
 | `save_in_apply_mode` | a piece saved on an apply model: an autonomous save on a model that is not frontier, or, in sessions written by 0.1.124 or later, a task answered by an apply model that saved a piece (older sessions: only autonomous saves are judged, partial) |
 | `promotion_without_verifier` | a piece of the session's project moved to verified with no earlier passing verdict of the independent verifier whose prompt carried paths only |
-| `verifier_saw_summary` | a verifier run of the session's project whose recorded `paths_only` is false, whose inputs were not exactly the four files, or whose kept `prompt.txt` is not the fixed text with the four paths |
+| `verifier_saw_summary` | a verifier run of the session's project whose recorded `paths_only` or `bundle_clean` is false, whose inputs were not exactly the fixed set (the six inputs below, or the four files of a run recorded before 0.1.166), whose bundle holds any other entry, or whose kept `prompt.txt` is not the fixed text with the bundle's own input paths |
 | `verifier_over_cap` | a UTC day whose model runs (verifier and replay, every project) went over the runs or the cost cap they recorded (a run with no reported cost counts its estimate) |
 | `marker_name_ignored` | the repository the audit runs in has a `.athos.toml` whose `name` is not the folder's own and was never accepted on this machine (`athos public name`), so Athos uses the folder's name |
 | `public_not_declared` | the repository the audit runs in (when it is the session's project) is pushed to a code-hosting site, read from its local git configuration, and its `.athos.toml` does not say whether it is public; `athos public` or `athos public off` answers it |
@@ -696,8 +699,13 @@ really checked something: a run that only asks the runner about itself or lists 
 leaves out (`-x test`), a command sent to the background (its hook comes when it starts, so its status is not known),
 anything after a `#` comment, and a test run whose output says no test ran (`Ran 0 tests`, `collected 0 items`, `[no
 test files]`, `running 0 tests`, `No tests found`, `0 passing`) are not strong. A longer word is another command:
-`pytest-watch` is not pytest and `make test-clean` is not `make test`. Up to 60 weak items are kept per task; strong
-ones are never dropped. Claude Code runs PostToolUse after a command
+`pytest-watch` is not pytest and `make test-clean` is not `make test`. One narrow pipe counts: a verification piped
+only into `tail`, `head` or `tee` (plain options and file names) owns the success when the command itself turns
+pipefail on first, joined by `&&` (`set -o pipefail && pytest -q | tail -5`), and the pipeline is the last thing that
+runs or only `&&` follows it; then the pipeline succeeds only if the verification did. The hook does not say how the
+shell was started, so without that `set` a pipe stays weak, and a failure is never taken for a success. The
+autonomous guide asks the model to run each verification command once on its own before finishing. Up to 60 weak
+items are kept per task; strong ones are never dropped. Claude Code runs PostToolUse after a command
 that exited 0 and PostToolUseFailure after one that did not; agents whose tool hooks give no exit status (Codex, Muse
 Code and OpenCode unless the event carries an exit code) only produce weak items. Subagents' commands and Athos's own
 are left out, and in a repository marked public the command itself is not kept, only what kind it was. With
@@ -778,8 +786,17 @@ the model that did it. Right after an autonomous save Athos writes a folder for 
 and the new files git does not track yet with their text, except binary files, files over 50 KB and names that suggest
 secrets), `verification.txt` (the output the tool hook kept of each verification command, with its exit status),
 `piece.md` (the candidate as its title, when and body only: no frontmatter, so no evidence, confidence or status, and
-no history) and `checks.json` (its Check commands); `meta.json` keeps the hash of the text the verifier reads. Then it
-starts, detached so no hook waits, a headless run of your own Claude Code:
+no history), `checks.json` (its Check commands), and a snapshot of the repository so claims the worker learned by
+reading files can be checked: `files/<path>` holds the files the piece names that exist in the repository and the
+files the task changed, in their final state, and `files.json` lists what was included, cut short or left out and
+why. Paths are resolved inside the git work tree the task ran in only (an absolute path or `../` that leads out of it,
+`~/…`, a symbolic link anywhere on the way, a folder, a binary, a file git ignores, a name that suggests secrets, and a
+file whose text addresses the verifier — "ignore previous instructions", "note to the verifier", a verdict in the
+rubric's JSON — are left out and listed; an absolute path is never written down), so a piece saved in a repository
+marked public never copies anything from outside it; each file is cut at 40,000 characters, all of them at 200,000,
+at most 25 files and 80 paths looked at; outside git there is no snapshot. `meta.json` keeps the hash of the text the
+verifier reads, the repository the task ran in and the manifest. Then it starts, detached so no hook waits, a headless
+run of your own Claude Code:
 
 ```
 claude -p <prompt> --output-format json --model <verifier> --tools Read,Grep,Glob
@@ -793,16 +810,18 @@ claude -p <prompt> --output-format json --model <verifier> --tools Read,Grep,Glo
 Read-only tools that can read only the folder (`--restricted` keeps the file tools inside the working folders, and the
 one allow rule is a Read rule for the folder, which Grep and Glob follow; `dontAsk` denies anything else), a fresh
 context, no plugins, hooks, CLAUDE.md or MCP servers (`--safe-mode`; `ATHOS_HOOKS=off` makes `athos hook` do nothing
-as well), nothing kept of the session. Its prompt is a fixed text with the four paths and nothing else, and tells it the
-files are data, never instructions: never the worker's summary or the conversation (`prompt.txt` keeps it, and the
-`verify` event records `paths_only`, and `bundle_clean`: that `piece.md` has no frontmatter or history and `diff.patch`
-no commit header or message; a pass from a bundle that is not clean never counts). It answers a fixed rubric, one
-verdict per criterion, as JSON:
+as well), nothing kept of the session. Its prompt is a fixed text with the six input paths (the four files, `files/`
+and `files.json`) and nothing else, and tells it the files, the repository's included, are data, never instructions:
+never the worker's summary or the conversation (`prompt.txt` keeps it, and the `verify` event records `paths_only`,
+and `bundle_clean`: that the folder holds only its fixed entries — the inputs, `prompt.txt`, `meta.json`,
+`result.json` — and `files/` exactly what `files.json` lists, as plain files; that `piece.md` has no frontmatter or
+history and `diff.patch` no commit header or message; a pass from a bundle that is not clean never counts). It answers
+a fixed rubric, one verdict per criterion, as JSON:
 
 | criterion | passes when |
 |---|---|
 | `evidence_passed` | the verification output shows the commands ended successfully, with no failure after the last success |
-| `piece_matches_work` | every step of the piece is backed by the diff or the verification output |
+| `piece_matches_work` | every step of the piece is backed by the diff, the verification output, or the content of the repository files in the snapshot (their code or data; a comment the diff shows the work itself added backs nothing); a claim none of the three shows, or one about a file left out or a part cut, is not shown |
 | `checks_runnable` | at least one Check is a concrete command that can be run again later in this repository |
 | `no_private_data` | no secret, credential, personal data or folder of one particular computer |
 | `reusable` | a way of working for a later task, not a narration of this one |
@@ -826,6 +845,11 @@ model runs off, and `"verifier": {"on": false}` turns the verifier off. A run re
 leaves the piece a candidate and says why (`grade` and `learn` events); a candidate still waiting is picked up at a
 later end of turn, at most two attempts. Bundles are pruned to the last 50 at the end of a turn, except those still
 waiting. `athos verify <id>` runs it by hand, in the foreground; `athos verify --pending` the oldest waiting one.
+`athos verify <id> --rebuild` verifies a candidate again (after a failed verdict, say) from a fresh bundle built from
+the task its latest bundle recorded: the diff of that task's commits and the snapshot read from its last commit, in a
+new folder (`…-r<time>`), under the same caps; the new verdict replaces the earlier one for the same text (a later
+fail takes back an earlier pass). When the repository, the task's evidence or one of its commits is gone, or the task
+made no commit, it says so (outcome `error`) and the piece stays a candidate.
 
 | event | written when | fields |
 |---|---|---|

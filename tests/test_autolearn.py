@@ -533,7 +533,7 @@ class VerifierTest(TempHome):
         self.assertFalse(verify.paths_only(prompt, {**named, "piece": "/tmp/elsewhere/piece.md"}, self.bundle))
         self.assertFalse(verify.paths_only(prompt, {**named, "summary": "done"}, self.bundle))
         rest = prompt
-        for value in named.values():
+        for value in sorted(named.values(), key=len, reverse=True):     # files.json before its folder files/
             rest = rest.replace(value, "<path>")
         self.assertEqual(rest, verify.PROMPT.format(**{k: "<path>" for k in named}))   # fixed text and paths
 
@@ -1083,7 +1083,7 @@ class AutonomousAuditTest(TempHome):
         Path(folder, "prompt.txt").write_text(Path(folder, "prompt.txt").read_text() + "\nSummary: I fixed it.")
         rule = self.rule("verifier_saw_summary")
         self.assertEqual(rule["status"], "flagged")
-        self.assertIn("the kept prompt is not the fixed text with the four paths", rule["found"][0]["problems"])
+        self.assertIn("the kept prompt is not the fixed text with the bundle's input paths", rule["found"][0]["problems"])
 
     def test_spend_above_the_cap_is_flagged(self):
         from athos import eval as ev

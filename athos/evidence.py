@@ -236,9 +236,45 @@ def _check_match(segment: str, checks: list[tuple[str, str, str]]) -> str | None
     return None
 
 
+# `set -o pipefail` (or -euo pipefail, -e -o pipefail...) as a command of its own; `set +o pipefail` does not match.
+_PIPEFAIL_ON = re.compile(r"^set\s+(?:-[a-zA-Z]+\s+)*-[a-zA-Z]*o\s+pipefail(?:\s+-[a-zA-Z]+)*$")
+# A pure pager or filter that passes the output on and fails only on its own trouble: tail, head, tee, with plain
+# options and file names. Anything that could run something else or decide on the text (grep, sort, awk) is not one.
+_PURE_FILTER = re.compile(r"^(?:tail|head)(?:\s+(?:-[A-Za-z]+|--[a-z-]+(?:=\d+)?|[-+]?\d+[kmbcl]?))*$"
+                          r"|^tee(?:\s+-[a-z]+)*(?:\s+[\w./-]+)*$")
+
+
+def _success_through_pipefail(parts: list[tuple[str, str]], i: int) -> bool:
+    """Whether a verification piped only into pure filters still owns the command's success: only when the command
+    itself turns `pipefail` on first, chained with `&&` so a shell that cannot turn it on never runs the rest. Then the
+    pipeline succeeds only if every part of it did, the verification included. The hook does not say how the shell
+    was started, so without that `set` in the command a pipe stays weak. The verification must start its pipeline,
+    every part after it be a pure filter, and the pipeline be the last thing that runs or be followed only by `&&`."""
+    if parts[i][1] != "|" or (i and parts[i - 1][1] == "|"):
+        return False
+    if not all(s == "&&" for _, s in parts[:i]):
+        return False
+    sets = [n for n, (seg, _sep) in enumerate(parts[:i]) if _PIPEFAIL_ON.match(" ".join(seg.split()))]
+    if not sets or any("pipefail" in seg for n, (seg, _sep) in enumerate(parts) if n not in sets):
+        return False
+    j = i + 1
+    while j < len(parts):
+        seg = " ".join(parts[j][0].split())
+        if re.search(r"[$`()<>;&|\\'\"]", seg) or not _PURE_FILTER.match(seg):
+            return False
+        if parts[j][1] != "|":
+            break
+        j += 1
+    else:
+        return False
+    return all(s in ("&&", "") for _, s in parts[j:])
+
+
 def classify(cmd: str, checks: list[tuple[str, str, str]] | None = None) -> list[dict]:
     """Every verification step of a shell command: each with its kind, label, the Check it runs (if any), and whether
-    the command's exit status belongs to it on success (`owns_success`) and on failure (`owns_failure`)."""
+    the command's exit status belongs to it on success (`owns_success`) and on failure (`owns_failure`). A
+    verification piped only into tail, head or tee owns the success only when the command turns `pipefail` on itself
+    (`_success_through_pipefail`); a failure is never taken for a success."""
     parts = segments(cmd)
     out = []
     for i, (seg, sep) in enumerate(parts):
@@ -250,7 +286,8 @@ def classify(cmd: str, checks: list[tuple[str, str, str]] | None = None) -> list
         after = [s for _, s in parts[i:-1]]           # this segment's own separator and the ones after it
         piped = sep == "|" or (i and parts[i - 1][1] == "|") or sep == "&"
         runs_surely = all(s in ("&&", ";") for s in before)
-        owns_success = not piped and runs_surely and all(s == "&&" for s in after)
+        owns_success = (not piped and runs_surely and all(s == "&&" for s in after)) or \
+            _success_through_pipefail(parts, i)
         last = i == len(parts) - 1
         setup_only = all(_SETUP.match(_bare(p)) for p, _ in parts[:i])
         owns_failure = not piped and last and runs_surely and (setup_only or (before and before[-1] == ";"))

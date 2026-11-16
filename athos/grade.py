@@ -154,14 +154,19 @@ def _since(evs: list[dict]) -> str:
 
 
 def verifier_passed(p: store.Piece, evs: list[dict] | None = None) -> dict | None:
-    """The verifier's latest pass on the piece as it is now (same title, when and body: a pass is about the text it
-    read, never about a version number), from a bundle that held paths only and no narrative, or None."""
+    """The verifier's latest verdict on the piece as it is now (same title, when and body: a verdict is about the text
+    it read, never about a version number) when that verdict is a pass from a bundle that held paths only and no
+    narrative, or None. A later verdict on the same text replaces an earlier one: a re-verification that fails takes
+    back an earlier pass, and one that passes replaces an earlier failure."""
     evs = _events(p.id) if evs is None else evs
     mine = body_sha(p)
-    passes = [e for e in evs if e.get("type") == "verify" and e.get("outcome") == "pass"
-              and e.get("body_sha") == mine and e.get("paths_only") is not False
-              and e.get("bundle_clean") is not False]
-    return passes[-1] if passes else None
+    verdicts = [e for e in evs if e.get("type") == "verify" and e.get("outcome") in ("pass", "fail")
+                and e.get("body_sha") == mine]
+    last = verdicts[-1] if verdicts else None
+    if last and last.get("outcome") == "pass" and last.get("paths_only") is not False \
+            and last.get("bundle_clean") is not False:
+        return last
+    return None
 
 
 def _reuses(evs: list[dict], since: str = "", version: int | None = None) -> list[dict]:
