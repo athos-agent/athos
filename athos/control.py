@@ -239,8 +239,16 @@ VERY_SHORT = 3             # a one-word name this short ("api", "web", "cli") is
 # A noun that names a project outright, and one that only does after a preposition or with "of" ("the billing app
 # crashes" is about an app for billing; "the api repo" is the project; "in the api directory" is the folder).
 _STRONG_NOUNS = r"(?:repo|repos|repository|repositorio|project|proyecto|codebase|workspace)"
-_WEAK_NOUNS = r"(?:folder|carpeta|directory|dir|directorio|app|service|servicio|package|paquete|module|m[oó]dulo)"
+_PLACE_NOUNS = r"(?:folder|carpeta|directory|dir|directorio)"
+_PART_NOUNS = r"(?:app|service|servicio|package|paquete|module|m[oó]dulo)"
+_WEAK_NOUNS = rf"(?:{_PLACE_NOUNS}|{_PART_NOUNS})"
 _PROJECT_NOUNS = rf"(?:{_STRONG_NOUNS}|{_WEAK_NOUNS})"
+# What one takes from a project ("copy the helper from api"), and what of it one follows ("the conventions of api"):
+# a preposition and the name at the end of a phrase is a cue only with one of these, or as a whole phrase ("from api").
+_TAKE_VERBS = (r"(?:copy|copies|copying|take|borrow|reuse|port|bring|grab|steal|import|lift|pull|mirror|follow|use|"
+               r"copi[aá]\w*|tom[aá]\w*|tra[eé]\w*|reutiliz\w*|sac[aá]\w*|imit[aá]\w*|us[aá]|segu[ií]\w*)")
+_WAY_NOUNS = (r"(?:conventions?|style|patterns?|way|helpers?|approach|setup|config|structure|layout|"
+              r"convenci[oó]n(?:es)?|estilo|patr[oó]n(?:es)?|forma|manera)")
 _QUOTES = "`\"'«“‘"
 _CLOSE = "`\"'»”’"
 
@@ -254,13 +262,15 @@ def _name_regex(name: str) -> str:
 
 def has_cue(name: str, prompt: str) -> bool:
     """Whether a request refers to the project with a reference cue, not merely uses its name as a word:
-    - a preposition with the name alone at the end of a phrase ("from api", "en api.", "the conventions of api");
+    - a preposition with the name at the end of a phrase, only as the whole phrase ("from api", "desde api"), after a
+      verb of taking ("copiá el helper desde billing", "borrow the config from our api"), or after a way of doing
+      ("the conventions of api"); "used for billing", "a bug in api", "the job of billing" are no cue;
     - a phrase of reference ("like we did in the api", "como hicimos en el api", "igual que en billing", "mirá cómo lo
       hace billing", "as in api");
     - a project noun with it: a repository or project anywhere ("the api repo", "el proyecto de billing", "repo api",
-      "api's repo"), a folder, service, app, package or module after a preposition or with "of" ("in the api
-      directory", "en el directorio api", "from the api service", "la carpeta de billing"), or the name quoted before
-      one ('the "api" folder');
+      "api's repo"), a folder after a preposition ("in the api directory", "en el directorio api"), a service, app,
+      package or module after a preposition and a verb of taking ("copy the helper from the api service"), any of
+      them with "of" ("la carpeta de billing"), or the name quoted before one ('the "api" folder');
     - a path (`~/api`, `api/`, `/api/`).
     "the api returns 500", "rate limits in the api", "the timeout in api calls", "the billing app crashes", "the
     `api` key" and "api.js" have no cue."""
@@ -270,16 +280,22 @@ def has_cue(name: str, prompt: str) -> bool:
     pre = r"(?:in|into|inside|within|from|at|en|desde|dentro de)"
     art = r"(?:the|el|la|los|las|this|that|our|nuestro|nuestra|ese|esa|este|esta)"
     end = r"(?=\s*(?:$|[.,;:!?)]))"
+    clause = r"[^.;:!?\n]*?"
     patterns = (
-        rf"(?<![\w-])(?:{pre}|of|de|del|para|for)\s+{nq}{end}",                    # from api · the conventions of api
+        rf"(?:^|[.;:!?(]\s*)(?:please\s+|por\s+favor\s+)?{pre}\s+(?:{art}\s+)?{nq}{end}",   # from api · desde api
+        rf"(?<![\w-]){_TAKE_VERBS}\b{clause}\s(?:from|desde|de|del)\s+(?:{art}\s+)?{nq}{end}",  # copy it from our api
+        rf"(?<![\w-]){_WAY_NOUNS}\s+(?:of|de|del)\s+(?:{art}\s+)?{nq}{end}",      # the conventions of api
+        rf"(?<![\w-])same\s+(?:way\s+)?as\s+(?:{art}\s+)?{nq}\s+does",              # the same as billing does
         rf"(?<![\w-])(?:like|as)\s+(?:we|i|you|they)\s+did(?:\s+it)?\s+(?:in|on|with|for|at)\s+(?:{art}\s+)?{nq}",
         rf"(?<![\w-])como\s+(?:lo\s+)?(?:hicimos|hice|hiciste|hicieron|hacemos)\s+en\s+(?:{art}\s+)?{nq}",
         rf"(?<![\w-])igual\s+que\s+en\s+(?:{art}\s+)?(?:{_PROJECT_NOUNS}\s+(?:de\s+)?)?{nq}",
         rf"(?<![\w-])c[oó]mo\s+lo\s+(?:hace|hacen|hacemos|resuelve|resuelven|hicimos)\s+(?:en\s+)?(?:{art}\s+)?{nq}",
-        rf"(?<![\w-])how\s+{nq}\s+does\s+it",
+        rf"(?<![\w-])(?:look|see|check|copy|follow|mirror|like|watch)\b{clause}\bhow\s+{nq}\s+does\s+it",
         rf"(?<![\w-])as\s+in\s+(?:{art}\s+)?{nq}",                                   # as in api
-        rf"(?<![\w-]){pre}\s+(?:{art}\s+)?{nq}\s+{_PROJECT_NOUNS}\b",                 # in the api directory
-        rf"(?<![\w-]){pre}\s+(?:{art}\s+)?{_PROJECT_NOUNS}\s+{nq}",                    # en el directorio api
+        rf"(?<![\w-])(?:like|tal\s+como)\s+(?:in|en)\s+(?:{art}\s+)?{nq}{end}",            # like in billing
+        rf"(?<![\w-]){pre}\s+(?:{art}\s+)?{nq}\s+(?:{_STRONG_NOUNS}|{_PLACE_NOUNS})\b",   # in the api directory
+        rf"(?<![\w-]){pre}\s+(?:{art}\s+)?(?:{_STRONG_NOUNS}|{_PLACE_NOUNS})\s+{nq}",      # en el directorio api
+        rf"(?<![\w-]){_TAKE_VERBS}\b{clause}\s{pre}\s+(?:{art}\s+)?{nq}\s+{_PART_NOUNS}\b",  # copy it from the api service
         rf"(?<![\w-]){_PROJECT_NOUNS}\s+(?:de|del|of)\s+(?:{art}\s+)?{nq}",             # la carpeta de billing
         rf"(?<![\w-]){_STRONG_NOUNS}\s+{nq}",                                          # proyecto api · repo api
         rf"{nq}\s+{_STRONG_NOUNS}\b",                                                  # the api repo

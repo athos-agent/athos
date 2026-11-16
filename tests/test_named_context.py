@@ -41,6 +41,25 @@ class CueTest(HookCase):
                            ("billing", "the billing app crashes on login"), ("docs", "the docs folder is stale")):
             self.assertFalse(control.has_cue(name, text), text)
 
+    def test_a_name_at_the_end_of_a_phrase_is_a_cue_only_when_it_refers_to_the_project(self):
+        # Phrase-final plain uses: the name used as a word, after a preposition.
+        for name, text in (("billing", "this endpoint is only used for billing."),
+                           ("billing", "necesito un reporte para billing"), ("billing", "es un tema de billing."),
+                           ("billing", "fix the rounding error in billing"), ("api", "add retries for api."),
+                           ("docs", "update the table of docs"), ("docs", "move it into docs"),
+                           ("api", "there is a bug in api, I think"), ("billing", "the invoice goes out from billing"),
+                           ("docs", "what is the format of docs?"), ("api", "errors come from the api service"),
+                           ("billing", "in the billing module the totals are wrong"), ("docs", "write it up for docs"),
+                           ("api", "how api does it is unclear"), ("billing", "that is the job of billing")):
+            self.assertFalse(control.has_cue(name, text), text)
+        # References written the same way, which stay cues.
+        for name, text in (("billing", "the same as billing does"),
+                           ("api", "see how we handle retries in the api repo"), ("billing", "like in billing"),
+                           ("api", "tal como en api"), ("billing", "copiá el helper desde billing"),
+                           ("api", "check ../api/handlers.py"), ("billing", "the way billing's project does it"),
+                           ("api", "borrow the linter config from our api")):
+            self.assertTrue(control.has_cue(name, text), text)
+
     def test_a_multiword_name_takes_its_cues_too(self):
         self.assertTrue(control.has_cue("heat-v2", "as we did in heat v2"))
         self.assertTrue(control.has_cue("heat-v2", "look at ~/heat-v2/app"))
