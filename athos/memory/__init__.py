@@ -332,15 +332,16 @@ def rebuild_ledger() -> dict:
 
 
 # ------------------------------------------------------------------------------------------------ sums over tasks
-def finished(rows: Iterable[dict], wrong: set) -> list[dict]:
+def finished(rows: Iterable[dict], wrong: set, copy: bool = True) -> list[dict]:
     """Folded rows as `eval.tasks` returns them: only tasks that stopped, with the uses `athos repair` corrected left
-    out, in the order they first appeared."""
+    out, in the order they first appeared. `copy` False changes the rows themselves (the view's own)."""
     out = []
     for row in sorted(rows, key=lambda r: r.get("seq") or 0):
         if "ended" not in row:
             continue
-        t = dict(row)
-        t["pieces"] = [p for p in row.get("pieces") or [] if (row["task_id"], p) not in wrong]
+        t = dict(row) if copy else row
+        if wrong:
+            t["pieces"] = [p for p in row.get("pieces") or [] if (row["task_id"], p) not in wrong]
         out.append(t)
     return out
 
@@ -633,7 +634,7 @@ class View:
                     if line["piece"] not in row["opened"]:
                         row["opened"].append(line["piece"])
             self._rows = rows
-            self._tasks = finished(rows.values(), wrong)
+            self._tasks = finished(rows.values(), wrong, copy=False)
         return self._tasks
 
     def walked(self) -> dict:

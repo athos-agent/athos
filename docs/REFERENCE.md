@@ -378,7 +378,11 @@ in any case; offline commands count it immediately.
 Every step can be interrupted and run again: a segment is written atomically before anything refers to it, the
 ledger lists the segments it folded, and the live log is trimmed only while it still starts with the segment's exact
 bytes, under the lock every append takes (an older Athos that appends without it while the log is trimmed has its
-line carried over). One cycle runs at a time (`memory/.cycle.lock`; one left by a cycle that died is taken over). The
+line carried over). Tidying never deletes a segment: one the manifest does not list (a cycle
+stopped between writing it and listing it, or a manifest lost) is listed again, one that cannot be read is moved to
+`memory/archive/damaged/`, and a ledger or rollups that are lost or unreadable are made again by the next cycle,
+which the hooks start as soon as they notice. One cycle runs at a time (`memory/.cycle.lock`; one left by a cycle
+that died is taken over). The
 Stop hook starts it detached and at low priority, the way it starts the verifier, when the live log passes
 `trigger_bytes` (6 MB) or its oldest event is older than `trigger_days` (37), or a segment was left half done, or a
 late line waits; `"memory": {"auto": false}` turns that off. Each phase is a `memory_cycle` event (`run_id`, `phase`

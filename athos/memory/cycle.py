@@ -128,8 +128,8 @@ def due(now: _dt.datetime | None = None) -> str:
     now = now or _now()
     if first and _days(now, first) > float(s["trigger_days"]):
         return "age"
-    if memory.has_archive() and memory.view().stale:
-        return "late"
+    if memory.has_archive() and (memory.load_rollups() is None or memory.view().stale):
+        return "late" if memory.load_rollups() is not None else "rollups"
     return ""
 
 
@@ -297,14 +297,59 @@ def prune(entry: dict) -> int:
     return trimmed
 
 
-def resume() -> dict:
-    """Finish a segment a stopped cycle left half done, and drop temporary files and segments no manifest lists."""
-    done = {"folded": 0, "pruned": 0, "bytes": 0}
-    listed = {s["file"] for s in memory.manifest()["segments"]}
-    if memory.archive_dir().is_dir():
-        for f in memory.archive_dir().iterdir():
-            if f.name.endswith(".tmp") or (f.name.startswith("events-") and f.name not in listed):
+def recover() -> dict:
+    """Put the archive's table back in order, never deleting a segment: a temporary file of an interrupted write is
+    dropped; a segment the manifest does not list (a cycle stopped between writing it and listing it, or a manifest
+    lost) is listed again, `written` while the live log still starts with its bytes and `pruned` otherwise, and one
+    that cannot be read is moved to `archive/damaged/`; a ledger that is unreadable or did not fold exactly the
+    listed segments is folded again from them."""
+    out = {"listed_again": 0, "damaged": 0, "ledger_rebuilt": False}
+    folder = memory.archive_dir()
+    if folder.is_dir():
+        for f in folder.iterdir():
+            if f.name.endswith(".tmp"):
                 f.unlink(missing_ok=True)
+        man = memory.manifest()
+        listed = {e["file"] for e in man["segments"]}
+        live = memory.live_raw()
+        for f in sorted(folder.glob("events-*.jsonl.gz")):
+            if f.name in listed:
+                continue
+            try:
+                data = gzip.decompress(f.read_bytes())
+                seg_id = int(f.name.split("-")[1].split(".")[0])
+            except (OSError, EOFError, ValueError, gzip.BadGzipFile):
+                (folder / "damaged").mkdir(exist_ok=True)
+                os.replace(f, folder / "damaged" / f.name)
+                out["damaged"] += 1
+                continue
+            events = memory.decode(data)
+            stamps = [e.get("at") for e in events if isinstance(e, dict) and isinstance(e.get("at"), str)]
+            entry = {"id": seg_id, "file": f.name, "lines": data.count(b"\n"), "events": len(events),
+                     "bytes": len(data), "sha256": memory._sha(data), "first_at": min(stamps, default=None),
+                     "last_at": max(stamps, default=None), "recovered": True}
+            entry["state"] = "written" if memory.live_skip(live, entry) else "pruned"
+            man["segments"].append(entry)
+            out["listed_again"] += 1
+        if out["listed_again"]:
+            man["segments"].sort(key=lambda e: int(e["id"]))
+            memory.write_json(memory.manifest_file(), man)
+    segs = memory.manifest()["segments"]
+    try:
+        led = memory.load_ledger()
+        consistent = led["folded"] == [e["id"] for e in segs if e.get("state") != "written"] or \
+            led["folded"] == [e["id"] for e in segs]
+    except paths.StateUnreadable:
+        consistent = False
+    if segs and not consistent:
+        memory.write_json(memory.ledger_file(), memory.rebuild_ledger())
+        out["ledger_rebuilt"] = True
+    return out
+
+
+def resume() -> dict:
+    """Finish a segment a stopped cycle left half done (after `recover`)."""
+    done = {"folded": 0, "pruned": 0, "bytes": 0, **recover()}
     entry = memory.pending_segment()
     if entry is None:
         return done

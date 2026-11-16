@@ -400,3 +400,35 @@ class AssociationTest(MemoryCase):
         pid, line = load._often_with([ship], {"ship": ship, "keys": keys}, ["ship"])
         self.assertEqual(pid, "keys")
         self.assertIn("often used with `ship` (10 tasks): `keys`", line)
+
+
+class RecoverTest(MemoryCase):
+    """Nothing the cycle keeps is ever deleted to tidy up, and derived files that are lost are made again."""
+
+    def test_a_lost_manifest_never_costs_a_segment(self):
+        before = self.snapshot()
+        cycle.run()
+        seg = memory.segment_path(memory.manifest()["segments"][0])
+        memory.manifest_file().unlink()
+        cycle.run()
+        self.assertTrue(seg.exists())
+        self.assertEqual(memory.manifest()["segments"][0]["state"], "pruned")
+        self.assertEqual(self.snapshot()["tasks"], before["tasks"])
+        self.assertEqual(self.hot()["records"], before["records"])
+
+    def test_lost_rollups_and_ledger_are_made_again_and_the_hooks_ask_for_it(self):
+        before = self.snapshot()
+        cycle.run()
+        memory.rollups_file().unlink()
+        memory.ledger_file().write_text("{not json")
+        self.assertEqual(cycle.due(), "rollups")
+        cycle.run()
+        self.assertEqual(self.hot()["records"], before["records"])
+        self.assertEqual(cycle.compare_rebuild()["ledger_equal"], True)
+
+    def test_an_unreadable_segment_is_set_aside_not_deleted(self):
+        cycle.run()
+        bad = memory.archive_dir() / "events-00009.jsonl.gz"
+        bad.write_bytes(b"not gzip")
+        cycle.run()
+        self.assertTrue((memory.archive_dir() / "damaged" / "events-00009.jsonl.gz").exists())
