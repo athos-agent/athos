@@ -2100,7 +2100,8 @@ def cmd_dream(args) -> int:
     if getattr(args, "cycle", False):
         from athos.memory import cycle
         out = cycle.run()
-        print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else _cycle_text(out))
+        shown = _memory_public(out)
+        print(json.dumps(shown, ensure_ascii=False, indent=2) if args.json else _memory_public(_cycle_text(shown)))
         return 0 if "skipped" not in out else 1
     if args.apply:
         try:
@@ -2118,6 +2119,51 @@ def cmd_dream(args) -> int:
     else:
         print(consolidate.summary(st, lang))
     return 0
+
+
+def _memory_public(out, here=None):
+    """What a memory command prints, as a repository marked public may see it: the model pass's part about another
+    project dropped (its project, what it wrote, its merges and rules), what it wrote here kept only for pieces that
+    may be named here, and any other project's name or a hidden piece's id or title left in a string, text or JSON,
+    replaced. Outside a public repository it is returned as it is."""
+    from athos import memory, store
+    here = here or control.here()
+    if not here.public:
+        return out
+    if isinstance(out, dict) and isinstance(out.get("model"), dict):
+        m = dict(out["model"])
+        if m.get("project") and m["project"] != here.project:
+            m = {k: v for k, v in m.items() if k not in ("project", "wrote", "merges", "rules", "page")}
+            m["about"] = "another project"
+        else:
+            m["wrote"] = [w for w in m.get("wrote") or [] if not isinstance(w, dict) or here.may_name(w.get("id"))]
+        out = {**out, "model": m}
+    try:
+        names = set(memory.view().sums()["projects"]) | set((memory.ledger_counts().get("route") or {}))
+        names |= {f.name[:-3].split(".")[0] for f in memory.projects_dir().glob("*.md")}
+    except (OSError, ValueError, KeyError, paths.StateUnreadable):
+        names = set()
+    names = {n for n in names if n and n != "-" and n != here.project}
+    hidden = set(here.hidden_ids())
+    titles = {p.title for p in store.all_pieces() if p.id in hidden and p.title}
+    words = sorted(names | hidden, key=len, reverse=True)
+    pattern = re.compile(r"(?<![\w-])(" + "|".join(re.escape(w) for w in words) + r")(?![\w-])") if words else None
+
+    def clean(text: str) -> str:
+        for t in titles:
+            text = text.replace(t, "(a piece not named here)")
+        return pattern.sub(lambda m: "(another project)" if m.group(1) in names else "(a piece not named here)",
+                           text) if pattern else text
+
+    def walk(x):
+        if isinstance(x, str):
+            return clean(x)
+        if isinstance(x, list):
+            return [walk(v) for v in x]
+        if isinstance(x, dict):
+            return {clean(k) if isinstance(k, str) else k: walk(v) for k, v in x.items()}
+        return x
+    return walk(out)
 
 
 def _cycle_text(out: dict) -> str:
@@ -2147,7 +2193,8 @@ def cmd_memory(args) -> int:
         out = cycle.run(model=True if args.model else None, auto=bool(args.quiet),
                         after_session=getattr(args, "after_session", None))
         if not args.quiet:
-            print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else _cycle_text(out))
+            shown = _memory_public(out)
+            print(json.dumps(shown, ensure_ascii=False, indent=2) if args.json else _memory_public(_cycle_text(shown)))
         return 0 if "skipped" not in out else 1
     if action == "rebuild":
         if not cycle.take_lock():
@@ -2179,7 +2226,7 @@ def cmd_memory(args) -> int:
             found = {k: [f for f in v if (f.get("project") == here.project if "project" in f else
                                           all(here.may_name(x) for x in (f.get("pieces") or [f.get("piece")])))]
                      for k, v in found.items()}
-        print(json.dumps(found, ensure_ascii=False, indent=1))
+        print(json.dumps(_memory_public(found, here), ensure_ascii=False, indent=1))
         return 0
     if action == "project":
         here = control.here()
@@ -2198,7 +2245,7 @@ def cmd_memory(args) -> int:
             text = cycle.project_page(name, public=True)
         if here.public:                           # and whatever page it is, no line naming what may not be named here
             text = "".join(line for line in text.splitlines(keepends=True) if not here.mentions_hidden(line))
-        print(text, end="")
+        print(_memory_public(text, here), end="")
         return 0
     st = cycle.status()
     if args.json:

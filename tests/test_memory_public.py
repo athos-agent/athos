@@ -70,3 +70,39 @@ class PublicMemoryTest(MemoryCase):
         self.assertNotIn("gamma", text)
         self.assertNotIn("beta", text)
         self.assertNotIn("report", text)
+
+
+class EveryMemoryCommandTest(PublicMemoryTest):
+    """Every output of every `athos memory` command and of `athos dream --cycle`, text and JSON, in a repository
+    marked public: neither another project nor a piece that may not be named there appears, even when the model pass
+    (a stub, no model is called) worked on another project."""
+
+    COMMANDS = [["memory"], ["memory", "--json"], ["memory", "cycle"], ["memory", "cycle", "--json"],
+                ["memory", "cycle", "--model"], ["memory", "cycle", "--model", "--json"], ["memory", "check"],
+                ["memory", "check", "--json"], ["memory", "rebuild"], ["memory", "rebuild", "--json"],
+                ["memory", "findings"], ["memory", "project"], ["memory", "project", "beta"], ["dream", "--cycle"],
+                ["dream", "--cycle", "--json"]]
+
+    def test_no_command_names_another_project_or_a_hidden_piece(self):
+        from unittest import mock
+        from athos import verify
+        from athos.memory import dream_model
+
+        def runner(prompt, folder, model, timeout, cap):
+            return {"ok": True, "cost_usd": 0.01, "text": json.dumps(
+                {"project_page": "beta works with hush", "merge": [], "rules": [
+                    {"piece": "report", "kind": "avoid", "text": "skip it"}]})}
+        cycle.run()
+        (self.alpha / paths.MARKER).write_text('name = "alpha"\npublic = true\n')
+        seen = []
+        with mock.patch.object(dream_model, "_sessions_idle", return_value=True), \
+                mock.patch.object(dream_model, "_choose_project", return_value="beta"), \
+                mock.patch.object(verify, "claude_runner", side_effect=runner), \
+                mock.patch.object(verify, "reserve", return_value=(True, "", 0.5, "r1")), \
+                mock.patch.object(verify, "settle"), mock.patch.object(verify, "note_run"):
+            for argv in self.COMMANDS:
+                _code, text = self.run_in(self.alpha, *argv)
+                seen.append(argv)
+                for name in ("beta", "hush", HUSH_TITLE, "report", "gamma"):
+                    self.assertNotIn(name, text, f"{' '.join(argv)} printed {name}")
+        self.assertEqual(len(seen), len(self.COMMANDS))
