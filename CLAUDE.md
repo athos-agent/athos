@@ -23,7 +23,7 @@ Cada usuario ve qué le aporta cada modelo en su propio trabajo. Un benchmark mi
 - Python: `HOME=$(mktemp -d) python3 -m unittest discover -s tests -t .` (con un HOME descartable, para no tocar `~/.athos`).
 - El módulo de hooks de Claude Code (`hooks/ui.tsx` y `hooks/ui.test.tsx`): `claude plugin test .`; `claude plugin validate .` revisa el manifiesto.
 
-## Hackathon
-- Todo cambio entra por PR con la etiqueta `hackathon`; nada se commitea directo a main.
-- Cada PR agrega su línea en `HACKATHON.md`, en "During the hackathon".
-- Lo específico de Meta vive en `athos/adapters/meta/` y la evaluación contra modelos de Meta en `athos/eval/meta/`.
+## Cambios
+- Todo cambio entra por PR; nada se commitea directo a main.
+- El repo es público: nada confidencial en código, tests ni mensajes de commit.
+- Cómo funciona por dentro: `docs/DESIGN.md`.

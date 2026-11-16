@@ -19,7 +19,7 @@ from athos import paths
 from athos.adapters import meta
 
 BASE = "https://inference.baseten.co/v1"
-# The slug the Meta hackathon names; Baseten's own model page lists `meta-models/muse-spark-open` (--model).
+# The slug Meta first published for it; Baseten's own model page lists `meta-models/muse-spark-open` (--model).
 DEFAULT_MODEL = "meta-models/muse-spark-open-1026"
 KEY = "BASETEN_API_KEY"
 MAX_TOKENS = meta.MAX_TOKENS     # a reasoning model: the cap covers its thinking and its answer

@@ -99,7 +99,7 @@ class RoutingRegressions(TempHome):
                 self.assertEqual(picked(prompt), [])
 
     def test_a_single_common_word_does_not_load(self):
-        store.create("Plan the outreach in the Discord", "posting in the hackathon Discord", "x")
+        store.create("Plan the outreach in the Discord", "posting in the community Discord", "x")
         store.create("Ship the feature PR", "a feature is ready to merge", "y")
         self.assertEqual(picked("Plan the tiling for the room"), [])
 

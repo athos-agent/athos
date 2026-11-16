@@ -128,7 +128,7 @@ athos merge <piece> <their-files>... --backend baseten   a model merges differin
 athos bench <case> --agents baseten,meta,local --runs 3
 ```
 
-The default model is the slug the Meta hackathon names; Baseten's model page lists `meta-models/muse-spark-open`, so
+The default model is the slug Meta first published for it; Baseten's model page lists `meta-models/muse-spark-open`, so
 use `--model` if your account shows another (`GET https://inference.baseten.co/v1/models` lists them). The model
 always reasons; Athos asks for `reasoning_effort: low` (Baseten's default is `xhigh`). With `--by-step`, a statement
 whose `**Model:**` is `baseten` or `baseten:<model>` runs there, with `--allow-meta` as for Meta. Like `--backend
@@ -1541,5 +1541,5 @@ firectl sftj create --base-model <MODEL_ID> --dataset my-know-how --output-model
 Fireworks wants at least 3 rows (OpenAI at least 10; Athos warns below that) and cuts each example at the model's
 context length (32,768 tokens by default). Older `firectl` builds spell the first command `firectl create dataset`.
 To train without uploading a dataset, the Serverless Training starter in Fireworks' cookbook (`fw-ai/cookbook`,
-`examples.sft.muse_glimmer_starter`, shown in the hackathon's Muse open models session) takes the same file with
+`examples.sft.muse_glimmer_starter`) takes the same file with
 `--file`. The file holds your requests as you typed them: nothing leaves this machine until you upload it.
