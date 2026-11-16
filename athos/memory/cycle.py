@@ -434,30 +434,39 @@ def _side_prefix() -> str:
 
 def sidecars() -> list[Path]:
     """The trimmed log's old files, kept reachable under a hidden name (`.events.jsonl.trim-<segment>-<trimmed
-    bytes>-<end of what was kept>-<swept up to>`) so that a line a writer without the lock put into the old file after
-    the trim is carried over, never lost."""
+    bytes>-<end of what was kept>-<swept up to>-<token>`, and while a sweep appends, `-<live size>-<bytes>` after it)
+    so that a line a writer without the lock put into the old file after the trim is carried over, never lost."""
     try:
         return sorted(paths.events_file().parent.glob(_side_prefix() + "*"))
     except OSError:
         return []
 
 
-def _side_parts(f: Path) -> tuple[int, int, int, int] | None:
+def _side_fields(f: Path) -> tuple | None:
+    """(segment, trimmed bytes, end kept, swept up to, token, (live size, bytes) of an append under way or None)."""
     fields = f.name[len(_side_prefix()):].split("-")
+    if len(fields) not in (4, 5, 7):
+        return None
     try:
         seg_id, n, end, swept = (int(x) for x in fields[:4])
+        intent = (int(fields[5]), int(fields[6])) if len(fields) == 7 else None
     except ValueError:
         return None
-    if len(fields) not in (4, 5):
-        return None
-    return seg_id, n, end, swept
+    return seg_id, n, end, swept, (fields[4] if len(fields) > 4 else ""), intent
 
 
-def _side_name(f: Path, seg_id, n, end, swept) -> Path:
-    """A trimmed log's old file under its name for this point swept; the unique token its trim gave it is kept (two
-    trims of the same bytes, a log put back twice, never share a name)."""
-    fields = f.name[len(_side_prefix()):].split("-")
-    token = f"-{fields[4]}" if len(fields) == 5 else ""
+def _side_parts(f: Path) -> tuple[int, int, int, int] | None:
+    fields = _side_fields(f)
+    return fields[:4] if fields else None
+
+
+def _side_name(f: Path, seg_id, n, end, swept, intent: tuple | None = None) -> Path:
+    """A trimmed log's old file under its name for this point swept (and an append under way); the unique token its
+    trim gave it is kept (two trims of the same bytes, a log put back twice, never share a name)."""
+    fields = _side_fields(f)
+    token = f"-{fields[4]}" if fields and fields[4] else ""
+    if intent is not None:
+        token = (token or "-0") + f"-{intent[0]}-{intent[1]}"
     return f.with_name(f"{_side_prefix()}{seg_id}-{n}-{end}-{swept}{token}")
 
 
@@ -470,19 +479,37 @@ def unswept(f: Path) -> bool:
 
 
 def _sweep(f: Path, whole_lines: bool = True) -> tuple[int, Path | None]:
-    """Carry over what was written into a trimmed log's old file after the point already carried over, unless the live
-    log already holds it (a sweep stopped between its append and its rename). Under the append lock. Returns the bytes
-    appended and the old file's name now (None when it is gone)."""
-    parts = _side_parts(f)
+    """Carry over what was written into a trimmed log's old file after the point already carried over. Idempotent
+    across a kill at any point: the append it is about to make (where the live log ends, how many bytes) is first
+    written into the old file's name, so a sweep that finds such a name looks whether those bytes are in the live log
+    at that place before appending them again. A line still being written waits, unless `whole_lines` is False (the
+    last sweep before letting go), and then it is ended with a newline, never joined to the next event. Under the
+    append lock. Returns the bytes appended and the old file's name now (None when it is gone)."""
+    fields = _side_fields(f)
     log = paths.events_file()
-    if parts is None:
+    if fields is None:
         return 0, f
-    seg_id, n, end, swept = parts
+    seg_id, n, end, swept, _token, intent = fields
     try:
         if log.exists() and os.path.samefile(f, log):     # stopped between the link and the trim: the log itself
             f.unlink()
             return 0, None
         with open(f, "rb") as h:
+            if intent is not None:                       # a sweep stopped after it said what it would append
+                at, size = intent
+                h.seek(swept)
+                chunk = h.read(size)
+                with open(log, "rb") as live:
+                    live.seek(at)
+                    done = live.read(size) == chunk
+                added = 0
+                if not done:
+                    _carry(chunk)
+                    added = len(chunk)
+                now = _side_name(f, seg_id, n, end, swept + len(chunk))
+                os.replace(f, now)
+                more, last = _sweep(now, whole_lines)
+                return added + more, last
             h.seek(swept)
             chunk = h.read()
     except OSError:
@@ -491,16 +518,16 @@ def _sweep(f: Path, whole_lines: bool = True) -> tuple[int, Path | None]:
         chunk = chunk[:chunk.rfind(b"\n") + 1]           # a line still being written waits for the next sweep
     if not chunk:
         return 0, f
-    added = 0
-    if memory.live_raw().find(chunk) < 0:
-        with open(log, "ab") as out:
-            out.write(chunk)
-            out.flush()
-            os.fsync(out.fileno())
-        added = len(chunk)
-    now = _side_name(f, seg_id, n, end, swept + len(chunk))
-    os.replace(f, now)
-    return added, now
+    try:
+        live_size = log.stat().st_size
+    except OSError:
+        live_size = 0
+    pending = _side_name(f, seg_id, n, end, swept, (live_size, len(chunk)))
+    os.replace(f, pending)                               # what is about to be appended, said first
+    _carry(chunk)
+    now = _side_name(pending, seg_id, n, end, swept + len(chunk))
+    os.replace(pending, now)
+    return len(chunk), now
 
 
 def sweep(let_go: bool = False) -> dict:

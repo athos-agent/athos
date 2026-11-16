@@ -228,3 +228,63 @@ class RepeatedLineTest(MemoryCase):
         self.assertEqual(memory.view().record("report"), uses)
         self.assertEqual(ev.record("report", ev.tasks()), whole)
         self.assertEqual(whole["uses"], 1)
+
+
+class SweepTest(MemoryCase):
+    def test_a_kill_between_the_sweeps_append_and_its_rename_then_one_more_line(self):
+        old = open(paths.events_file(), "a")
+        cycle.run()
+        old.write(json.dumps({"type": "late_x", "at": stamp(0)}) + "\n")
+        old.flush()
+        size = paths.events_file().stat().st_size
+        real = os.replace
+
+        def die_after_the_append(src, dst):
+            if ".trim-" in str(dst) and paths.events_file().stat().st_size > size:
+                raise KeyboardInterrupt("killed between the append and the rename")
+            return real(src, dst)
+        with mock.patch.object(cycle.os, "replace", side_effect=die_after_the_append), \
+                self.assertRaises(KeyboardInterrupt):
+            cycle.sweep()
+        self.assertEqual(count("late_x"), 1)
+        self.assertEqual(cycle.due(), "sweep")
+        old.write(json.dumps({"type": "late_y", "at": stamp(0)}) + "\n")
+        old.flush()
+        old.close()
+        cycle.run()
+        self.assertEqual((count("late_x"), count("late_y")), (1, 1))
+        cycle.run()
+        self.assertEqual((count("late_x"), count("late_y")), (1, 1))
+
+    def test_a_kill_before_the_append_loses_nothing(self):
+        old = open(paths.events_file(), "a")
+        cycle.run()
+        old.write(json.dumps({"type": "late_x", "at": stamp(0)}) + "\n")
+        old.flush()
+        old.close()
+        real = os.replace
+        calls = []
+
+        def die_first(src, dst):
+            if ".trim-" in str(dst) and not calls:
+                calls.append(dst)
+                raise KeyboardInterrupt("killed before the append")
+            return real(src, dst)
+        with mock.patch.object(cycle.os, "replace", side_effect=die_first), self.assertRaises(KeyboardInterrupt):
+            cycle.sweep()
+        cycle.run()
+        self.assertEqual(count("late_x"), 1)
+
+    def test_an_unfinished_line_carried_at_let_go_never_swallows_the_next_event(self):
+        old = open(paths.events_file(), "a")
+        cycle.run()
+        old.write('{"type": "torn", "at": "')               # a writer killed in the middle of its line
+        old.flush()
+        old.close()
+        with mock.patch.object(cycle, "SIDE_QUIET_S", -1):
+            cycle.run()
+        self.assertEqual(cycle.sidecars(), [])
+        ev.append({"type": "next_one", "at": stamp(0)})
+        self.assertEqual(count("next_one"), 1)
+        torn = [line for line in paths.events_file().read_bytes().split(b"\n") if line.startswith(b'{"type": "torn"')]
+        self.assertEqual(torn, [b'{"type": "torn", "at": "'])            # a line of its own, joined to nothing
