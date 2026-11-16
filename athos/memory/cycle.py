@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import gzip
+import zlib
 import json
 import os
 import subprocess
@@ -318,7 +319,7 @@ def recover() -> dict:
             try:
                 data = gzip.decompress(f.read_bytes())
                 seg_id = int(f.name.split("-")[1].split(".")[0])
-            except (OSError, EOFError, ValueError, gzip.BadGzipFile):
+            except (OSError, EOFError, ValueError, zlib.error):
                 (folder / "damaged").mkdir(exist_ok=True)
                 os.replace(f, folder / "damaged" / f.name)
                 out["damaged"] += 1

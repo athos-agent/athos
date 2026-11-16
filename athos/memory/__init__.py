@@ -27,6 +27,7 @@ import hashlib
 import json
 import os
 import re
+import zlib
 from pathlib import Path
 from typing import Iterable
 
@@ -128,10 +129,20 @@ def segment_path(entry: dict) -> Path:
     return archive_dir() / entry["file"]
 
 
+class SegmentDamaged(ValueError):
+    """A segment's compressed bytes cannot be decompressed (a flipped bit, a truncated file): nothing of it can be
+    read."""
+
+
 def read_segment(entry: dict, check: bool = True) -> bytes:
     """A segment's raw bytes; ValueError when they do not match what the manifest recorded (an archive that fails its
-    integrity check is never read as if it were whole)."""
-    raw = gzip.decompress(segment_path(entry).read_bytes())
+    integrity check is never read as if it were whole), SegmentDamaged (a ValueError too) when they cannot even be
+    decompressed, OSError when the file is missing."""
+    data = segment_path(entry).read_bytes()
+    try:
+        raw = gzip.decompress(data)
+    except (EOFError, zlib.error, gzip.BadGzipFile) as bad:
+        raise SegmentDamaged(f"archive segment {entry.get('file')} cannot be decompressed") from bad
     if check and (len(raw) != entry.get("bytes") or _sha(raw) != entry.get("sha256")):
         raise ValueError(f"archive segment {entry.get('file')} fails its integrity check")
     return raw
@@ -164,10 +175,13 @@ def archived_events() -> list:
         for entry in manifest()["segments"]:
             try:
                 raw = read_segment(entry)
+            except SegmentDamaged:               # nothing of it can be read: left out, and said
+                bad.append(entry.get("file"))
+                continue
             except ValueError:                   # read as it is, and said (`full_read_note`, `athos memory check`)
                 bad.append(entry.get("file"))
                 raw = read_segment(entry, check=False)
-            except (OSError, EOFError):
+            except OSError:
                 bad.append(entry.get("file"))
                 continue
             rows.extend(decode(raw))

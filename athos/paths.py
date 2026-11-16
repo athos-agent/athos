@@ -284,7 +284,8 @@ def read_state(target: Path, retries: int = 5, delay: float = 0.01):
 def locked(target: Path):
     """Hold an exclusive lock on a state file (on a hidden `.<file>.lock` beside it) while it is read, changed and
     written back, so two processes updating it at once do not lose each other's change. Where the platform has no `fcntl`
-    (Windows) the write is still atomic, only unlocked."""
+    (Windows), or the filesystem refuses `flock` (some network or synced folders), the write still happens, only
+    unlocked: an event is never dropped for want of a lock."""
     try:
         import fcntl
     except ImportError:                                  # pragma: no cover - not on POSIX
@@ -293,13 +294,24 @@ def locked(target: Path):
     target = Path(target)
     lock = target.parent / f".{target.name}.lock"
     lock.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError:
+        yield
+        return
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            held = True
+        except OSError:
+            held = False
         yield
     finally:
         try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            if held:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
         finally:
             os.close(fd)
 

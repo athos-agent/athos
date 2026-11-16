@@ -432,3 +432,48 @@ class RecoverTest(MemoryCase):
         bad.write_bytes(b"not gzip")
         cycle.run()
         self.assertTrue((memory.archive_dir() / "damaged" / "events-00009.jsonl.gz").exists())
+
+
+class DamagedBytesTest(MemoryCase):
+    """A segment whose compressed bytes were damaged is reported, never a crash of the commands that read it."""
+
+    def flip_until_zlib_error(self):
+        import gzip
+        import zlib
+        seg = memory.segment_path(memory.manifest()["segments"][0])
+        good = seg.read_bytes()
+        for at in range(len(good) // 2, len(good) - 10):
+            bad = bytearray(good)
+            bad[at] ^= 0x10
+            try:
+                gzip.decompress(bytes(bad))
+            except zlib.error:
+                seg.write_bytes(bytes(bad))
+                return
+            except Exception:  # noqa: BLE001
+                continue
+        self.fail("no single-bit flip gave a zlib error")
+
+    def test_a_bit_flip_in_the_compressed_bytes(self):
+        from athos import audit
+        cycle.run()
+        self.flip_until_zlib_error()
+        memory._ARCHIVE_CACHE.clear()
+        ev._EVENTS_CACHE.clear()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(cli.main(["memory", "check"]), 1)
+        self.assertIn("1 segment(s) fail", out.getvalue())
+        ev.events()                                        # read without the damaged segment, and said
+        self.assertIn("fail their integrity check", memory.full_read_note())
+        audit._MEMORY_CHECK.clear()
+        rules = {r["rule"]: r for r in audit._memory_rules(ev.events())}
+        self.assertEqual(rules["memory_archive_integrity"]["status"], "flagged")
+
+
+class NoFlockTest(MemoryCase):
+    def test_a_filesystem_without_flock_still_records(self):
+        import fcntl
+        with mock.patch.object(fcntl, "flock", side_effect=OSError(45, "Operation not supported")):
+            ev.append({"type": "probe_no_flock", "at": stamp(0)})
+        self.assertEqual(sum(1 for e in ev.live_events() if e.get("type") == "probe_no_flock"), 1)
