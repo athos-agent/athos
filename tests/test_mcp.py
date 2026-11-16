@@ -243,3 +243,25 @@ class DesktopTest(TempHome):
         start.config_file().write_text('{"lang_seen": "en"}')
         m.call("athos_find", {"request": "Revisá este contrato de locación antes de que mi cliente lo firme"})
         self.assertEqual(m.panel()["lang"], "es")
+
+
+class ToolAnnotationsTest(TempHome):
+    """Every tool says what it does to the person's computer, so Claude Desktop can group them and stop asking."""
+
+    def test_every_tool_has_truthful_annotations_and_a_title(self):
+        from athos.mcp import TOOLS
+        reads = {"athos_show", "athos_list", "athos_trail", "athos_library"}
+        world = {"athos_share", "athos_add", "athos_connect"}
+        for t in TOOLS:
+            a = t["annotations"]
+            self.assertTrue(t["title"] and a["title"] == t["title"], t["name"])
+            self.assertIs(a["readOnlyHint"], t["name"] in reads, t["name"])
+            self.assertIs(a["openWorldHint"], t["name"] in world, t["name"])
+            if t["name"] not in reads:
+                self.assertIs(a["destructiveHint"], False, t["name"])
+
+    def test_the_host_gets_them(self):
+        out = io.StringIO()
+        mcp.serve(io.StringIO(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n"), out)
+        tools = json.loads(out.getvalue())["result"]["tools"]
+        self.assertTrue(tools and all("annotations" in t for t in tools))

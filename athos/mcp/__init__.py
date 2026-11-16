@@ -171,6 +171,27 @@ TOOLS = [
 ]
 
 
+# What each tool does to the person's computer, for the host (MCP tool annotations: Claude Desktop groups tools by them
+# and remembers "Always allow"). Read-only: they read the know-how and change nothing of the person's (athos_show
+# notes the read in the chat's own trail, athos_trail records a change of the mark in Athos's log). No tool deletes
+# or overwrites: a save, a merge or going back to a version adds a new version and keeps the old ones. Three reach
+# beyond this computer: athos_share (the gallery's web form), athos_add (the gallery on GitHub), athos_connect (Muse
+# Code's plugin marketplace).
+READS = {"athos_show", "athos_list", "athos_trail", "athos_library"}
+OPEN_WORLD = {"athos_share", "athos_add", "athos_connect"}
+TITLES = {"athos_step": "Athos: step", "athos_trail": "Athos: panel state", "athos_rate": "Athos: rate a moment",
+          "athos_library_do": "Athos: library action", "athos_show": "Athos: show a way of working",
+          "athos_list": "Athos: list ways of working", "athos_save": "Athos: save a way of working",
+          "athos_merge": "Athos: merge colleagues' versions", "athos_share": "Athos: share with the gallery",
+          "athos_add": "Athos: add from the gallery", "athos_start": "Athos: add examples for a profession",
+          "athos_connect": "Athos: connect another agent"}
+for _t in TOOLS:
+    _t.setdefault("title", TITLES.get(_t["name"], _t["name"]))
+    _t["annotations"] = ({"title": _t["title"], "readOnlyHint": True, "openWorldHint": False}
+                         if _t["name"] in READS else
+                         {"title": _t["title"], "readOnlyHint": False, "destructiveHint": False,
+                          "openWorldHint": _t["name"] in OPEN_WORLD})
+
 def _piece_text(p: store.Piece) -> str:
     return f"# {p.title} (`{p.id}`, v{p.version})\nWhen: {p.when}\n\n{p.body}"
 
