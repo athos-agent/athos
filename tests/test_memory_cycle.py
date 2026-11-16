@@ -525,3 +525,38 @@ class StuckCycleTest(MemoryCase):
         self.assertEqual(failed[0]["error"], "RuntimeError")
         with mock.patch.object(cycle, "due", return_value="size"):
             self.assertEqual(self.spawns(), 0)
+
+
+class EditCorrectionTest(MemoryCase):
+    """`athos repair` can say a step edit was not the person's: the count of edits per step drops, archived or not."""
+
+    def lfe(self, tid, days):
+        return {"type": "learned_from_edit", "task_id": tid, "piece": "keys", "statement": "one",
+                "basis": "changed_between_tool_calls", "at": stamp(days)}
+
+    def undo(self, e, days):
+        return {"type": "correction", "target": "learned_from_edit", "task_id": e["task_id"], "piece": e["piece"],
+                "original_at": e["at"], "reason": "not_the_person", "at": stamp(days)}
+
+    def steps(self):
+        return cycle.findings()["corrected_steps"]
+
+    def test_a_correction_after_an_archived_edit(self):
+        a, b = self.lfe("old01", 45), self.lfe("old02", 44)
+        log = paths.events_file()
+        log.write_text(json.dumps(a) + "\n" + json.dumps(b) + "\n" + log.read_text())
+        cycle.run()
+        self.assertEqual(self.steps(), [{"piece": "keys", "step": "one", "edits": 2}])
+        ev.append(self.undo(a, 0))                       # live, about an archived edit
+        self.assertEqual(self.steps(), [])
+        with mock.patch.object(cycle, "_now", return_value=ev.now() + 40 * DAY):
+            cycle.run()                                  # and once the correction is archived too
+        self.assertEqual(self.steps(), [])
+
+    def test_a_correction_of_a_live_edit(self):
+        a, b = self.lfe("new1", 2), self.lfe("new2", 1)
+        write([a, b])
+        cycle.run()
+        self.assertEqual(self.steps(), [{"piece": "keys", "step": "one", "edits": 2}])
+        ev.append(self.undo(b, 0))
+        self.assertEqual(self.steps(), [])

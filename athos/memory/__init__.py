@@ -362,7 +362,8 @@ def _scrub(r: dict, request: str | None) -> dict:
 def empty_ledger() -> dict:
     return {"v": V, "folded": [], "lines": 0, "rows": {}, "wrong": [], "grade": {}, "verify_done": [],
             "shadows": {}, "shadow_done": [], "told": [], "ratings": {}, "route": {}, "misfires": {},
-            "step_edits": {}, "check_failed": {}, "lfe_wrong": [], "first_at": None, "last_at": None}
+            "step_edits": {}, "lfe_keys": {}, "check_failed": {}, "lfe_wrong": [], "first_at": None,
+            "last_at": None}
 
 
 def load_ledger() -> dict:
@@ -431,7 +432,14 @@ def fold(ledger: dict, events: Iterable[dict]) -> dict:
             if e.get("target") == "task_pieces":
                 wrong.add((tid, e.get("piece")))
             elif e.get("target") == "learned_from_edit":
-                lfe_wrong.add((tid, e.get("piece"), e.get("original_at")))
+                ref = f"{tid}|{e.get('piece')}|{e.get('original_at')}"
+                counted = ledger["lfe_keys"].pop(ref, None)
+                if counted is not None:                  # the edit was counted already: it is taken back
+                    ledger["step_edits"][counted] = ledger["step_edits"].get(counted, 0) - 1
+                    if ledger["step_edits"][counted] <= 0:
+                        ledger["step_edits"].pop(counted)
+                else:
+                    lfe_wrong.add((tid, e.get("piece"), e.get("original_at")))
         elif tid:
             row = rows.get(tid)
             if row is None:
@@ -493,6 +501,7 @@ def fold(ledger: dict, events: Iterable[dict]) -> dict:
                 (tid, pid, e.get("at")) not in lfe_wrong:
             key = f"{pid}#{e.get('statement') or ''}"
             ledger["step_edits"][key] = ledger["step_edits"].get(key, 0) + 1
+            ledger["lfe_keys"][f"{tid}|{pid}|{e.get('at')}"] = key
     ledger["lines"] = seq
     for pid in touched:
         ledger["grade"][pid] = keep_grade(ledger["grade"][pid])

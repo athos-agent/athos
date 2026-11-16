@@ -874,8 +874,14 @@ def findings() -> dict:
                 seen.add(pair)
                 overlaps.append({"pieces": list(pair), "steps": ref})
     edits = dict(led.get("step_edits") or {})
+    undone = {(e.get("task_id"), e.get("piece"), e.get("original_at")) for e in v.of_type("correction")
+              if e.get("target") == "learned_from_edit"} | {tuple(x) for x in led.get("lfe_wrong") or []}
+    for tid, pid, at in undone:                  # an archived edit a live correction takes back
+        key = (led.get("lfe_keys") or {}).get(f"{tid}|{pid}|{at}")
+        if key and edits.get(key):
+            edits[key] -= 1
     for e in v.of_type("learned_from_edit"):
-        if e.get("piece") and e.get("basis"):
+        if e.get("piece") and e.get("basis") and (e.get("task_id"), e.get("piece"), e.get("at")) not in undone:
             key = f"{e['piece']}#{e.get('statement') or ''}"
             edits[key] = edits.get(key, 0) + 1
     corrected = [{"piece": k.split("#", 1)[0], "step": k.split("#", 1)[1] or None, "edits": n}
