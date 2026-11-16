@@ -49,10 +49,27 @@ def _line(t: dict, titles: dict[str, str]) -> str:
 
 
 def tasks_of(project: str) -> list[dict]:
-    """The project's tasks, newest first, without harness messages."""
-    ts = [t for t in ev.tasks() if t.get("project") == project and t.get("request")
+    """The project's recent tasks (the live log, memory.View), newest first, without harness messages. Older tasks,
+    archived by the dream cycle, are only counted (`text`): the journal is short-term memory."""
+    from athos import memory
+    ts = [t for t in memory.view().tasks() if t.get("project") == project and t.get("request")
           and not NOISE.match(t["request"])]
     return sorted(ts, key=lambda t: t.get("started") or "", reverse=True)
+
+
+def _archived(project: str) -> tuple[int, Counter]:
+    """The project's tasks the dream cycle archived that the journal would have shown (and the boundary tasks the
+    live log continues, whose request words are not kept): how many, and the pieces they used."""
+    from athos import memory
+    v = memory.view()
+    arch = (((v.rollups or {}).get("sums") or {}).get("projects") or {}).get(project) or {}
+    used = Counter(arch.get("journal_pieces") or {})
+    n = int(arch.get("journal") or 0)
+    for t in v.tasks():
+        if t.get("project") == project and not t.get("request") and t.get("jr"):
+            n += 1
+            used.update(t.get("pieces") or [])
+    return n, used
 
 
 def text(project: str, public: bool = False) -> str:
@@ -60,7 +77,8 @@ def text(project: str, public: bool = False) -> str:
     marked public it names only the pieces that may load there (control.may_see)."""
     from athos import control
     ts = tasks_of(project)
-    if not ts:
+    archived, archived_used = _archived(project)
+    if not ts and not archived:
         return ""
     if public:
         titles = {p.id: p.title for p in store.all_pieces() if control.may_see(p, project, True)}
@@ -74,8 +92,9 @@ def text(project: str, public: bool = False) -> str:
         lines.append(f"Open (corrected or failed in the last {OPEN_DAYS} days): "
                      + "; ".join(f"«{' '.join(t['request'].split())[:60]}»" for t in open_[:3]))
     older = ts[RECENT:]
-    if older:
+    if older or archived:
         used = Counter(p for t in older for p in t.get("pieces") or [] if p in titles)
+        used.update({p: n for p, n in archived_used.items() if p in titles})
         top = ", ".join(f"«{titles[p]}» ×{n}" for p, n in used.most_common(3))
-        lines.append(f"Before that: {len(older)} tasks" + (f", most with {top}" if top else "") + ".")
+        lines.append(f"Before that: {len(older) + archived} tasks" + (f", most with {top}" if top else "") + ".")
     return "\n".join(lines)

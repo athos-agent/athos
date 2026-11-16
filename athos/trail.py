@@ -188,7 +188,8 @@ def view(state: dict, here=None) -> dict:
         if pid not in order and ok(pid):
             order.append(pid)
     why = state.get("task_why") or {}
-    tasks = ev.tasks()
+    from athos import memory
+    hot = memory.view()                       # the rollups and the live log, never the archive
 
     def state_of(pid: str, sid: str) -> str:
         x = next((x for x in trail if x["kind"] == "step" and x["piece"] == pid and x["step"] == sid), None)
@@ -248,7 +249,7 @@ def view(state: dict, here=None) -> dict:
         see = [{"id": q, "title": store.get(q).title} for q in [q for q in wiki.links_of(p) if ok(q)][:3]
                if store.get(q)]
         pieces.append({"id": pid, "title": p.title, "version": p.version, "when": p.when[:600], "how": how,
-                       "why": why.get(pid, []), "record": ev.record(pid, tasks), "see": see, "steps": steps})
+                       "why": why.get(pid, []), "record": hot.record(pid), "see": see, "steps": steps})
     beside = [{k: v for k, v in x.items() if k != "t"} for x in trail if x["kind"] in ("agent", "skill")]
     # Files the person edited by hand after the agent wrote them (athos/edits.py): the agent proposed a rule in the
     # answer; [Keep this rule] sends the request that saves it in its step, so nobody has to type it.

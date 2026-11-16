@@ -104,12 +104,15 @@ def new_task_id() -> TaskId:
 
 
 def append(event: Event) -> None:
-    """Add one event at the end of the log, creating its folder the first time."""
+    """Add one event at the end of the log, creating its folder the first time. Under the log's lock: the dream cycle
+    trims the live log under the same lock (athos/memory/cycle.py), so no line is ever written into a file that is
+    being replaced."""
     log = paths.events_file()
     log.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(event, ensure_ascii=False)
-    with log.open("a") as out:
-        out.write(line + "\n")
+    with paths.locked(log):
+        with log.open("a") as out:
+            out.write(line + "\n")
 
 
 # ================================================================================================ the audit log
@@ -227,17 +230,37 @@ _EVENTS_CACHE: dict = {}
 
 
 def events() -> list[Event]:
-    """Every readable event in the log, oldest first; an absent log is simply empty. One hook process asks for it many
-    times (grading each piece, the verifier's caps, the audit): the log is parsed once and parsed again only when the
-    file changed (its size, time or inode). Each caller gets its own copies of the events."""
-    try:
-        st = paths.events_file().stat()
-        key = (str(paths.events_file()), st.st_ino, st.st_size, st.st_mtime_ns)
-    except OSError:
+    """Every readable event of the whole history, oldest first: the archived segments (athos/memory) and then the live
+    log; an absent log is simply empty. This is for offline commands (report, audit, curate, repair, the from-store
+    bench, the importers): the hooks and `athos status` read `memory.view()` instead, the rollups and the live log, so
+    their cost does not grow with the archive. Parsed once per process and again only when the live log or the
+    archive's manifest changed. Each caller gets its own copies of the events."""
+    from athos import memory
+    key = []
+    for f in (paths.events_file(), memory.manifest_file()):
+        try:
+            st = f.stat()
+            key.append((str(f), st.st_ino, st.st_size, st.st_mtime_ns))
+        except OSError:
+            key.append((str(f), None))
+    key = tuple(key)
+    if key[0][1] is None and key[1][1] is None:
         return []
     if _EVENTS_CACHE.get("key") != key:
-        _EVENTS_CACHE.update(key=key, rows=list(_decoded(_log_text().splitlines())))
+        archived = memory.archived_events() if key[1][1] is not None else []
+        raw = memory.live_raw()
+        # A segment written while the live log still starts with its lines (a cycle under way, or one that stopped
+        # before trimming): those lines are read once, from the archive.
+        raw = raw[memory.live_skip(raw, memory.pending_segment()):] if archived else raw
+        live = list(_decoded(raw.decode("utf-8", errors="replace").splitlines()))
+        _EVENTS_CACHE.update(key=key, rows=archived + live)
     return [dict(e) if isinstance(e, dict) else e for e in _EVENTS_CACHE["rows"]]
+
+
+def live_events() -> list[Event]:
+    """The live log alone (the recent window), as the hot paths read it: copies, never the archive."""
+    from athos import memory
+    return [dict(e) if isinstance(e, dict) else e for e in memory.view().events]
 
 
 # ================================================================================================ tokens
@@ -587,7 +610,8 @@ def infer_mark(session_id: str, prompt: str) -> str | None:
     tid = session.load(session_id).get("task_id")
     if not res or not tid:
         return None
-    if any(e.get("type") == "mark" and e.get("task_id") == tid for e in events()):
+    # The session's task is a recent one: its mark, if any, is in the live log (the hot paths never read the archive).
+    if any(e.get("type") == "mark" and e.get("task_id") == tid for e in live_events()):
         return None
     append({"type": "mark", "task_id": tid, "result": res, "by": "inferred", "at": _iso(now())})
     # The words that judged the task wrong are the correction itself: the case keeps them as what to check (but not
@@ -784,8 +808,14 @@ def bars(project: str | None = None) -> dict | None:
     """How each agent applies, in this project, the piece of know-how this project used last: one row per agent with
     its uses here, its success rate over the tasks you marked, and how much shorter its requests are than the first
     run's, the one that taught the piece: what the know-how spares you from explaining. None until a task here has
-    used or saved a piece."""
-    ts = tasks()
+    used or saved a piece. Read from the rollups and the live log (memory.View.bars), never the archive: the status line
+    asks for it."""
+    from athos import memory
+    return memory.view().bars(project)
+
+
+def _bars_from(ts: list[Task], project: str | None = None) -> dict | None:
+    """`bars` computed straight from a list of tasks (the whole history, for a check against the rollups)."""
     here = [t for t in ts if project is None or t.get("project") == project]
     last = next((t for t in reversed(here) if t["pieces"] or t["saved"]), None)
     if last is None:

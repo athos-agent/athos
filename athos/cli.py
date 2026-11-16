@@ -525,6 +525,8 @@ def _on_stop(event: dict, platform: str) -> None:
     _quietly(verify.prune)                    # old verifier bundles go; a waiting candidate's stays
     if _quietly(verify.maybe_spawn_pending, ME) and event.get("session_id"):    # a candidate waiting for its verdict
         session.update(event["session_id"], verifying_since=time.time())
+    from athos.memory import cycle as memory_cycle
+    _quietly(memory_cycle.maybe_spawn, ME)    # the live log past its window: the dream cycle, detached
     sid = event.get("session_id")
     if sid and not session.load(sid).get("trail"):
         sid = _folder_session_id(event, sid)
@@ -1247,6 +1249,7 @@ def cmd_mark(args: argparse.Namespace) -> int | None:
         task_id, result = ev.mark(args.result, named, noted.get("session_id"), paths.project_of(folder))
     except (ValueError, LookupError) as refused:
         return _fail(refused)
+    _quietly(_absorb_late)                             # a mark of an archived task reaches the hooks at once
     from athos import start
     spanish = start.lang() == "es"
     # The plugin's pane shows the English line as it is (hooks/ui.tsx): keep its wording.
@@ -1262,10 +1265,32 @@ def cmd_import(args: argparse.Namespace) -> int | None:
     print(f"{name}: {got['imported']} task(s) imported from {got['files']} session file(s) ({got['skipped']} skipped)")
 
 
+def _history_note() -> None:
+    """An offline command that read the whole history, archive included, says so (on stderr, so --json stays clean);
+    nothing without an archive."""
+    from athos import memory
+    note = memory.full_read_note()
+    if note:
+        print(f"({note})", file=sys.stderr)
+
+
+def _absorb_late() -> None:
+    """A line just written about an archived task (a correction, a mark): the rollups take it now, so the hooks see
+    it at once instead of after the next cycle."""
+    from athos import memory
+    from athos.memory import cycle
+    if memory.has_archive() and memory.view().stale and cycle.take_lock():
+        try:
+            cycle.write_rollups()
+        finally:
+            cycle.release_lock()
+
+
 def cmd_report(args: argparse.Namespace) -> int | None:
     """What each piece and each model adds to the person's work, as text or (--json) as the numbers themselves."""
     for failed in import_other_agents():              # Codex's and Muse Code's tasks are always in the report
         print(f"(sessions not imported: {failed})", file=sys.stderr)
+    _history_note()
     numbers = ev.report()
     here = control.here()
     if here.public:                           # only the pieces that may be named in this repository
@@ -1489,7 +1514,9 @@ def status() -> dict:
     from athos import start
     cwd, noted = _here()
     sid = noted.get("session_id")
-    state, tasks, lang = (session.peek(sid) if sid else {}), ev.tasks(), start.lang()
+    from athos import memory
+    hot = memory.view()                       # the rollups and the live log: never the archive
+    state, tasks, lang = (session.peek(sid) if sid else {}), hot.tasks(), start.lang()
     current_offer = state.get("offer") if (state.get("offer") or {}).get("task_id") == state.get("task_id") else None
     here = control.here(cwd)
     if here.public:                           # only what may be named in this repository
@@ -1502,7 +1529,7 @@ def status() -> dict:
             "offer": current_offer,
             "save_prompt": capture.SAVE_PROMPT["es" if lang == "es" else "en"],
             "loads": [{"id": pid, "title": (store.get(pid).title if store.get(pid) else pid), "why": words,
-                       "record": ev.record(pid, tasks), "tests": len(cases.tests(pid))}
+                       "record": hot.record(pid), "tests": len(cases.tests(pid))}
                       for pid, words in (state.get("task_why") or {}).items()],
             "following": following(state),
             # A cheaper model that matched the person's approved answers on a piece (`athos shadow`).
@@ -1568,6 +1595,7 @@ def cmd_doctor(args) -> int:
 def cmd_audit(args) -> int:
     """`athos audit`: a session's summary from Athos's own log and the rules it broke; read-only."""
     from athos import audit, connect
+    _history_note()
     here = control.here()
     session_id = args.session
     if here.public:
@@ -1873,6 +1901,9 @@ def cmd_repair(args) -> int:
     except (LookupError, ValueError) as problem:
         return _fail(f"athos repair: {problem}")
     applied = repair.apply(found) if args.apply else None
+    if applied:
+        _absorb_late()                            # corrections of archived tasks reach the hooks at once
+    _history_note()
     print(json.dumps({**found, "applied": applied}, indent=1) if args.json else
           repair.render(found, applied, show=args.show))
     return 0
@@ -1941,6 +1972,11 @@ def cmd_dream(args) -> int:
     an approved proposal into the adjust request the agent carries out; `--from FILE --dry-run` replays a log."""
     from athos import consolidate, start
     lang = start.lang()
+    if getattr(args, "cycle", False):
+        from athos.memory import cycle
+        out = cycle.run()
+        print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else _cycle_text(out))
+        return 0 if "skipped" not in out else 1
     if args.apply:
         try:
             print(consolidate.apply(args.apply, lang))
@@ -1956,6 +1992,90 @@ def cmd_dream(args) -> int:
         print(json.dumps(st, ensure_ascii=False, indent=2))
     else:
         print(consolidate.summary(st, lang))
+    return 0
+
+
+def _cycle_text(out: dict) -> str:
+    if "skipped" in out:
+        return f"athos memory: {out['skipped']}"
+    r, a, c = out.get("replay") or {}, out.get("abstraction") or {}, out.get("consolidation") or {}
+    lines = [f"replay and prune: {r.get('archived_lines', 0)} line(s), {r.get('archived_bytes', 0)} bytes archived"
+             + (f" as segment {r['segment']} ({r['compressed']} bytes compressed)" if r.get("segment") else ""),
+             f"abstraction: {a.get('together', 0)} pair(s) of pieces used together, {a.get('overlaps', 0)} near-"
+             f"duplicate(s), {a.get('corrected_steps', 0)} step(s) corrected again and again, "
+             f"{a.get('checks_failing', 0)} piece(s) whose Check keeps failing, {a.get('star_proposals', 0)} star "
+             f"proposal(s) (`athos dream`)",
+             f"consolidation: {c.get('written', 0)} project page(s) written, {c.get('unchanged', 0)} unchanged, "
+             f"{c.get('person', 0)} left alone (yours)"]
+    if out.get("model"):
+        m = out["model"]
+        lines.append(f"model pass: {m.get('outcome')}" + (f" · US${m.get('spend_usd', 0):.4f}" if m.get("ran") else ""))
+    return "\n".join(lines)
+
+
+def cmd_memory(args) -> int:
+    """`athos memory`: the three layers of the log and the dream cycle (athos/memory)."""
+    from athos import memory
+    from athos.memory import cycle
+    action = args.action
+    if action == "cycle":
+        out = cycle.run(model=True if args.model else None)
+        if not args.quiet:
+            print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else _cycle_text(out))
+        return 0 if "skipped" not in out else 1
+    if action == "rebuild":
+        if not cycle.take_lock():
+            return _fail("athos memory: a dream cycle is running; try again when it ends")
+        try:
+            out = cycle.rebuild()
+        finally:
+            cycle.release_lock()
+        print(json.dumps(out) if args.json else f"rebuilt from the archive: ledger {out['ledger_bytes']} bytes, "
+                                                 f"rollups {out['rollup_bytes']} bytes")
+        return 0
+    if action == "check":
+        bad = cycle.check_archive()
+        same = cycle.compare_rebuild() if not bad and memory.has_archive() else {}
+        out = {"archive_failures": bad, **same}
+        if args.json:
+            print(json.dumps(out))
+        else:
+            print("archive: " + ("every segment matches its manifest" if not bad else
+                                 f"{len(bad)} segment(s) fail their integrity check"))
+            if same:
+                print(f"ledger equal to a rebuild: {same['ledger_equal']} · rollups equal to a rebuild: "
+                      f"{same['rollups_equal']}")
+        return 1 if bad or (same and not (same["ledger_equal"] and same["rollups_equal"])) else 0
+    if action == "findings":
+        found = cycle.findings()
+        here = control.here()
+        if here.public:                           # only what may be named here
+            found = {k: [f for f in v if not here.mentions_hidden(json.dumps(f))] for k, v in found.items()}
+        print(json.dumps(found, ensure_ascii=False, indent=1))
+        return 0
+    if action == "project":
+        here = control.here()
+        name = args.name or here.project
+        if here.public and name != here.project:
+            return _fail(f"no project page {name} here: this repository is marked public ({here.marker}), so only "
+                         f"{here.project}'s own page is shown in it")
+        target = memory.projects_dir() / f"{name}.md"
+        try:
+            text = target.read_text()
+        except OSError:
+            return _fail(f"no project page for {name} yet: the dream cycle writes one (`athos memory cycle`)")
+        print(text, end="")
+        return 0
+    st = cycle.status()
+    if args.json:
+        print(json.dumps(st, indent=1))
+    else:
+        print(f"live log {st['live']} bytes · archive {st['archive']} bytes in {st['segments']} segment(s) "
+              f"({st['archive_raw']} uncompressed, {st['archived_tasks']} task(s)"
+              + (f", {(st['archived_from'] or '')[:10]} to {(st['archived_to'] or '')[:10]}" if st["archived_from"]
+                 else "") + f") · ledger {st['ledger']} bytes · rollups {st['rollups']} bytes")
+        print(f"dream cycle: {'running' if st['running'] else 'due (' + st['due'] + ')' if st['due'] else 'not due'}"
+              f" · keeps {st['settings']['keep_days']} days or {st['settings']['keep_bytes']} bytes live")
     return 0
 
 
@@ -2132,6 +2252,17 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--now", action="store_true", help="review now, even if it ran in the last 20 hours")
     s.add_argument("--from", dest="from_file", metavar="EVENTS", help="replay another log (a JSONL of events)")
     s.add_argument("--dry-run", action="store_true", help="review without keeping the result")
+    s.add_argument("--cycle", action="store_true", help="run the whole dream cycle now (`athos memory cycle`): archive "
+                   "the log outside its window, count what repeats, refresh the project pages; this review is part of it")
+    s.add_argument("--json", action="store_true")
+    s = sub.add_parser("memory", help="long-term memory: the live log, its compressed archive, the rollups the hooks "
+                       "read, and the dream cycle that moves the log between them")
+    s.add_argument("action", nargs="?", default="status",
+                   choices=["status", "cycle", "rebuild", "check", "findings", "project"])
+    s.add_argument("name", nargs="?", help="the project, for `project` (default: this folder's)")
+    s.add_argument("--model", action="store_true", help="with `cycle`: also the opt-in model pass (it spends, under "
+                   "the daily cap shared with the verifier)")
+    s.add_argument("--quiet", action="store_true", help=argparse.SUPPRESS)
     s.add_argument("--json", action="store_true")
     s = sub.add_parser("journal", help="what happened lately in this project: its last tasks, what they followed "
                        "or saved, how they went, and what is open")
@@ -2354,7 +2485,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 _HANDLERS = {
-    "start": cmd_start, "list": cmd_list, "show": cmd_show, "save": cmd_save, "curate": cmd_curate, "dream": cmd_dream,
+    "memory": cmd_memory, "start": cmd_start, "list": cmd_list, "show": cmd_show, "save": cmd_save, "curate": cmd_curate, "dream": cmd_dream,
     "journal": cmd_journal, "load": cmd_load, "export": cmd_export, "merge": cmd_merge, "codex": cmd_codex,
     "opencode": cmd_opencode, "project": cmd_project, "dismiss": cmd_dismiss, "revert": cmd_revert,
     "library": cmd_library, "delegate": cmd_delegate, "route": cmd_route, "mark": cmd_mark, "import": cmd_import,

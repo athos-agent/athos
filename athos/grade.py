@@ -141,8 +141,10 @@ def risk(p: store.Piece) -> str:
 
 
 def _events(piece_id: str) -> list[dict]:
-    return [e for e in ev.events() if e.get("piece") == piece_id and e.get("type") in ("verify", "reuse", "grade",
-                                                                                         "learn")]
+    """The piece's verify, reuse, grade and learn events, oldest first: the archived ones from the rollups and the
+    live log's (memory.View), never the archive itself."""
+    from athos import memory
+    return memory.view().grade_events(piece_id)
 
 
 def _since(evs: list[dict]) -> str:

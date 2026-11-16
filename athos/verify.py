@@ -621,10 +621,8 @@ def _name(piece: store.Piece, project: str | None) -> str:
 def pending() -> list[tuple[str, Path]]:
     """Candidates whose current version has a bundle and no verdict yet (never run, or an error to retry while
     attempts remain), oldest first."""
-    done = {}
-    for e in ev.events():
-        if e.get("type") == "verify" and e.get("outcome") in ("pass", "fail"):
-            done[(e.get("piece"), e.get("version"))] = True
+    from athos import memory
+    done = memory.view().verify_done()        # the rollups and the live log, never the archive
     out = []
     for p in store.all_pieces():
         if p.status != "candidate" or (p.id, p.version) in done:

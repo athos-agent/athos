@@ -325,7 +325,81 @@ Next to the ways of working (the long-term memory, which changes only when you s
 with its project's recent past: the last tasks with what they used or saved and how they went, what was corrected or
 failed in the last week, and the older tasks counted per way of working. `athos journal [--project <name>]` prints it.
 It is read from the task log Athos already keeps on your machine; nothing new is stored, and another project's past
-never shows up in this one.
+never shows up in this one. Since 0.1.166 the journal is short-term memory in the strict sense: its lines come from
+the live log's window (below); tasks the dream cycle archived are only counted in "Before that", never quoted.
+
+### Long-term memory: the live log, its archive, and the dream cycle
+
+The task log (`~/.athos/events.jsonl`) used to grow without bound, and the hooks read all of it. It now has three
+layers:
+
+| layer | where | what |
+|---|---|---|
+| short-term | `events.jsonl` | the raw events of a recent window: the hooks append here |
+| consolidated | `memory/archive/events-NNNNN.jsonl.gz`, `archive/manifest.json`, `memory/ledger.json`, `memory/rollups.json` | the events outside the window, compressed and never deleted (the manifest keeps each segment's lines, bytes and sha256); the ledger, those events folded per task without a word of any request; the rollups, small sums the hooks read: per piece (uses, outcomes, by platform, model tier and project, last use, means, the run that taught it), per project (tasks, the pieces they used, requests that found no piece, counted, never quoted), pieces used in the same task, the grading history of learned pieces, the verifier's and the shadow runs' outcomes, the stars |
+| long-term | `know-how/`, `projects/<name>.md` | the wiki: your pieces, and a page per project saying what is known about working in it |
+
+The ledger and the rollups are derived: delete them and `athos memory rebuild` folds the archive again into the same
+files (`athos memory check` compares them with a rebuild and checks every segment against its manifest).
+
+**The window.** The live log keeps at least `keep_days` (30) and at most `keep_bytes` (4 MB), cutting older days
+when it is over, but never the last `min_keep_days` (8), so the journal and the marks that look a week back always
+read the live log. All of these are `"memory"` keys in `~/.athos/config.json`.
+
+**What reads what.** The hooks (session start, prompt, tool, stop) and `athos status` read only the rollups and the
+live log, so what they cost does not grow with the archive: a piece's record and the bars, the journal, the grading
+history of a learned piece, which candidates wait for the verifier, the shadow runs and the star review. Offline
+commands read the whole history, the archive decompressed and then the live log: `athos report`, `audit`, `curate`,
+`repair`, `bench route --from-store`, the importers of Codex and Muse Code sessions; `report`, `audit` and `repair`
+say so on stderr (`history: N archived event(s) in K segment(s) read with the live log`) when there is an archive.
+A task begun before the cut and continued after it is kept whole in the rollups and folded with its live lines. A
+line written about an archived task (an `athos repair` correction, a late `athos mark`) is left out of the hooks'
+numbers until the rollups take it, which `athos repair --apply` and `athos mark` do at once, and the next cycle does
+in any case; offline commands count it immediately.
+
+**The dream cycle**, in three phases (after the slow-wave replay, REM abstraction and consolidation of sleep):
+
+1. **Replay and prune.** The events outside the window, a prefix of the live log, are written to a new compressed
+   segment, folded into the ledger and the rollups, and only then trimmed from the live log. Nothing is deleted.
+2. **Abstraction**, by counting, no model: pieces used in the same task (three or more), requests that found no
+   piece and the ones that came back more than once still without one (by fingerprint, never their words), pieces
+   that look like the same way of working (the test `athos curate` uses, and statements for the same moment), steps
+   you corrected by hand at least twice, pieces whose own Check failed in at least two reuses; and the star review
+   `athos dream` has always made. They are kept in `memory/findings.json` (`athos memory findings`).
+3. **Consolidation.** One page per project, `projects/<name>.md`: its ways of working with their uses, outcomes and
+   status, the pieces used together, how often a request found nothing, and what to look at. It names only pieces
+   that may be named in that project's own sessions (another project's are counted, and in a project whose
+   repository is marked public, only what may load there); no request is quoted. A page without the line
+   `written_by: athos` in its frontmatter is yours and is never touched; a page Athos wrote and rewrites is kept in
+   `projects/.history/` first. `athos memory project [<name>]` prints it; in a repository marked public only that
+   project's own page. The no-model cycle writes no piece file: associations stay in the rollups and the project
+   pages.
+
+Every step can be interrupted and run again: a segment is written atomically before anything refers to it, the
+ledger lists the segments it folded, and the live log is trimmed only while it still starts with the segment's exact
+bytes, under the lock every append takes (an older Athos that appends without it while the log is trimmed has its
+line carried over). One cycle runs at a time (`memory/.cycle.lock`; one left by a cycle that died is taken over). The
+Stop hook starts it detached and at low priority, the way it starts the verifier, when the live log passes
+`trigger_bytes` (6 MB) or its oldest event is older than `trigger_days` (37), or a segment was left half done, or a
+late line waits; `"memory": {"auto": false}` turns that off. Each phase is a `memory_cycle` event (`run_id`, `phase`
+(replay, abstraction, consolidation, model, done), its counts, `duration_ms`, for replay `archived_lines`,
+`archived_bytes`, `compressed_bytes`, `live_before`, `live_after`, `rollup_bytes`, and `spend_usd` at the end).
+
+```
+athos memory [status]                  the layers' sizes and dates, and whether a cycle is due or running
+athos memory cycle [--model] [--json]  run it now, in the foreground
+athos memory check                     every segment against its manifest; ledger and rollups against a rebuild
+athos memory rebuild                   make the ledger and the rollups again from the archive
+athos memory findings                  what the last counting found
+athos memory project [<name>]          a project's page
+```
+
+**`athos dream`** is the star review, unchanged: `athos dream` lists its proposals and `athos dream --apply N` turns
+one into the request your agent carries out. It is now one part of the cycle's abstraction phase, which refreshes it;
+`athos dream --cycle` runs the whole cycle.
+
+What you see does not change: the cycle shows nothing in the interface, and the only new output is that of the
+commands above when you run them, and the `history:` line of the offline commands once there is an archive.
 
 ### Curating: tidy the memory as it grows
 
