@@ -73,6 +73,7 @@ class McpAppTest(TempHome):
         self.assertIn("ui/initialize", c["text"])
 
     def test_a_task_walks_its_piece_and_the_panel_sees_each_step(self):
+        self.classic()      # the steps are the classic panel's; the minimal one shows only the mark
         store.create("Release the greet package", "releasing greet with a new option",
                      BODY + "\n## #push-tag\n**Do:** push.\n", piece_id="release")
         r = self.rpc(self.call(1, "athos_find", request="release greet 0.3.0"),
@@ -123,6 +124,7 @@ class McpAppTest(TempHome):
         self.assertTrue(r[6]["result"]["isError"])                                   # 1 to 5 only
 
     def test_an_earlier_step_can_be_opened_and_rated_and_old_ratings_stay_in_their_task(self):
+        self.classic()      # the steps are the classic panel's; the minimal one shows only the mark
         import time
         from athos import rating, session
         store.create("Release the greet package", "releasing greet with a new option",

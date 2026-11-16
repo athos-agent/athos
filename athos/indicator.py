@@ -22,7 +22,7 @@ the same rules in its own words, and is recorded the same way (`observe(..., cha
 
     collaborating   athos_find handed over a piece for the task, or a step of one is being reported (athos_step)
     learning        no piece is in use and the model reports steps the know-how lacks (athos_step `new`): a new way
-                    of working is being drafted; or a save the person pressed in the panel is being written
+                    of working is being drafted; or a save from the chat is being written
     idle            nothing matched and nothing is drafted, the task is done (athos_done), or it has not moved for
                     STALE_S
 """

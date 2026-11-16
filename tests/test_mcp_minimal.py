@@ -1,7 +1,6 @@
-"""Claude Desktop's chat in the minimal interface (the default): athos_find opens Athos's panel in a minimal form whose
-header is the one state (indicator.chat: collaborating, learning or idle), with the piece's steps or the steps being
-drafted under it, and the two buttons the person teaches with. The person's press writes their own piece (athos_keep,
-app-only); the model's athos_save still saves nothing. All data here is synthetic."""
+"""Claude Desktop's chat in the minimal interface (the default): athos_find opens Athos's panel in a minimal form that
+shows the one state alone (indicator.chat: collaborating, learning or idle; nothing while idle): no piece, no title, no
+step, no button. All data here is synthetic."""
 
 import io
 import json
@@ -47,18 +46,19 @@ class MinimalChatTest(TempHome):
         tools = {t["name"]: t for t in self.rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]["result"]["tools"]}
         self.assertEqual(tools["athos_find"]["_meta"]["ui"]["resourceUri"], mcp.UI_URI)
         self.assertNotIn("_meta", tools["athos_done"])
-        self.assertEqual(tools["athos_keep"]["_meta"]["ui"]["visibility"], ["app"])       # the person's, never the model's
+        self.assertNotIn("athos_keep", tools)                                   # no buttons: nothing for them to call
         plain = {t["name"] for t in self.rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
                                              apps=False)[0]["result"]["tools"]}
-        self.assertFalse({"athos_keep", "athos_trail", "athos_rate"} & plain)
+        self.assertFalse({"athos_trail", "athos_rate"} & plain)
         self.classic()
         tools = {t["name"]: t for t in self.rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]["result"]["tools"]}
-        self.assertNotIn("athos_keep", tools)                                   # the classic panel has no such button
+        self.assertNotIn("athos_keep", tools)
         self.assertEqual(tools["athos_done"]["_meta"]["ui"]["resourceUri"], mcp.UI_URI)
 
     def test_the_page_knows_its_interface_and_the_model_is_not_asked_to_save(self):
         r = self.rpc({"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": mcp.UI_URI}})
         self.assertIn('<html data-ui="minimal">', r[0]["result"]["contents"][0]["text"])
+        self.assertIs(r[0]["result"]["contents"][0]["_meta"]["ui"]["prefersBorder"], False)     # one short line
         out = io.StringIO()
         mcp.serve(io.StringIO(json.dumps({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {}}) + "\n"), out)
         said = json.loads(out.getvalue())["result"]["instructions"]
@@ -67,13 +67,18 @@ class MinimalChatTest(TempHome):
         self.classic()
         r = self.rpc({"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": mcp.UI_URI}})
         self.assertEqual(r[0]["result"]["contents"][0]["text"], mcp.UI_HTML.read_text())    # classic: as before
+        self.assertIs(r[0]["result"]["contents"][0]["_meta"]["ui"]["prefersBorder"], True)
 
-    def test_the_page_draws_the_mark_in_both_languages(self):
+    def test_the_page_draws_the_mark_alone_in_both_languages(self):
         html = mcp.UI_HTML.read_text()
         for words in ("Athos is collaborating", "Athos está colaborando", "Athos is learning", "Athos está aprendiendo",
-                      "Change this step", "Cambiar este paso", "Save as a way of working",
-                      "Guardar como forma de trabajar", "'athos_keep'", "■"):
+                      "■"):
             self.assertIn(words, html)
+        for gone in ("Change this step", "Cambiar este paso", "Save as a way of working", "Guardar como forma de trabajar",
+                     "athos_keep", "New steps", "Pasos nuevos", "mbody"):
+            self.assertNotIn(gone, html)
+        mini = html[html.index("function drawMini()"):html.index("function draw()")]
+        self.assertNotIn("trail", mini)                                   # the mark reads the state and nothing else
 
     # ------------------------------------------------------------------------------------------- the one state
     def test_the_state_moves_with_the_task_and_is_recorded_when_it_changes(self):
@@ -81,15 +86,12 @@ class MinimalChatTest(TempHome):
         r = self.rpc(self.call(1, "athos_find", request="write a haiku about autumn"))
         idle = r[0]["result"]["_meta"]["athos/panel"]
         self.assertEqual(idle["indicator"], {"state": "idle", "why": "nothing_in_use"})
-        self.assertEqual((idle["trail"]["pieces"], idle["trail"]["new"], idle["can_save"]), ([], [], False))
         self.assertNotIn("The person has no ways of working yet", r[0]["result"]["content"][0]["text"])
 
         r = self.rpc(self.call(1, "athos_step", new="pick the season's words"),
                      self.call(2, "athos_step", new="count the syllables"))
         learning = r[1]["result"]["_meta"]["athos/panel"]
         self.assertEqual(learning["indicator"], {"state": "learning", "why": "drafting_steps"})
-        self.assertEqual(learning["trail"]["new"], ["pick the season's words", "count the syllables"])
-        self.assertTrue(learning["can_save"])
 
         r = self.rpc(self.call(1, "athos_find", request="release greet 0.3.0"),
                      self.call(2, "athos_step", step="release#tag"),
@@ -98,15 +100,10 @@ class MinimalChatTest(TempHome):
         self.assertEqual(found["indicator"], {"state": "collaborating", "why": "piece_found"})
         both = r[2]["result"]["_meta"]["athos/panel"]
         self.assertEqual(both["indicator"]["state"], "collaborating")              # collaborating wins
-        p = both["trail"]["pieces"][0]
-        self.assertEqual((p["title"], [(s["id"], s["state"]) for s in p["steps"]]),
-                         ("Release the greet package", [("tag", "now"), ("push-tag", "ahead")]))
-        self.assertTrue(both["can_adjust"])
 
         self.rpc(self.call(1, "athos_done", outcome="tagged"))
         done = self.trail()
         self.assertEqual(done["indicator"], {"state": "idle", "why": "between_tasks"})
-        self.assertEqual(done["trail"]["pieces"], [])
         self.assertEqual(ui_events(), [("idle", "learning", "drafting_steps"), ("learning", "collaborating", "piece_found"),
                                        ("collaborating", "idle", "between_tasks")])
         self.assertEqual(self.trail()["indicator"]["state"], "idle")
@@ -128,85 +125,36 @@ class MinimalChatTest(TempHome):
         os.utime(session._file("old"), (1, 1))
         self.assertEqual(indicator.chat(session.load("old"), "old"), ("idle", "stale_task"))
 
-    def test_the_minimal_payload_leaves_out_the_rest(self):
+    def test_the_minimal_payload_carries_the_mark_and_nothing_else(self):
         self.release()
-        r = self.rpc(self.call(1, "athos_find", request="release greet 0.3.0"), self.call(2, "athos_trail"))
-        for s in (r[0]["result"]["_meta"]["athos/panel"], r[1]["result"]["structuredContent"]):
+        r = self.rpc(self.call(1, "athos_find", request="release greet 0.3.0"),
+                     self.call(2, "athos_step", step="release#tag"),
+                     self.call(3, "athos_step", new="announce it on the list"),
+                     self.call(4, "athos_trail"))
+        states = [x["result"]["_meta"]["athos/panel"] for x in r[:3]] + [r[3]["result"]["structuredContent"]]
+        for s in states:
+            self.assertEqual(set(s), {"lang", "ui", "indicator"})
+            self.assertEqual(set(s["indicator"]), {"state", "why"})
             self.assertEqual(s["ui"], "minimal")
-            for gone in ("greeting", "setup", "moment", "related", "pieces", "save_prompt", "learned"):
-                self.assertNotIn(gone, s)
-            self.assertFalse({"why", "record", "see", "when"} & set(s["trail"]["pieces"][0]))
-            self.assertFalse({"beside", "edits", "connectors", "request"} & set(s["trail"]))
+            text = json.dumps(s)
+            for hidden in ("release", "Release the greet package", "tag", "push-tag", "announce it", "0.3.0",
+                           "greet"):
+                self.assertNotIn(hidden, text)                     # no piece id, title, step or request text
         self.assertNotIn("Ratings:", r[0]["result"]["content"][0]["text"])        # no stars to explain
+        self.assertIn(mcp.ANSWER_MINIMAL, r[0]["result"]["content"][0]["text"])
         self.classic()
         classic = self.trail()
-        self.assertTrue({"greeting", "setup", "moment"} <= set(classic))
+        self.assertTrue({"greeting", "setup", "moment", "trail"} <= set(classic))
 
     def test_spanish_and_english(self):
         r = self.rpc(self.call(1, "athos_find", request="Revisá este contrato de locación antes de que lo firme"),
                      self.call(2, "athos_step", new="leer las cláusulas"))
         s = r[1]["result"]["_meta"]["athos/panel"]
-        self.assertEqual((s["lang"], s["adjust_prefix"]), ("es", "Athos · ajustar"))
+        self.assertEqual((s["lang"], s["indicator"]["state"]), ("es", "learning"))
         r = self.rpc(self.call(1, "athos_find", request="Please review this lease before my client signs it"))
         self.assertEqual(r[0]["result"]["_meta"]["athos/panel"]["lang"], "en")
 
     # ------------------------------------------------------------------------------------------- who may save
-    def test_the_persons_save_from_the_panel_writes_their_own_piece(self):
-        r = self.rpc(self.call(1, "athos_find", request="summarise the quarterly numbers for the board"),
-                     self.call(2, "athos_step", new="pull the numbers"),
-                     self.call(3, "athos_step", new="compare with last quarter"),
-                     self.call(4, "athos_done", outcome="summary sent"))
-        self.assertTrue(self.trail()["can_save"])                 # the task is done: the button stays, the mark is gone
-        before = len(ui_events())
-        r = self.rpc(self.call(1, "athos_keep", action="save"))[0]["result"]
-        self.assertFalse(r["isError"])
-        out = json.loads(r["content"][0]["text"])
-        p = store.get(out["id"])
-        self.assertEqual(p.title, "Summarise the quarterly numbers for the board")
-        self.assertEqual(p.status, "")                             # the person's own piece
-        self.assertTrue(store.legacy(p))
-        self.assertIn("**Do:** Pull the numbers.", p.body)
-        self.assertIn("**Do:** Compare with last quarter.", p.body)
-        self.assertEqual(ui_events()[before:], [("idle", "learning", "saving"), ("learning", "idle", "between_tasks")])
-        after = r["structuredContent"]
-        self.assertFalse(after["can_save"])
-        self.assertEqual(after["saved"]["title"], p.title)
-        again = self.rpc(self.call(1, "athos_keep", action="save"))[0]["result"]
-        self.assertTrue(again["isError"])                          # nothing new to save twice
-
-    def test_the_save_button_is_refused_where_no_panel_can_be_drawn(self):
-        r = self.rpc(self.call(1, "athos_find", request="summarise the quarterly numbers for the board"),
-                     self.call(2, "athos_step", new="pull the numbers"),
-                     self.call(3, "athos_keep", action="save"), apps=False)
-        kept = next(m for m in r if m.get("id") == 3)["result"]
-        self.assertTrue(kept["isError"])                           # no panel, so no person pressed anything
-        self.assertEqual([p for p in store.all_pieces() if "quarterly" in p.title.lower()], [])
-
-    def test_the_persons_save_adds_new_steps_to_the_piece_in_use(self):
-        self.release()
-        self.rpc(self.call(1, "athos_find", request="release greet 0.3.0"),
-                 self.call(2, "athos_step", step="release#tag"),
-                 self.call(3, "athos_step", new="announce it on the list"))
-        out = json.loads(self.rpc(self.call(1, "athos_keep", action="save"))[0]["result"]["content"][0]["text"])
-        p = store.get("release")
-        self.assertEqual((out["id"], p.version, out["improved"]), ("release", 2, True))
-        self.assertTrue(p.body.startswith(BODY.rstrip()))
-        self.assertIn("## #announce-it-on-the-list\n**Do:** Announce it on the list.", p.body)
-        self.assertTrue(store.legacy(p))
-
-    def test_change_this_step_writes_the_persons_words_into_it(self):
-        self.release()
-        self.rpc(self.call(1, "athos_find", request="release greet 0.3.0"),
-                 self.call(2, "athos_step", step="release#tag"))
-        r = self.rpc(self.call(1, "athos_keep", action="adjust", step="release#tag", text="sign the tag"))[0]["result"]
-        self.assertFalse(r["isError"])
-        p = store.get("release")
-        self.assertIn("**Do:** tag the release. Sign the tag.\n", p.body)
-        self.assertIn("## #push-tag\n**Do:** push the tag.", p.body)
-        self.assertEqual(p.version, 2)
-        bad = self.rpc(self.call(1, "athos_keep", action="adjust", step="release#nope", text="x"))[0]["result"]
-        self.assertTrue(bad["isError"])
-
     def test_the_models_own_save_still_saves_nothing(self):
         r = self.rpc(self.call(1, "athos_find", request="plan the offsite"),
                      self.call(2, "athos_step", new="book the room"),
@@ -230,8 +178,7 @@ class MinimalChatTest(TempHome):
                      self.call(2, "athos_show", id="apart"),
                      self.call(3, "athos_step", step="apart#n"),
                      self.call(4, "athos_step", step="release#pack"),
-                     self.call(5, "athos_trail"),
-                     self.call(6, "athos_keep", action="adjust", step="apart#n", text="x"))
+                     self.call(5, "athos_trail"))
         allowed = {p.id for p in mcp.load.enabled(None)}
         self.assertEqual(allowed, {"release"})
         states = [x["result"].get("_meta", {}).get("athos/panel") for x in r[:4]] + [r[4]["result"]["structuredContent"]]
@@ -239,8 +186,7 @@ class MinimalChatTest(TempHome):
             text = json.dumps(s)
             for hidden in ("apart", "Notes kept apart", "board-pack", "Board pack for the other team"):
                 self.assertNotIn(hidden, text)
-        self.assertTrue(r[5]["result"]["isError"])                 # nor changed from the panel
-        self.assertEqual(store.get("apart").version, 1)
+        self.assertEqual(states[2]["indicator"]["state"], "collaborating")       # release is in use
 
     def test_with_nothing_handed_over_a_step_elsewhere_does_not_light_the_mark(self):
         store.create("Notes kept apart", "notes", "## #n\n**Do:** keep it.\n", piece_id="apart")
@@ -267,14 +213,12 @@ class OverStdioTest(TempHome):
                 call(2, "athos_find", request="release greet 0.3.0"),
                 call(3, "athos_step", step="release#tag"),
                 call(4, "athos_trail"),
-                call(5, "athos_keep", action="adjust", step="release#tag", text="sign it"),
-                call(6, "athos_done", outcome="tagged"),
+                call(5, "athos_done", outcome="tagged"),
+                call(6, "athos_trail"),
                 call(7, "athos_find", request="write the onboarding email"),
                 call(8, "athos_step", new="greet the new hire"),
                 call(9, "athos_trail"),
-                call(10, "athos_save", text="---\ntitle: Onboarding\nwhen: onboarding\n---\n## #a\n**Do:** greet.\n"),
-                call(11, "athos_keep", action="save"),
-                call(12, "athos_trail")]
+                call(10, "athos_save", text="---\ntitle: Onboarding\nwhen: onboarding\n---\n## #a\n**Do:** greet.\n")]
         env = {**os.environ, "HOME": self.home}
         out = subprocess.run([sys.executable, str(ROOT / "bin" / "athos"), "mcp"], input="".join(
             json.dumps(m) + "\n" for m in msgs), capture_output=True, text=True, env=env, timeout=60, cwd=self.home)
@@ -282,17 +226,11 @@ class OverStdioTest(TempHome):
         self.assertEqual(r[0]["result"]["instructions"], mcp.INSTRUCTIONS_MINIMAL)
         tools = {t["name"]: t for t in r[1]["result"]["tools"]}
         self.assertEqual(tools["athos_find"]["_meta"]["ui"]["resourceUri"], "ui://athos/trail")
+        self.assertNotIn("athos_keep", tools)
         self.assertEqual(r[2]["result"]["_meta"]["athos/panel"]["indicator"]["state"], "collaborating")
-        s = r[4]["result"]["structuredContent"]
-        self.assertEqual([(x["id"], x["state"]) for x in s["trail"]["pieces"][0]["steps"]],
-                         [("tag", "now"), ("push-tag", "ahead")])
-        self.assertEqual(json.loads(r[5]["result"]["content"][0]["text"])["version"], 2)
+        self.assertEqual(r[4]["result"]["structuredContent"],
+                         {"lang": "en", "ui": "minimal", "indicator": {"state": "collaborating", "why": "piece_found"}})
+        self.assertEqual(r[6]["result"]["structuredContent"]["indicator"], {"state": "idle", "why": "between_tasks"})
         self.assertEqual(r[9]["result"]["structuredContent"]["indicator"], {"state": "learning", "why": "drafting_steps"})
         self.assertTrue(r[10]["result"]["isError"])                                       # the model's save
-        saved = json.loads(r[11]["result"]["content"][0]["text"])
-        self.assertEqual(saved["title"], "Write the onboarding email")
-        last = r[12]["result"]["structuredContent"]
-        self.assertEqual((last["saved"]["id"], last["can_save"]), (saved["id"], False))
-        piece = store.get(saved["id"])
-        self.assertTrue(piece is not None and store.legacy(piece))
-        self.assertEqual(store.get("release").version, 2)
+        self.assertEqual(store.get("release").version, 1)

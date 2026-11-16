@@ -5,9 +5,10 @@ Tools: find the pieces for a request (and say where their walk goes), show one, 
 or a new version of an existing one), the same way Claude Code's capture does. Nothing leaves the machine: the server
 reads and writes ~/.athos like the `athos` command.
 
-In a host with MCP Apps (Claude Desktop's chat), athos_find also opens Athos's trail panel (`ui://athos/trail`): the
-person's know-how the task walks, step by step, as the agent reports it with athos_step, refreshed by the panel through
-the app-only athos_trail. A host without MCP Apps gets the same tools as text. There, athos_library also opens the
+In a host with MCP Apps (Claude Desktop's chat), athos_find also opens Athos's trail panel (`ui://athos/trail`),
+refreshed by the panel through the app-only athos_trail: in the minimal interface (the default) only Athos's mark
+(learning or collaborating; nothing while idle); in the classic one the person's know-how the task walks, step by step,
+as the agent reports it with athos_step. A host without MCP Apps gets the same tools as text. There, athos_library also opens the
 person's library (`ui://athos/library`, athos/library.html): every way of working, its versions, what each model gave;
 its two buttons go through the app-only athos_library_do.
 
@@ -36,17 +37,13 @@ INSTRUCTIONS = ("The person's own know-how, kept by Athos as a wiki of pieces. B
                 "steps included (improve the piece it used: its id and a note); one that starts with "
                 "\"Athos · adjust\" or \"Athos · ajustar\" names <piece>#<statement> and how it should change: improve "
                 "that piece with athos_save (its id and a note), then go on. Answer those in one short line.")
-# The minimal interface: the panel's two buttons write what the person teaches themselves (athos_keep, app-only); the
-# chat's model never saves there (autolearn.refuse_model_save), so it is not asked to.
+# The minimal interface: the panel shows only the mark; the model still reports the steps (they drive it), and nothing
+# of them is shown.
 INSTRUCTIONS_MINIMAL = ("The person's own know-how, kept by Athos as a wiki of pieces. Before each task, call athos_find "
                         "with the request: follow the pieces it returns, statement by statement, and cite them as "
-                        "[[page#id]]. The person watches the task in Athos's panel: as you start each statement call "
-                        "athos_step with <piece-id>#<statement_id>; a step the task needs that no piece has, athos_step "
-                        "with `new` (a few words, in the person's language). Once per step, never per action, and say "
-                        "nothing about it. The person saves and changes their ways of working from the panel "
-                        "themselves: a message that starts with \"Athos · adjust\" or \"Athos · ajustar\" names "
-                        "<piece>#<statement> and how it should change; Athos has already written it into the piece, so "
-                        "apply it to the task from now on and answer in one short line. Don't call athos_save for it.")
+                        "[[page#id]]. As you start each statement call athos_step with <piece-id>#<statement_id>; a step "
+                        "the task needs that no piece has, athos_step with `new` (a few words, in the person's "
+                        "language). Once per step, never per action, and say nothing about it.")
 # How the model talks to the person once Athos's panel shows the method: in the chat, only the answer. The person
 # may be a lawyer or a journalist, not the author of the notes in the piece (2026-10-30, Claude Desktop: the answer
 # narrated tools in English, cited "piece v7" and "checked live on 27/10" and pasted the piece's commands).
@@ -56,6 +53,9 @@ ANSWER = ("How to answer: the person sees Athos's panel above your answer, with 
           "you are reading something; don't mention Athos, pieces, ids, versions, or the dates, measurements and "
           "notes the piece keeps for you; give commands, paths or settings only when the person must act on them. "
           "Take from the piece only what this request needs.")
+# The minimal interface: the panel above the answer is only Athos's mark, so the rest of ANSWER holds, said plainly.
+ANSWER_MINIMAL = "How to answer: Athos works out of the person's sight, so your answer is only the answer." + \
+    ANSWER[ANSWER.index(" Write in the person's language"):]
 # The person rates moments in Athos's panel (1-5 stars) instead of being asked questions. Athos passes each rating
 # on as a plain fact in a later result; what it means is said here, openly, once per task. A result that told the
 # model to change the notes and keep quiet about it read as a prompt injection, and Claude refused it (2026-11-11).
@@ -67,7 +67,7 @@ UI_HTML = Path(__file__).with_name("trail.html")
 LIBRARY_URI = "ui://athos/library"
 LIBRARY_HTML = Path(__file__).resolve().parents[1] / "library.html"
 LIBRARY_META = "athos/library"
-APP_ONLY = {"athos_trail", "athos_library_do", "athos_rate", "athos_keep"}   # called by Athos's pages, never by the model
+APP_ONLY = {"athos_trail", "athos_library_do", "athos_rate"}   # called by Athos's pages, never by the model
 APPS_ONLY = APP_ONLY | {"athos_library"}                 # offered only where a page can be drawn
 SESSION = "claude-desktop"
 PANEL_META = "athos/panel"
@@ -97,12 +97,6 @@ TOOLS = [
     {"name": "athos_trail", "description": "What Athos's panel draws: the current task's trail, the greeting, the "
      "person's language. Called by the panel only.",
      "inputSchema": {"type": "object", "properties": {}}, "_meta": {"ui": {"visibility": ["app"]}}},
-    {"name": "athos_keep", "description": "The person's press on the panel's [Save as a way of working] (`save`) or "
-     "[Change this step] (`adjust`, `step`: <piece>#<statement>, `text`: how it should change). Called by the panel "
-     "only, in the minimal interface.",
-     "inputSchema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["save", "adjust"]},
-                                                      "step": {"type": "string"}, "text": {"type": "string"}},
-                     "required": ["action"]}, "_meta": {"ui": {"visibility": ["app"]}}},
     {"name": "athos_rate", "description": "The person's 1-5 stars on the current moment of the task, from the "
      "panel's star bar. Called by the panel only.",
      "inputSchema": {"type": "object", "properties": {"stars": {"type": "integer", "minimum": 1, "maximum": 5},
@@ -187,13 +181,10 @@ def tools() -> list[dict]:
     listed = [t for t in TOOLS if not (app_only(t) or t["name"] in APPS_ONLY) or draws_apps()]
     from athos import indicator
     if not indicator.minimal():
-        return [t for t in listed if t["name"] not in MINIMAL_ONLY]
-    # The minimal interface: athos_find opens the panel in its minimal form (the mark, the piece's steps or the steps
-    # being drafted; nothing at all while idle); athos_done no longer opens a second one with the receipt.
+        return listed
+    # The minimal interface: athos_find opens the panel in its minimal form (the mark alone; nothing at all while
+    # idle); athos_done no longer opens a second one with the receipt.
     return [{k: v for k, v in t.items() if k != "_meta"} if t["name"] == "athos_done" else t for t in listed]
-
-
-MINIMAL_ONLY = {"athos_keep"}                            # the minimal panel's buttons: the classic one has none
 
 
 # The panel asks for its state every few seconds; which agents are here and their versions change only when the
@@ -239,31 +230,12 @@ def _lang(state: dict) -> str:
 
 def minimal_panel(session_id: str = SESSION) -> dict:
     """The panel in the minimal interface: the one state (indicator.chat, recorded like the hooks' one when it
-    changes), and under it only what that state is about: the piece in use and its steps, or the steps being drafted.
-    No greeting, no first-use or other-agents blocks, no ratings, no related pieces."""
-    from athos import capture, indicator
-    from athos.mcp import keep
+    changes) and nothing else. The person asked to see only whether Athos is learning or collaborating: no piece, no
+    title, no step, no request text goes to the page."""
+    from athos import indicator
     state = session.load(session_id)
-    lang = _lang(state)
-    names = _Nameable()
-    mark = indicator.observe(session_id, state, chat_allowed=names.ids, chat_state=True)
-    view = trail.view(state, here=names)
-    new = list(view.get("new") or [])
-    # [Save as a way of working]: while steps the know-how lacks are not saved yet, also once the task is done.
-    can_save = len(new) > keep.saved_count(state) and mark["why"] != "saving"
-    pieces = [{"id": p["id"], "title": p["title"], "steps": p["steps"]} for p in view["pieces"]] \
-        if mark["state"] == indicator.COLLABORATING else []
-    shown = new if mark["state"] != indicator.IDLE or can_save else []
-    end = state.get("task_end") or {}
-    saved = state.get("chat_saved") or {}
-    return {"lang": lang, "ui": "minimal", "indicator": mark,
-            "trail": {"task_id": view["task_id"], "pieces": pieces, "new": shown,
-                      "busy": bool(pieces) or bool(shown)},
-            "ended": end if end and end.get("task_id") == state.get("task_id") else None,
-            "can_save": can_save, "can_adjust": mark["state"] == indicator.COLLABORATING,
-            "saved": {k: saved.get(k) for k in ("id", "title", "version")}
-            if saved.get("task_id") == state.get("task_id") and names.may_name(saved.get("id")) else None,
-            "adjust_prefix": capture.ADJUST_PREFIX["es" if lang == "es" else "en"]}
+    mark = indicator.observe(session_id, state, chat_allowed=_Nameable().ids, chat_state=True)
+    return {"lang": _lang(state), "ui": "minimal", "indicator": {"state": mark["state"], "why": mark["why"]}}
 
 
 def panel(session_id: str = SESSION, chat: bool = False) -> dict:
@@ -357,7 +329,7 @@ def _call(name: str, args: dict, session_id: str = SESSION) -> str:
         # Composition reached Desktop's chat without the rule for walking it (found in a live check, 2026-10-31).
         if hand := load.handover(found, "athos_show"):
             out.append(hand)
-        out.append(ANSWER + "\n\nAs you apply each statement, call athos_step with `step` set to it (once per "
+        out.append((ANSWER_MINIMAL if _minimal() else ANSWER) + "\n\nAs you apply each statement, call athos_step with `step` set to it (once per "
                    f"statement, in the order you apply them, skipping those that don't apply): {ids}. A step the "
                    "task needs that none of them has: athos_step with `new`. With each call, `did`: one short line "
                    "of what you did in the step you are leaving. If you keep your own progress list for the task, "
@@ -376,27 +348,6 @@ def _call(name: str, args: dict, session_id: str = SESSION) -> str:
             raise ValueError(str(e)) from None
     if name == "athos_trail":
         return json.dumps(panel(session_id, chat=True), ensure_ascii=False)
-    if name == "athos_keep":
-        # The person's press in the panel: the only way the chat learns (the model's athos_save is refused there).
-        # Where no panel can be drawn, or in the classic interface, nobody can press it: such a call is not the
-        # person's, so it is refused instead of trusted.
-        if not draws_apps() or not _minimal():
-            raise ValueError("athos_keep is the panel's button: nothing was saved")
-        from athos import indicator
-        from athos.mcp import keep
-        names = _Nameable()
-        state = session.load(session_id)
-        lang = _lang(state)
-
-        def observe() -> None:
-            indicator.observe(session_id, chat_allowed=names.ids, chat_state=True)
-
-        if args.get("action") == "save":
-            return json.dumps(keep.save(session_id, trail.view(state, here=names), lang, observe), ensure_ascii=False)
-        if args.get("action") == "adjust":
-            return json.dumps(keep.adjust(session_id, args.get("step", ""), args.get("text", ""), names.may_name, lang,
-                                          observe), ensure_ascii=False)
-        raise ValueError(f"unknown action {args.get('action')!r}")
     if name == "athos_library":
         from athos import library
         return library.summary(library.snapshot())
@@ -513,8 +464,10 @@ def handle(msg: dict) -> dict | None:
             text = pages[params["uri"]].read_text()
             if params["uri"] == UI_URI and _minimal():          # the page knows its interface before any state comes
                 text = text.replace("<html>", '<html data-ui="minimal">', 1)
+            # The minimal panel is one short line: no border around it, as small as the host draws a page.
+            border = not (params["uri"] == UI_URI and _minimal())
             result = {"contents": [{"uri": params["uri"], "mimeType": UI_MIME, "text": text,
-                                    "_meta": {"ui": {"prefersBorder": True}}}]}
+                                    "_meta": {"ui": {"prefersBorder": border}}}]}
         elif method == "tools/call":
             name = params.get("name", "")
             try:
@@ -525,7 +478,7 @@ def handle(msg: dict) -> dict | None:
             # The panel's state goes where the model doesn't read it: Claude Desktop gave the model
             # structuredContent instead of the text, so it saw steps cut short for the panel and missed what the
             # text asks of it. The panel reads _meta, and asks athos_trail (app-only) for the rest.
-            if name in ("athos_trail", "athos_keep") and not err:
+            if name == "athos_trail" and not err:
                 result["structuredContent"] = panel(chat=True)
             elif name in ("athos_find", "athos_step", "athos_start", "athos_connect") and not err:
                 result["_meta"] = {PANEL_META: panel(chat=True)}
