@@ -526,7 +526,7 @@ def _on_stop(event: dict, platform: str) -> None:
     if _quietly(verify.maybe_spawn_pending, ME) and event.get("session_id"):    # a candidate waiting for its verdict
         session.update(event["session_id"], verifying_since=time.time())
     from athos.memory import cycle as memory_cycle
-    _quietly(memory_cycle.maybe_spawn, ME)    # the live log past its window: the dream cycle, detached
+    _quietly(memory_cycle.maybe_spawn, ME, memory_cycle.subprocess.Popen, event.get("session_id"))  # detached
     sid = event.get("session_id")
     if sid and not session.load(sid).get("trail"):
         sid = _folder_session_id(event, sid)
@@ -2019,7 +2019,8 @@ def cmd_memory(args) -> int:
     from athos.memory import cycle
     action = args.action
     if action == "cycle":
-        out = cycle.run(model=True if args.model else None, auto=bool(args.quiet))
+        out = cycle.run(model=True if args.model else None, auto=bool(args.quiet),
+                        after_session=getattr(args, "after_session", None))
         if not args.quiet:
             print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else _cycle_text(out))
         return 0 if "skipped" not in out else 1
@@ -2271,6 +2272,7 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--model", action="store_true", help="with `cycle`: also the opt-in model pass (it spends, under "
                    "the daily cap shared with the verifier)")
     s.add_argument("--quiet", action="store_true", help=argparse.SUPPRESS)
+    s.add_argument("--after-session", help=argparse.SUPPRESS)
     s.add_argument("--json", action="store_true")
     s = sub.add_parser("journal", help="what happened lately in this project: its last tasks, what they followed "
                        "or saved, how they went, and what is open")

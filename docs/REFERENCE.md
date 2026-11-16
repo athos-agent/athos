@@ -439,9 +439,11 @@ athos memory project [<name>]          a project's page
 ```
 
 **The model pass**, opt-in and off by default (`"memory": {"model": {"on": true, "model": "<id or alias>"}}`, or
-`athos memory cycle --model` once): on a frontier model, only when no session has moved in `idle_minutes` (30), and
-under the daily cap it shares with the independent verifier (`autolearn.budget`: the run's cap is reserved first, a
-`model_run` event with `purpose` dream). One project per pass, the one with the most to look at. The model gets, as
+`athos memory cycle --model` once): on a frontier model, only when no session has moved in `idle_minutes` (30) (a
+cycle the Stop hook started does not count the session whose turn just ended, so with the pass turned on it can run
+from there), and under the daily cap it shares with the independent verifier (`autolearn.budget`: the run's cap,
+`max_usd_per_run` (US$0.50) or the verifier's per-run cap if smaller, is reserved first, a `model_run` event with
+`purpose` dream). One project per pass, the one with the most to look at. The model gets, as
 files in a folder and nothing else, the project's counted summary (no request words) and the text of that project's
 own pieces that are not private (title, when, body: never another project's, never a private piece, never
 frontmatter or history), and runs as the verifier does:
@@ -452,8 +454,9 @@ is always a candidate:
   (`status: candidate`), beside the page the counting writes; it is not injected anywhere;
 - two or more of the project's pieces that are the same way of working become a **new** candidate piece (the sources
   stay as they are), only if `bench route --from-store` with it is no worse than without it (no fewer first hits, no
-  more loads of a piece the task didn't use, of a piece where nothing was needed, or of another project's), and then it
-  goes to the independent verifier like any candidate;
+  more loads of a piece the task didn't use, of a piece where nothing was needed, or of another project's; a load of
+  the merge where the task used one of its sources counts as a hit), and then it goes to the independent verifier
+  like any candidate. With no task marked good that used a piece, nothing is measured and nothing is saved;
 - an avoid or keep rule for a step is a new candidate version of a learned piece of the project, through the same
   versioned update path and the verifier (a verified piece is verified again from scratch); for a piece you own (no
   `status`) it is only a proposal in `memory/findings.json`, never written into its file.

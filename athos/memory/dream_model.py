@@ -47,12 +47,15 @@ Propose a merge only for pieces that are clearly the same way of working, and a 
 Empty lists are a good answer."""
 
 
-def _sessions_idle(minutes: float) -> bool:
-    """No session state moved in the last `minutes`: nobody is working with an agent right now."""
+def _sessions_idle(minutes: float, ignore: str | None = None) -> bool:
+    """No session state moved in the last `minutes`: nobody is working with an agent right now. `ignore`: the
+    session whose Stop hook started this cycle (its turn just ended, so its state just moved)."""
+    from athos import session
     folder = paths.sessions()
     limit = time.time() - minutes * 60
+    skip = session._file(ignore).name if ignore else None
     try:
-        return not any(f.stat().st_mtime > limit for f in folder.glob("*.json"))
+        return not any(f.stat().st_mtime > limit for f in folder.glob("*.json") if f.name != skip)
     except OSError:
         return True
 
@@ -102,18 +105,22 @@ def answer_of(text: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def route_gate(candidate) -> dict:
+def route_gate(candidate, sources: list | None = None) -> dict:
     """Whether a proposed piece makes the router worse on the person's own good tasks (`bench route --from-store`,
     per project, read-only): fewer first hits, more loads of a piece the task didn't use, more loads where nothing
-    was needed, or more pieces of another project. Returns both runs' counts and `worse`."""
+    was needed, or more pieces of another project. A merge stands for its `sources`: a load of it where the task used
+    one of them is a hit, not an extra load. With no good task that used a piece, nothing is measured (`measured`
+    false), and the caller saves nothing. Returns both runs' counts, `measured` and `worse`."""
     from athos import load
     from athos.bench import route
     pool = load.enabled()
+    same = {candidate.id: list(sources or [])}
     before = route.from_store(meaning=False, scoped=True, pieces=pool)
-    after = route.from_store(meaning=False, scoped=True, pieces=pool + [candidate])
-    keys = ("hit1", "extra", "none_loads", "other_project")
-    worse = after["hit1"] < before["hit1"] or any(after[k] > before[k] for k in keys[1:])
-    return {"before": {k: before[k] for k in keys}, "after": {k: after[k] for k in keys}, "worse": worse}
+    after = route.from_store(meaning=False, scoped=True, pieces=pool + [candidate], same_as=same)
+    keys = ("tasks", "hit1", "extra", "none_loads", "other_project")
+    worse = after["hit1"] < before["hit1"] or any(after[k] > before[k] for k in keys[2:])
+    return {"before": {k: before[k] for k in keys}, "after": {k: after[k] for k in keys},
+            "measured": before["tasks"] > 0, "worse": worse}
 
 
 def _merge(project: str, m: dict, model: str, wrote: list) -> str:
@@ -127,7 +134,9 @@ def _merge(project: str, m: dict, model: str, wrote: list) -> str:
     if autolearn.private_findings(f"{title}\n{when}\n{body}", project):
         return "skipped: private data"
     draft = store.Piece(id="dream-draft", title=title, when=when, body=body, projects=[project], status="candidate")
-    gate = route_gate(draft)
+    gate = route_gate(draft, [x.id for x in sources])
+    if not gate["measured"]:
+        return "not measured: no task marked good used a piece to judge it on; nothing saved"
     if gate["worse"]:
         return f"rejected: bench route --from-store would get worse ({gate['before']} → {gate['after']})"
     piece = store.create(title, when, body, projects=[project], origin={"platform": "athos-dream", "model": model},
@@ -183,11 +192,12 @@ def _rule(project: str, r: dict, model: str, wrote: list, proposals: list) -> st
     return "written as a new version" + (" (a candidate, verifier pending)" if improved.status == "candidate" else "")
 
 
-def run(runner=None, project: str | None = None, model: str | None = None) -> dict:
-    """One model pass, or why it did not run. Spends only under the shared daily cap."""
+def run(runner=None, project: str | None = None, model: str | None = None, after_session: str | None = None) -> dict:
+    """One model pass, or why it did not run. Spends only under the shared daily cap, and never more than
+    `memory.model.max_usd_per_run` (nor the verifier's per-run cap) on one run."""
     from athos import verify
     s = memory.settings()["model"]
-    if not _sessions_idle(float(s.get("idle_minutes") or 30)):
+    if not _sessions_idle(float(s.get("idle_minutes") or 30), after_session):
         return {"ran": False, "outcome": "skipped: a session is working", "spend_usd": 0.0}
     from athos.memory import cycle
     found = cycle.findings()
@@ -198,8 +208,11 @@ def run(runner=None, project: str | None = None, model: str | None = None) -> di
     folder = bundle(project, found)
     prompt = PROMPT.format(summary=folder / "summary.json", pieces=folder / "pieces")
     timeout = float(memory.settings()["model"].get("timeout_s") or 300)
+    from athos import autolearn
+    per_run = min(float(s.get("max_usd_per_run") or 0),
+                  float(autolearn.settings()["verifier"].get("max_usd_per_run") or 0))
     result, why, cap = verify.run_model("dream", None, model, prompt, folder, runner or verify.claude_runner, timeout,
-                                        project=project)
+                                        per_run=per_run, project=project)
     out = {"ran": result is not None, "project": project, "model": model, "spend_usd": 0.0, "wrote": [],
            "merges": [], "rules": []}
     if result is None:

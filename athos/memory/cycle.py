@@ -279,7 +279,7 @@ def _days(now: _dt.datetime, at: str) -> float:
     return (now - t).total_seconds() / 86400
 
 
-def maybe_spawn(athos_cmd: Path, popen=subprocess.Popen) -> bool:
+def maybe_spawn(athos_cmd: Path, popen=subprocess.Popen, session_id: str | None = None) -> bool:
     """Stop hook: when a cycle is due and none is running, start `athos memory cycle --quiet` detached and at low
     priority, so no hook waits. Nothing starts with `memory.auto` off, or with ATHOS_SPAWN=off (the tests) unless a stub
     `popen` is passed."""
@@ -291,6 +291,8 @@ def maybe_spawn(athos_cmd: Path, popen=subprocess.Popen) -> bool:
     if not why or backing_off(why):
         return False
     argv = [sys.executable, str(athos_cmd), "memory", "cycle", "--quiet"]
+    if session_id:                        # its turn just ended: the model pass does not count it as working
+        argv += ["--after-session", session_id]
     if os.name == "posix" and Path("/usr/bin/nice").exists():
         argv = ["/usr/bin/nice", "-n", "15", *argv]
     try:
@@ -1043,7 +1045,8 @@ STUCK = {"size": "the live log is past trigger_bytes but all of it is inside the
          "resume": "a segment left half done could not be finished"}
 
 
-def run(now: _dt.datetime | None = None, model: bool | None = None, runner=None, auto: bool = False) -> dict:
+def run(now: _dt.datetime | None = None, model: bool | None = None, runner=None, auto: bool = False,
+        after_session: str | None = None) -> dict:
     """One whole cycle, under its lock: replay and prune, abstraction, consolidation, and (only when asked or turned
     on, and idle) the model pass. Returns what each phase did; `skipped` when another cycle holds the lock. `auto`: a
     cycle a hook started; one that archived nothing and found nothing late skips the counting and the pages, and
@@ -1082,7 +1085,7 @@ def run(now: _dt.datetime | None = None, model: bool | None = None, runner=None,
         if wanted:
             from athos.memory import dream_model
             t3 = time.perf_counter()
-            out["model"] = dream_model.run(runner=runner)
+            out["model"] = dream_model.run(runner=runner, after_session=after_session)
             _event(run_id, "model", t3, wrote=out["model"].get("wrote") or [],
                    **{k: v for k, v in out["model"].items() if not isinstance(v, (dict, list))})
         swept = sweep()                       # what reached the trimmed log's old file while the cycle ran

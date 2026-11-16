@@ -106,7 +106,8 @@ class ModelPassTest(MemoryCase):
         self.assertEqual(stub.calls, [])
 
     def test_a_merge_that_makes_the_router_worse_is_not_applied(self):
-        with mock.patch.object(dream_model, "route_gate", return_value={"before": {}, "after": {}, "worse": True}):
+        with mock.patch.object(dream_model, "route_gate", return_value={"before": {}, "after": {}, "measured": True,
+                                                                     "worse": True}):
             out = cycle.run(model=True, runner=Stub())["model"]
         self.assertTrue(out["merges"][0].startswith("rejected"))
         self.assertFalse([p for p in store.all_pieces() if "dream:merge" in (p.evidence or [])])
@@ -116,6 +117,49 @@ class ModelPassTest(MemoryCase):
                                                   body="b", projects=["alpha"]))
         self.assertEqual(gate["before"], gate["after"])
         self.assertFalse(gate["worse"])
+
+    def good_tasks_that_route_to_ship(self):
+        for i in range(4):
+            write(task(f"route{i}", 2 - i * 0.1, pieces=("ship",), result="ok",
+                       request="ship a release of the service, shipping the release"))
+        self.assertEqual(dream_model.route_gate(store.get("ship"))["before"]["hit1"] > 0, True)
+
+    def test_a_faithful_merge_is_not_rejected(self):
+        # The merged piece is the same way of working as its sources: a load of it is a load of them.
+        self.good_tasks_that_route_to_ship()
+        ship = store.get("ship")
+        draft = store.Piece(id="dream-draft", title=ship.title, when=ship.when, body=ship.body, projects=["alpha"],
+                            status="candidate")
+        gate = dream_model.route_gate(draft, sources=["ship", "ship-two"])
+        self.assertTrue(gate["measured"])
+        self.assertFalse(gate["worse"], gate)
+
+    def test_with_no_good_tasks_the_gate_measures_nothing_and_nothing_is_saved(self):
+        from athos import eval as ev_
+        with mock.patch.object(ev_, "tasks", return_value=[]):
+            out = cycle.run(model=True, runner=Stub())["model"]
+        self.assertTrue(out["merges"][0].startswith("not measured"), out["merges"])
+        self.assertFalse([p for p in store.all_pieces() if "dream:merge" in (p.evidence or [])])
+
+    def test_the_session_that_started_the_cycle_does_not_count_as_working(self):
+        paths.sessions().mkdir(parents=True, exist_ok=True)
+        (paths.sessions() / "stopper.json").write_text("{}")            # its Stop hook just touched it
+        stub = Stub()
+        out = cycle.run(model=True, runner=stub, after_session="stopper")
+        self.assertEqual(out["model"]["outcome"], "done")
+        calls = []
+        (Path(self.home) / "config.json").write_text(json.dumps({"memory": {"model": {"on": True}}}))
+        with mock.patch.object(cycle, "due", return_value="late"):
+            cycle.maybe_spawn(Path("/x/athos"), lambda argv, **kw: calls.append(argv), session_id="stopper")
+        self.assertEqual(calls[-1][-2:], ["--after-session", "stopper"])
+
+    def test_the_per_run_setting_caps_the_reservation(self):
+        (Path(self.home) / "config.json").write_text(json.dumps({"memory": {"model": {"max_usd_per_run": 0.07}}}))
+        stub = Stub()
+        cycle.run(model=True, runner=stub)
+        self.assertAlmostEqual(stub.calls[0]["cap"], 0.07)
+        reserved = [e for e in ev.events() if e.get("type") == "model_run" and e.get("phase") == "reserved"]
+        self.assertAlmostEqual(reserved[-1]["usd_reserved"], 0.07)
 
 
 class AuditRulesTest(MemoryCase):

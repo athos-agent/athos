@@ -274,13 +274,14 @@ def run(routers: list[str], scale: int = 0, model: str | None = None) -> list[di
     return rows
 
 
-def from_store(meaning=None, scoped: bool = False, pieces: list | None = None) -> dict:
+def from_store(meaning=None, scoped: bool = False, pieces: list | None = None, same_as: dict | None = None) -> dict:
     """The person's own tasks marked good, against their real store: the request that started each one and the
     pieces it used (those still in the store, not the ones the task itself saved). Read-only: nothing is written,
     and only counts come out, never a request. `scoped`: each task sees only its project's pieces (and another
     project's when the request names it), the way the hooks load them by default."""
     from athos import control, load
     pieces = load.enabled() if pieces is None else pieces       # another store to judge (the dream's proposals)
+    same_as = {k: set(v) for k, v in (same_as or {}).items()}  # a proposed piece that stands for others (a merge)
     have = {p.id for p in pieces}
     out = {"tasks": 0, "hit1": 0, "any": 0, "missed": 0, "extra": 0, "none_tasks": 0, "none_loads": 0, "ms": [],
            "other_project": 0, "other_project_unnamed": 0, "all_tasks": 0, "no_own_tasks": 0,
@@ -316,10 +317,11 @@ def from_store(meaning=None, scoped: bool = False, pieces: list | None = None) -
             out["none_loads"] += bool(ids)
             continue
         out["tasks"] += 1
-        out["hit1"] += bool(ids) and ids[0] in expect
-        out["any"] += bool(set(ids) & expect)
+        hits = {i for i in ids if i in expect or same_as.get(i, set()) & expect}   # a merge's load is its sources'
+        out["hit1"] += bool(ids) and ids[0] in hits
+        out["any"] += bool(hits)
         out["missed"] += not ids
-        out["extra"] += bool(set(ids) - expect)
+        out["extra"] += bool(set(ids) - hits)
     ms = out.pop("ms")
     out["ms_mean"] = round(statistics.mean(ms), 2) if ms else 0.0
     out["pieces"] = len(pieces)
