@@ -394,6 +394,27 @@ athos memory findings                  what the last counting found
 athos memory project [<name>]          a project's page
 ```
 
+**The model pass**, opt-in and off by default (`"memory": {"model": {"on": true, "model": "<id or alias>"}}`, or
+`athos memory cycle --model` once): on a frontier model, only when no session has moved in `idle_minutes` (30), and
+under the daily cap it shares with the independent verifier (`autolearn.budget`: the run's cap is reserved first, a
+`model_run` event with `purpose` dream). One project per pass, the one with the most to look at. The model gets, as
+files in a folder and nothing else, the project's counted summary (no request words) and the text of that project's
+own pieces (title, when, body: never another project's, never frontmatter or history), and runs as the verifier does:
+headless, read-only tools confined to that folder, no plugins, hooks or MCP, a throwaway Athos home. What it proposes
+is always a candidate:
+
+- a short paragraph of what is known about working in the project goes to `projects/<name>.candidate.md`
+  (`status: candidate`), beside the page the counting writes; it is not injected anywhere;
+- two or more of the project's pieces that are the same way of working become a **new** candidate piece (the sources
+  stay as they are), only if `bench route --from-store` with it is no worse than without it (no fewer first hits, no
+  more loads of a piece the task didn't use, of a piece where nothing was needed, or of another project's), and then it
+  goes to the independent verifier like any candidate;
+- an avoid or keep rule for a step is a new candidate version of a learned piece of the project, through the same
+  versioned update path and the verifier (a verified piece is verified again from scratch); for a piece you own (no
+  `status`) it is only a proposal in `memory/findings.json`, never written into its file.
+
+Every write is listed in the cycle's `model` event (`wrote`, each with the piece's status before).
+
 **`athos dream`** is the star review, unchanged: `athos dream` lists its proposals and `athos dream --apply N` turns
 one into the request your agent carries out. It is now one part of the cycle's abstraction phase, which refreshes it;
 `athos dream --cycle` runs the whole cycle.
@@ -556,6 +577,7 @@ of it keeps a request's words: only its length and a 12-character fingerprint (`
 | `hook_error` | a hook swallows an exception so your session carries on | `hook`, `where`, `error` (the exception's kind), `line` (file and line inside Athos), never its message; what the hook prints on stderr is the same kind and place, never the message either (it may quote a request or a path) |
 | `learn` | autonomous learning decides about a task: it asks the model to keep what it taught, saves, or skips (every decision, with its reason) | `task_id`, `decision` (asked, saved, skipped), `reason` (strong_evidence, no_strong_evidence, last_verification_failed, correction_after_success, apply_model, model_unknown, private_data, no_project, off, invalid, model_saved_nothing), `model`, `tier`, `work_mode`, `mode` (learn, apply, unknown), `project`, `strong`, `weak`, `positive`, `negative` (the task's evidence counted), `evidence` (its short summary), `grounds`, and for a save `piece`, `version`, `risk`, `checks` (runnable Check lines), `confidence`; for a private-data refusal `private` (the kinds found, never the text) |
 | `ui` | reserved for the panel's state | not written yet |
+| `memory_cycle` | each phase of a dream cycle (see "Long-term memory") | `run_id`, `phase`, `duration_ms`, the phase's counts, for the model pass `wrote` |
 
 Every one of them also carries `at`, `session_id` and `v`, the version of Athos that wrote it. `candidates.reason`
 says why a piece did or didn't load: `chosen`, `runner_up_too_weak`, `over_budget`, `beyond_top_k`, `below_min_score`,
@@ -611,6 +633,10 @@ the session of the folder you run it in) and checks each one against these rules
 | `verifier_over_cap` | a UTC day whose model runs (verifier and replay, every project) went over the runs or the cost cap they recorded (a run with no reported cost counts its estimate) |
 | `marker_name_ignored` | the repository the audit runs in has a `.athos.toml` whose `name` is not the folder's own and was never accepted on this machine (`athos public name`), so Athos uses the folder's name |
 | `public_not_declared` | the repository the audit runs in (when it is the session's project) is pushed to a code-hosting site, read from its local git configuration, and its `.athos.toml` does not say whether it is public; `athos public` or `athos public off` answers it |
+| `memory_rollup_mismatch` | the ledger or the rollups the hooks read differ from a fold of the whole archive and the live log (`athos memory rebuild` makes them again) |
+| `memory_archive_integrity` | an archived segment is missing, unreadable, or not the bytes and sha256 its manifest recorded (an offline command still reads it as it is, and says so) |
+| `memory_wrote_legacy` | the dream cycle reported writing into a piece with no status, or such a piece has a version written by the dream (`athos-dream` in its history) |
+| `memory_model_over_cap` | a model pass of the dream cycle settled without a reservation before it, or on a day over the cap shared with the verifier |
 
 Each rule says how it was judged: flagged, clean, partial (checked with older data, which is not a proof) or not
 evaluated (with what is missing). Sessions recorded before these events are checked as far as their task lines allow:

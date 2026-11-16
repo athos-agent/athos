@@ -145,10 +145,18 @@ def archived_events() -> list:
     except OSError:
         return []
     if _ARCHIVE_CACHE.get("key") != key:
-        rows = []
+        rows, bad = [], []
         for entry in manifest()["segments"]:
-            rows.extend(decode(read_segment(entry)))
-        _ARCHIVE_CACHE.update(key=key, rows=rows)
+            try:
+                raw = read_segment(entry)
+            except ValueError:                   # read as it is, and said (`full_read_note`, `athos memory check`)
+                bad.append(entry.get("file"))
+                raw = read_segment(entry, check=False)
+            except (OSError, EOFError):
+                bad.append(entry.get("file"))
+                continue
+            rows.extend(decode(raw))
+        _ARCHIVE_CACHE.update(key=key, rows=rows, bad=bad)
     return _ARCHIVE_CACHE["rows"]
 
 
@@ -732,7 +740,9 @@ def full_read_note() -> str:
     except paths.StateUnreadable:
         return "history: the archive's manifest cannot be read; only the live log was read"
     lines = sum(int(s.get("lines") or 0) for s in segs)
-    return f"history: {lines} archived event(s) in {len(segs)} segment(s) read with the live log ({archive_dir()})"
+    bad = _ARCHIVE_CACHE.get("bad") or []
+    return (f"history: {lines} archived event(s) in {len(segs)} segment(s) read with the live log ({archive_dir()})"
+            + (f"; {len(bad)} segment(s) fail their integrity check (`athos memory check`)" if bad else ""))
 
 
 def sizes() -> dict:

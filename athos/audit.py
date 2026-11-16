@@ -48,6 +48,11 @@ RULES = (
                             "does not say whether it is public"),
     ("marker_name_ignored", "the repository the audit runs in has a .athos.toml whose name is not the folder's and "
                             "was never accepted on this machine, so Athos uses the folder's name"),
+    ("memory_rollup_mismatch", "the ledger or the rollups the hooks read differ from a rebuild from the archive"),
+    ("memory_archive_integrity", "an archived segment of the log is missing, unreadable, or not the bytes its "
+                                 "manifest recorded"),
+    ("memory_wrote_legacy", "the dream cycle wrote into a piece without a status (one the person owns)"),
+    ("memory_model_over_cap", "a model pass of the dream cycle ran without reserving its cap first, or over the cap"),
 )
 WEAK_EVIDENCE = {"", "model", "model_opinion", "self_report"}
 AUDIT_TYPES = {"route", "edit_seen", "model", "trigger", "hook_error", "learn", "grade", "ui", "context", "piece_opened",
@@ -562,6 +567,76 @@ def _verifier_over_cap(everything: list[dict]) -> dict:
                    "model_run events per UTC day (a run with no reported cost counts the cap it reserved)")
 
 
+_MEMORY_CHECK: dict = {}
+
+
+def _memory_checks() -> dict:
+    """The archive's integrity and a rebuild of the derived files, once per process and state of the files (the
+    audit checks several sessions)."""
+    from athos import memory
+    from athos.memory import cycle
+    key = []
+    for f in (memory.manifest_file(), memory.ledger_file(), memory.rollups_file()):
+        try:
+            st = f.stat()
+            key.append((st.st_size, st.st_mtime_ns))
+        except OSError:
+            key.append(None)
+    if _MEMORY_CHECK.get("key") != key:
+        if key[0] is None:
+            out = {"archive": None, "rebuild": None}
+        else:
+            bad = cycle.check_archive()
+            out = {"archive": bad, "rebuild": None if bad else cycle.compare_rebuild()}
+        _MEMORY_CHECK.update(key=key, out=out)
+    return _MEMORY_CHECK["out"]
+
+
+def _memory_rules(everything: list[dict]) -> list[dict]:
+    """The dream cycle, outside any session: the archive and the derived files against a rebuild, piece files it
+    wrote, and its model pass against the cap."""
+    from athos import store
+    checks = _memory_checks()
+    if checks["archive"] is None:
+        integrity = _result("memory_archive_integrity", "not_evaluated", [], "no archive yet")
+        mismatch = _result("memory_rollup_mismatch", "not_evaluated", [], "no archive yet")
+    else:
+        integrity = _result("memory_archive_integrity", _status(checks["archive"], False), checks["archive"],
+                            "each segment's bytes and sha256 against the manifest")
+        if checks["rebuild"] is None:
+            mismatch = _result("memory_rollup_mismatch", "not_evaluated", [], "the archive fails its integrity check")
+        else:
+            found = [{"file": f} for f, ok in (("ledger.json", checks["rebuild"]["ledger_equal"]),
+                                               ("rollups.json", checks["rebuild"]["rollups_equal"]
+                                                or not checks["rebuild"]["rollups_present"])) if not ok]
+            mismatch = _result("memory_rollup_mismatch", _status(found, False), found,
+                               "the ledger and the rollups against a fold of the whole archive and the live log")
+    byid = {p.id: p for p in store.all_pieces()}
+    wrote = [w for e in everything if e.get("type") == "memory_cycle" for w in e.get("wrote") or []]
+    legacy = [{"piece": w.get("piece"), "run_id": None} for w in wrote if w.get("status_before") in (None, "", "legacy")]
+    for p in byid.values():                    # and the files themselves: a dream version on a piece with no status
+        if store.legacy(p) and any("athos-dream" in (h or "") for h in p.history):
+            legacy.append({"piece": p.id, "from": "history"})
+    if not wrote and not legacy and not any(e.get("type") == "memory_cycle" for e in everything):
+        wrote_rule = _result("memory_wrote_legacy", "not_evaluated", [], "no dream cycle has run")
+    else:
+        wrote_rule = _result("memory_wrote_legacy", _status(legacy, False), legacy,
+                             "pieces the cycle reported writing, and pieces whose history has a dream version")
+    runs = [e for e in everything if e.get("type") == "model_run" and e.get("purpose") == "dream"]
+    reserved = {e.get("run_id") for e in runs if e.get("phase") == "reserved"}
+    unreserved = [{"run_id": e.get("run_id"), "at": e.get("at")} for e in runs
+                  if e.get("phase") == "settled" and e.get("started") and e.get("run_id") not in reserved]
+    over = [f for f in _verifier_over_cap([e for e in everything if e.get("type") == "model_run"])["found"]]
+    if not runs:
+        cap_rule = _result("memory_model_over_cap", "not_evaluated", [], "no model pass has run")
+    else:
+        found = unreserved + ([{"day": f["day"], "over": "daily cap shared with the verifier"} for f in over]
+                              if any(str(e.get("at", ""))[:10] in {f["day"] for f in over} for e in runs) else [])
+        cap_rule = _result("memory_model_over_cap", _status(found, False), found,
+                           "dream model_run events: a reservation before each run, and the day's shared cap")
+    return [mismatch, integrity, wrote_rule, cap_rule]
+
+
 # ------------------------------------------------------------------------------------------------ the report
 def _summary(c: _Ctx) -> dict:
     times = [e.get("at") for e in c.evs if e.get("at")]
@@ -643,7 +718,7 @@ def check(sid: str, evs: list[dict], pieces: list[store.Piece] | None = None, ve
              _model_inconsistent(c, transcripts), _injected_over_cap(c), _trigger_not_from_person(c),
              _version_mismatch(c, versions), _private_piece_named(c), _weak_evidence_learning(c),
              _public_not_declared(c, cwd), _marker_name_ignored(cwd), _save_in_apply_mode(c), _promotion_without_verifier(c, everything),
-             _verifier_saw_summary(c, everything), _verifier_over_cap(everything)]
+             _verifier_saw_summary(c, everything), _verifier_over_cap(everything), *_memory_rules(everything)]
     return {"summary": _summary(c), "rules": rules,
             "anomalies": sum(r["count"] for r in rules if r["status"] == "flagged")}
 

@@ -274,13 +274,13 @@ def run(routers: list[str], scale: int = 0, model: str | None = None) -> list[di
     return rows
 
 
-def from_store(meaning=None, scoped: bool = False) -> dict:
+def from_store(meaning=None, scoped: bool = False, pieces: list | None = None) -> dict:
     """The person's own tasks marked good, against their real store: the request that started each one and the
     pieces it used (those still in the store, not the ones the task itself saved). Read-only: nothing is written,
     and only counts come out, never a request. `scoped`: each task sees only its project's pieces (and another
     project's when the request names it), the way the hooks load them by default."""
     from athos import control, load
-    pieces = load.enabled()
+    pieces = load.enabled() if pieces is None else pieces       # another store to judge (the dream's proposals)
     have = {p.id for p in pieces}
     out = {"tasks": 0, "hit1": 0, "any": 0, "missed": 0, "extra": 0, "none_tasks": 0, "none_loads": 0, "ms": [],
            "other_project": 0, "other_project_unnamed": 0, "all_tasks": 0, "no_own_tasks": 0,

@@ -613,7 +613,8 @@ def run(now: _dt.datetime | None = None, model: bool | None = None, runner=None)
             from athos.memory import dream_model
             t3 = time.perf_counter()
             out["model"] = dream_model.run(runner=runner)
-            _event(run_id, "model", t3, **{k: v for k, v in out["model"].items() if not isinstance(v, (dict, list))})
+            _event(run_id, "model", t3, wrote=out["model"].get("wrote") or [],
+                   **{k: v for k, v in out["model"].items() if not isinstance(v, (dict, list))})
         _event(run_id, "done", t0, spend_usd=(out.get("model") or {}).get("spend_usd", 0.0))
     finally:
         release_lock()
