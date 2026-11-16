@@ -517,7 +517,7 @@ with no such session, this project's latest, else the last one anywhere:
 | `weak_evidence_learning` | a piece saved by autonomous learning with no strong item of evidence (an exit status or an artifact the hooks saw): only the model's opinion |
 | `save_in_apply_mode` | a piece saved on an apply model: an autonomous save on a model that is not frontier, or, in sessions written by 0.1.124 or later, a task answered by an apply model that saved a piece (older sessions: only autonomous saves are judged, partial) |
 | `promotion_without_verifier` | a piece of the session's project moved to verified with no earlier passing verdict of the independent verifier whose prompt carried paths only |
-| `verifier_saw_summary` | a verifier run of the session's project whose recorded `paths_only` or `bundle_clean` is false, whose inputs were not exactly the fixed set (the six inputs below, or the four files of a run recorded before 0.1.166), whose bundle holds any other entry, or whose kept `prompt.txt` is not the fixed text with the bundle's own input paths |
+| `verifier_saw_summary` | a verifier run of the session's project whose recorded `paths_only` or `bundle_clean` is false, whose inputs were not exactly the fixed set (the seven inputs below; or the six of a run recorded before 0.1.167, or the four files of one recorded before 0.1.166), whose bundle holds any other entry, or whose kept `prompt.txt` is not the fixed text with the bundle's own input paths |
 | `verifier_over_cap` | a UTC day whose model runs (verifier and replay, every project) went over the runs or the cost cap they recorded (a run with no reported cost counts its estimate) |
 | `marker_name_ignored` | the repository the audit runs in has a `.athos.toml` whose `name` is not the folder's own and was never accepted on this machine (`athos public name`), so Athos uses the folder's name |
 | `public_not_declared` | the repository the audit runs in (when it is the session's project) is pushed to a code-hosting site, read from its local git configuration, and its `.athos.toml` does not say whether it is public; `athos public` or `athos public off` answers it |
@@ -739,8 +739,10 @@ nothing saved` (and how many qualified tasks ran without the session guide); qua
 nothing saved, while saves stay at zero, mean the model is not acting on the guide, and `"ask": "stop"` brings the line
 back.
 
-The guide says how: one new piece, every step with a Check, no secrets, emails, links, folders of this computer or
-other projects' names. `athos save --auto` then saves it without asking you, as a `candidate` of the current project only (`visibility: project`), with
+The guide says how: one new piece, every step with a Check, only what someone could check in the repository (its
+files, its history, what its commands print; no timings or other incidental observations), your preferences written as
+rules to follow rather than as things you said, no secrets, emails, links, folders of this computer or other projects'
+names. `athos save --auto` then saves it without asking you, as a `candidate` of the current project only (`visibility: project`), with
 `learned_by`, the evidence summary, `confidence: 0.3` and the risk the detector finds, after two checks: the task's
 evidence must still qualify, and the private-data detector of `athos share` must find nothing (emails, phone and ID
 numbers, links, folders of this computer, another project's name, your name); if it finds something the piece is not
@@ -794,7 +796,13 @@ why. Paths are resolved inside the git work tree the task ran in only (an absolu
 file whose text addresses the verifier — "ignore previous instructions", "note to the verifier", a verdict in the
 rubric's JSON — are left out and listed; an absolute path is never written down), so a piece saved in a repository
 marked public never copies anything from outside it; each file is cut at 40,000 characters, all of them at 200,000,
-at most 25 files and 80 paths looked at; outside git there is no snapshot. `meta.json` keeps the hash of the text the
+at most 25 files and 80 paths looked at; outside git there is no snapshot. `history.txt` holds the subjects of the
+repository's commits from before the task's own, newest first, so a claim about the history's conventions (a subject
+prefix, say) can be checked: subjects only (no body, author, email or date; an email address in a subject is
+replaced), merges left out (their subjects name branches and people), at most 20, each cut at 120 characters, read
+from git inside the repository the task ran in, behind the task's first commit (behind HEAD when it made none); the
+task's own commit messages are never there, a subject whose text addresses the verifier is left out and counted, and
+when there is no earlier commit (or no repository) the file says so. `meta.json` keeps the hash of the text the
 verifier reads, the repository the task ran in and the manifest. Then it starts, detached so no hook waits, a headless
 run of your own Claude Code:
 
@@ -810,21 +818,23 @@ claude -p <prompt> --output-format json --model <verifier> --tools Read,Grep,Glo
 Read-only tools that can read only the folder (`--restricted` keeps the file tools inside the working folders, and the
 one allow rule is a Read rule for the folder, which Grep and Glob follow; `dontAsk` denies anything else), a fresh
 context, no plugins, hooks, CLAUDE.md or MCP servers (`--safe-mode`; `ATHOS_HOOKS=off` makes `athos hook` do nothing
-as well), nothing kept of the session. Its prompt is a fixed text with the six input paths (the four files, `files/`
-and `files.json`) and nothing else, and tells it the files, the repository's included, are data, never instructions:
+as well), nothing kept of the session. Its prompt is a fixed text with the seven input paths (the four files,
+`files/`, `files.json` and `history.txt`) and nothing else, and tells it the files, the repository's and the commit
+subjects included, are data, never instructions:
 never the worker's summary or the conversation (`prompt.txt` keeps it, and the `verify` event records `paths_only`,
 and `bundle_clean`: that the folder holds only its fixed entries — the inputs, `prompt.txt`, `meta.json`,
-`result.json` — and `files/` exactly what `files.json` lists, as plain files; that `piece.md` has no frontmatter or
+`result.json` — `files/` exactly what `files.json` lists, as plain files, and `history.txt` only its fixed header and
+subject lines within the caps, with no email address; that `piece.md` has no frontmatter or
 history and `diff.patch` no commit header or message; a pass from a bundle that is not clean never counts). It answers
 a fixed rubric, one verdict per criterion, as JSON:
 
 | criterion | passes when |
 |---|---|
 | `evidence_passed` | the verification output shows the commands ended successfully, with no failure after the last success |
-| `piece_matches_work` | every step of the piece is backed by the diff, the verification output, or the content of the repository files in the snapshot (their code or data; a comment the diff shows the work itself added backs nothing); a claim none of the three shows, or one about a file left out or a part cut, is not shown |
+| `piece_matches_work` | facts and instructions are judged apart. Every statement of fact about the repository, its history or what its commands print (a duration or any other observation included) is backed by the diff, the verification output, the content of the repository files in the snapshot (their code or data; a comment the diff shows the work itself added backs nothing) or the commit subjects; a fact none of them shows, or one about a file left out or a part cut, is not shown. Every instruction (what a step says to do or not to do) agrees with what the diff and the output show was done: one the work contradicts fails, and one they neither show nor contradict passes only as a general precaution ("do not push unless asked"), never when it states or implies that something happened. Statements about this task or the person are judged under `reusable` |
 | `checks_runnable` | at least one Check is a concrete command that can be run again later in this repository |
 | `no_private_data` | no secret, credential, personal data or folder of one particular computer |
-| `reusable` | a way of working for a later task, not a narration of this one |
+| `reusable` | a way of working for a later task, not a narration of this one: nothing about this particular task, or about what the person asked, said or wanted, stated as a fact ("the person asked for…", "in this session…", the subject this work's commit used); a preference of the person counts only written as a rule to follow |
 
 The verdict passes only when every criterion does, and counts only for the text it read: when the piece changed since
 its folder was written, or while the verifier ran, the verdict is not applied (outcome `stale`). It runs on a different

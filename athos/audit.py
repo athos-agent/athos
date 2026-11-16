@@ -516,8 +516,9 @@ def _promotion_without_verifier(c: _Ctx, everything: list[dict]) -> dict:
 
 def _verifier_saw_summary(c: _Ctx, everything: list[dict]) -> dict:
     """Structurally: the prompt the verifier got (kept in its bundle) must be the fixed text with the bundle's input
-    paths and nothing else, its inputs exactly the fixed set (verify.INPUTS, or the four files of a run recorded
-    before the repository snapshot), and its bundle only the fixed entries."""
+    paths and nothing else, its inputs exactly the fixed set (verify.INPUTS; or the six of a run recorded before the
+    history excerpt, or the four files of one recorded before the repository snapshot), and its bundle only the fixed
+    entries."""
     from athos import verify
     runs = [e for e in _project_events(c, everything, {"verify"}) if e.get("prompt_file") or e.get("inputs")]
     if not runs:
@@ -527,7 +528,7 @@ def _verifier_saw_summary(c: _Ctx, everything: list[dict]) -> dict:
         problems = []
         if e.get("paths_only") is False:
             problems.append("prompt not paths only (recorded)")
-        if sorted(e.get("inputs") or []) not in (sorted(verify.INPUTS), sorted(verify.INPUTS_V1)):
+        if sorted(e.get("inputs") or []) not in [sorted(n.values()) for n, _text in verify.GENERATIONS]:
             problems.append("inputs other than the fixed set")
         bundle, prompt_file = e.get("bundle"), e.get("prompt_file")
         if e.get("bundle_clean") is False:

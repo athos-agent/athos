@@ -100,7 +100,7 @@ solved, a rule that was not obvious, how to tell it went right), save exactly on
 Otherwise do nothing, and don't mention Athos. Every step needs a **Check:**: the command in backticks that proves
 it went right and can be run again later in this repository, or the fact anyone can observe; a piece without a
 runnable Check is never verified. Run each verification command on its own at least once before finishing (not piped,
-not chained after `||`): only then is its result recorded. Write only what the task showed. No secrets, emails, links, folders of this computer
+not chained after `||`): only then is its result recorded. Write only what the task showed and someone could check in the repository (its files, its history, what its commands print), and leave out timings and other incidental observations. State the person's preferences as rules to follow, not as things they said. No secrets, emails, links, folders of this computer
 (use paths relative to the repository) or other projects' names: a piece that carries any is not saved. It is kept as
 a candidate of this project only, and an independent check, not you, decides whether the work was right; until then
 a weaker model never gets it. This path creates new pieces only. Don't announce the save in your answer and don't

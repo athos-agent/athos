@@ -307,7 +307,7 @@ class GuideTest(unittest.TestCase):
         text = capture.guide("athos", auto=True)
         self.assertIn("Run each verification command on its own at least once before finishing", text)
         self.assertIn("not piped", text)
-        self.assertLess(len(text), 2600)
+        self.assertLess(len(text), 2700)
 
 
 # ------------------------------------------------------------------------------------------------ audit's default
