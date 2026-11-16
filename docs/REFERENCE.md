@@ -423,13 +423,18 @@ Nothing is lost or counted twice whoever else writes the log:
 - *A writer without the lock* (an older Athos, another tool) that opened the log before a trim and writes after it
   writes into the old file: it stays reachable under a hidden name (`.events.jsonl.trim-…`) and what reaches it is
   carried over at the end of the cycle and again at the next one (the Stop hook asks for a cycle when something waits
-  there), until nobody has written into it for 30 seconds.
+  there), until nobody has written into it for 30 seconds. Each trim gives that name a token of its own, so the same
+  log put back twice never reuses one. On a filesystem without hard links the old file is read through the handle
+  the trim kept open, whole lines carried over as they arrive, until nothing reached it for a second (15 s at most);
+  the `replay` event says so (`no_links`), since a line written into it later than that is not carried over.
 - *A log put back* after a trim (a backup restore, a sync tool, two machines sharing the home) starts with segments
   already archived: every reader skips them by their bytes, whatever their state, and the next cycle trims them
-  again; bytes the archive already holds are never written as a new segment. A log that repeats archived lines
-  without starting at a segment's boundary is neither archived nor trimmed, and a log replaced between archiving and
-  trimming is left as it is (its segment is marked `kept`); either way the cycle's `replay` event says why
-  (`refused`).
+  again; bytes the archive already holds are never written as a new segment. A backup that ended inside a segment
+  starts with that segment's first whole lines, which are skipped and trimmed the same way. A line byte for byte equal
+  to one archived in an overlapping segment (turns an older Athos imported again, archived lines merged back from a
+  copy) never stops the archive: it is archived with the rest, its number listed in the segment's `repeats`, and no
+  reader counts it again (the `replay` event says how many, `repeats_skipped`). A log replaced between archiving and
+  trimming is left as it is (its segment is marked `kept`), and the cycle's `replay` event says why (`refused`).
 - *Readers during a cycle* read the live log first and then the manifest and the rollups (a full-history read takes
   the append lock for those two reads), so a cycle that archives and trims meanwhile can neither hide a segment from
   them nor make them count one twice.

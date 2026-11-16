@@ -130,8 +130,11 @@ class OldBackupTest(MemoryCase):
         paths.events_file().write_bytes(b"".join(old[5:9]) + paths.events_file().read_bytes())
         with later(25):
             cycle.run()
-        archived = self.archived()
-        self.assertEqual(len(archived) - len(set(archived)), twins)
+        segs = memory.manifest()["segments"]
+        counted = [line for e in segs for n, line in enumerate(memory.read_segment(e).split(b"\n"))
+                   if line.strip() and n not in set(e.get("repeats") or [])]
+        self.assertEqual(len(counted) - len(set(counted)), twins)      # kept, but never counted twice
+        self.assertEqual(sum(len(e.get("repeats") or []) for e in segs), 4)
 
 
 class BareMarkTest(MemoryCase):
@@ -179,3 +182,49 @@ class BareMarkTest(MemoryCase):
         cycle.run()
         tid, _res = ev.mark(watch.KEYS["g"], None, None, "beta")
         self.assertEqual(tid, "old-beta")
+
+
+class RepeatedLineTest(MemoryCase):
+    def reimport(self):
+        """Two archived lines written again into the live log, byte for byte: an older Athos importing the same
+        turns again."""
+        cycle.run()
+        seg = memory.read_segment(memory.manifest()["segments"][0]).splitlines(keepends=True)
+        twice = [line for line in seg if json.loads(line).get("task_id") == "old-beta"][:2]
+        self.assertEqual(len(twice), 2)
+        with open(paths.events_file(), "ab") as out:
+            out.write(b"".join(twice))
+        return twice
+
+    def test_a_repeated_line_never_stops_the_archive(self):
+        ends = count("task_end")
+        self.reimport()
+        outs = []
+        for days in (45, 46, 47):                            # everything, the repeated lines too, is outside the window
+            with later(days):
+                outs.append(cycle.run(auto=True))
+        self.assertFalse(any(o.get("stuck") or o["replay"].get("refused") for o in outs), outs)
+        self.assertEqual(outs[0]["replay"].get("repeats_skipped"), 2)
+        ev._EVENTS_CACHE.clear()
+        replay = [e for e in ev.events() if e.get("type") == "memory_cycle" and e.get("phase") == "replay"]
+        self.assertTrue(any(e.get("repeats_skipped") == 2 for e in replay))
+        self.assertEqual(count("task_end"), ends)
+        self.assertEqual(sum(1 for t in ev.tasks() if t["task_id"] == "old-beta"), 1)
+        self.assertEqual(cycle.compare_rebuild()["ledger_equal"], True)
+
+    def test_a_manifest_rebuilt_skips_the_same_lines(self):
+        self.reimport()
+        with later(45):
+            cycle.run()
+        uses = memory.view().record("report")
+        whole = ev.record("report", ev.tasks())
+        memory.manifest_file().unlink()
+        cycle.recover()
+        self.assertEqual(cycle.compare_rebuild()["ledger_equal"], True)
+        cycle.rebuild()
+        memory._VIEW.clear()
+        ev._EVENTS_CACHE.clear()
+        memory._ARCHIVE_CACHE.clear()
+        self.assertEqual(memory.view().record("report"), uses)
+        self.assertEqual(ev.record("report", ev.tasks()), whole)
+        self.assertEqual(whole["uses"], 1)

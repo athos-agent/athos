@@ -308,8 +308,8 @@ SEGMENT_MAX = 8_000_000      # raw bytes per segment at most: a first cycle on a
 SIDE_QUIET_S = 30            # a trimmed log's old file nobody wrote into for this long is let go (after a last sweep)
 NOT_AT_HEAD = ("the live log no longer starts with the segment (it was replaced or put back meanwhile): nothing was "
                "trimmed, and the log was left as it is")
-REPEATS = ("the live log repeats lines already archived (put back or merged from a copy): nothing was archived or "
-           "trimmed, and the log was left as it is until it is looked at")
+REPEATS = ("the lines about to be archived are a segment the archive already holds: nothing was archived twice, and the "
+           "log was left as it is")
 
 
 def _cut_stream(f, total: int, now: _dt.datetime, s: dict | None = None) -> int:
@@ -356,10 +356,11 @@ def _next_id(segments: list[dict]) -> int:
     return (max((int(s["id"]) for s in segments), default=0)) + 1
 
 
-def write_segment(data: bytes) -> dict:
+def write_segment(data: bytes, repeats: list | None = None) -> dict:
     """The prefix as a new segment: compressed into a temporary file of its own, synced, moved into place, the folder
     synced, and only then listed in the manifest (state `written`, synced too). Returns the manifest entry; bytes the
-    archive already holds (the same sha256) are never written again: that segment's entry is returned."""
+    archive already holds (the same sha256) are never written again: that segment's entry is returned. `repeats`: the
+    numbers of its lines that repeat lines archived before (kept, never counted again)."""
     from athos import eval as ev
     man = memory.manifest()
     sha = memory._sha(data)
@@ -382,6 +383,9 @@ def write_segment(data: bytes) -> dict:
     entry = {"id": seg_id, "file": name, "lines": data.count(b"\n"), "events": len(events), "bytes": len(data),
              "sha256": sha, "head": memory._head_sha(data), "first_at": min(stamps, default=None),
              "last_at": max(stamps, default=None), "state": "written", "written_at": ev._iso(ev.now())}
+    if repeats:
+        entry["repeats"] = sorted(repeats)
+        entry["events"] = len(memory.segment_events(entry, data))
     man["segments"].append(entry)
     memory.write_json(memory.manifest_file(), man)
     return entry
@@ -403,7 +407,7 @@ def fold_segment(entry: dict, led: dict | None = None, write: bool = True) -> di
     """Fold one segment into the ledger, once (the ledger lists the segments it folded), and write the ledger."""
     led = led if led is not None else memory.load_ledger()
     if entry["id"] not in led["folded"]:
-        memory.fold(led, memory.decode(memory.read_segment(entry)))
+        memory.fold(led, memory.segment_events(entry))
         led["folded"].append(entry["id"])
         if write:
             memory.write_json(memory.ledger_file(), led)
@@ -737,6 +741,10 @@ def recover() -> dict:
             entry = {"id": seg_id, "file": f.name, "lines": data.count(b"\n"), "events": len(events),
                      "bytes": len(data), "sha256": memory._sha(data), "head": memory._head_sha(data),
                      "first_at": min(stamps, default=None), "last_at": max(stamps, default=None), "recovered": True}
+            again = repeated_lines(data, [e for e in man["segments"] if int(e["id"]) < seg_id])
+            if again:                                    # the same rule as when it was cut: the same lines skipped
+                entry["repeats"] = again
+                entry["events"] = len(memory.segment_events(entry, data))
             man["segments"].append(entry)
             shas.add(entry["sha256"])
             found.append(entry)
@@ -829,13 +837,15 @@ def archived_lines(data: bytes, segs: list) -> set:
     return out
 
 
-def _repeats_archived(data: bytes, segs: list) -> bool:
-    """Whether a prefix about to be archived repeats a line of any segment (a log put back or merged that does not
-    start at a segment's boundary): such lines would be archived twice."""
-    if not segs:
-        return False
-    old = archived_lines(data, segs)
-    return any(line in old for line in data.splitlines() if line.strip())
+def repeated_lines(data: bytes, earlier: list) -> list:
+    """The numbers of the lines of `data` byte for byte equal to a line archived in an earlier segment (a log put back
+    or merged from a copy, turns an older Athos imported again): kept in the segment, so the live log can be trimmed
+    of them, but never counted twice. Lines equal to each other within `data` are each counted. Deterministic: the
+    same data against the same earlier segments gives the same lines, also when a lost manifest is rebuilt."""
+    if not earlier:
+        return []
+    old = archived_lines(data, earlier)
+    return [n for n, line in enumerate(data.split(b"\n")) if line.strip() and line in old]
 
 
 def replay_and_prune(now: _dt.datetime | None = None) -> dict:
@@ -874,14 +884,13 @@ def replay_and_prune(now: _dt.datetime | None = None) -> dict:
                         data += f.readline()
                     else:
                         data = data[:end]
-                if not entries and _repeats_archived(data, segs):
-                    out["refused"] = REPEATS
-                    break
-                entry = write_segment(data)
+                again = repeated_lines(data, segs + entries)
+                entry = write_segment(data, again)
                 if entry.get("state") != "written" or any(e["id"] == entry["id"] for e in entries):
                     out["refused"] = REPEATS                 # already archived: never twice
                     break
                 entries.append(entry)
+                out["repeats_skipped"] = out.get("repeats_skipped", 0) + len(again)
                 a += len(data)
     if entries:
         led = memory.load_ledger()
@@ -1182,7 +1191,7 @@ def run(now: _dt.datetime | None = None, model: bool | None = None, runner=None,
         _event(run_id, "replay", t0, archived_lines=r["archived_lines"], archived_bytes=r["archived_bytes"],
                compressed_bytes=r["compressed"], resumed=r["resumed"], live_before=before["live"],
                live_after=after["live"], rollup_bytes=after["rollups"], segments=after["segments"],
-               **{k: r[k] for k in ("refused", "trimmed_again", "no_links") if r.get(k)})
+               **{k: r[k] for k in ("refused", "trimmed_again", "no_links", "repeats_skipped") if r.get(k)})
         progress = bool(r["archived_lines"] or r.get("trimmed_again") or r["resumed"].get("pruned")
                         or r["resumed"].get("folded")) or reason in ("late", "rollups", "sweep", "asked")
         if auto and not progress:

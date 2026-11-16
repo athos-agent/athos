@@ -163,6 +163,16 @@ def decode(raw: bytes) -> list:
     return out
 
 
+def segment_events(entry: dict, raw: bytes | None = None) -> list:
+    """A segment's events, without the lines it holds only as repeats of lines archived before it (`repeats`: their
+    numbers; the bytes stay, so the live log can still be trimmed of them, but they are never counted twice)."""
+    raw = read_segment(entry) if raw is None else raw
+    skip = set(entry.get("repeats") or [])
+    if not skip:
+        return decode(raw)
+    return decode(b"\n".join(line for n, line in enumerate(raw.split(b"\n")) if n not in skip))
+
+
 _ARCHIVE_CACHE: dict = {}
 
 
@@ -179,7 +189,7 @@ def archived_events(segs: list | None = None) -> list:
     Cached per process for the same segments. A full-history reader passes the segments it read together with the
     live log (`eval.events`), so the two are one view."""
     segs = segments() if segs is None else segs
-    key = tuple((s.get("id"), s.get("sha256")) for s in segs)
+    key = tuple((s.get("id"), s.get("sha256"), len(s.get("repeats") or [])) for s in segs)
     if _ARCHIVE_CACHE.get("key") != key:
         rows, bad = [], []
         for entry in segs:
@@ -194,7 +204,7 @@ def archived_events(segs: list | None = None) -> list:
             except OSError:
                 bad.append(entry.get("file"))
                 continue
-            rows.extend(decode(raw))
+            rows.extend(segment_events(entry, raw))
         _ARCHIVE_CACHE.update(key=key, rows=rows, bad=bad)
     return _ARCHIVE_CACHE["rows"]
 
@@ -573,7 +583,7 @@ def rebuild_ledger() -> dict:
     """The ledger folded again from the whole archive, segment by segment (what `ledger.json` must equal)."""
     led = empty_ledger()
     for entry in manifest()["segments"]:
-        fold(led, decode(read_segment(entry)))
+        fold(led, segment_events(entry))
         led["folded"].append(entry["id"])
     return led
 

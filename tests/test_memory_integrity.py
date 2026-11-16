@@ -95,12 +95,16 @@ class RestoredLogTest(MemoryCase):
         paths.events_file().write_bytes(b"".join(archived[5:9]) + live)     # a merge that kept some old lines
         segs = len(memory.manifest()["segments"])
         size = paths.events_file().stat().st_size
+        events = len(memory.archived_events())
         with mock.patch.object(cycle, "_now", return_value=ev.now() + 25 * DAY):
-            cycle.run()
-        self.assertEqual(len(memory.manifest()["segments"]), segs)          # refused: nothing archived twice
-        self.assertEqual(paths.events_file().stat().st_size >= size, True)  # nor trimmed
-        replay = [e for e in ev.live_events() if e.get("type") == "memory_cycle" and e.get("phase") == "replay"][-1]
-        self.assertIn("already archived", replay.get("refused") or "")
+            out = cycle.run()
+        # Archived and trimmed, but the four repeated lines are never counted again (kept in the segment's bytes).
+        self.assertNotIn("refused", out["replay"])
+        self.assertEqual(out["replay"]["repeats_skipped"], 4)
+        new = memory.manifest()["segments"][segs:]
+        self.assertEqual(len(new), 1)
+        self.assertEqual(len(memory.archived_events()) - events, new[0]["lines"] - 4)
+        self.assertLess(paths.events_file().stat().st_size, size)
 
     def test_a_log_replaced_before_the_trim_is_left_alone_and_said(self):
         real = cycle.prune
