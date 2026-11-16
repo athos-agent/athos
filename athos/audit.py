@@ -387,10 +387,14 @@ OLDER_REWRITES = ("an older Athos that rewrites a piece drops the frontmatter li
 
 
 OLDER_READS_WINDOW = ("an Athos older than {oldest} reads only the live window of a log the dream cycle archived "
-                      "(the last weeks): its report, export and benches leave the archived history out without saying "
-                      "so, and its importers can import again a Codex or Muse session whose tasks were archived "
-                      "(the same task ids: offline commands count them once, the hooks may count them twice until the "
-                      "next cycle). Update every agent's Athos (`athos doctor`)")
+                      "(the last weeks), and says nothing of it: its report, export and benches leave the archived "
+                      "history out; its Stop hook can start the verifier again, a paid run, for a version whose "
+                      "verdict is archived; its grading rules see none of the archived outcomes, so it neither retires "
+                      "what the whole history would nor verifies a candidate whose pass is archived; and its importers "
+                      "import again a Codex or Muse session whose tasks were archived (the same task ids: offline "
+                      "commands count them once, the hooks leave them out and ask for a cycle, which counts them "
+                      "once). Update every agent's Athos (`athos doctor`)")
+REIMPORTED = "tasks the archive holds were imported again into the live log"
 
 
 def _older(version: str | None, than: str) -> bool:
@@ -420,6 +424,14 @@ def _version_mismatch(c: _Ctx, versions: dict | None) -> dict:
             found.append({"what": "an Athos older than the archived log's format is at work here",
                           **({"versions": old} if old else {}), **({"installed": old_agents} if old_agents else {}),
                           "risk": OLDER_READS_WINDOW.format(oldest=oldest)})
+        # An older Athos that only reads or imports leaves no version: its imports are seen by their task ids, a live
+        # `task_start` for a task the ledger already folded (an offline command: the ledger, never the archive).
+        archived = memory.ledger_counts().get("rows") or {}
+        again = sorted({e.get("task_id") for e in memory.view().events if isinstance(e, dict)
+                        and e.get("type") == "task_start" and e.get("task_id") in archived})
+        if again:
+            found.append({"what": REIMPORTED + " (an Athos older than the archive's format, likely)",
+                          "tasks": len(again), "risk": OLDER_READS_WINDOW.format(oldest=oldest)})
     agents = (versions or {}).get("agents") or {}
     hooks, cli = agents.get("claude-code"), agents.get("path")
     if hooks and cli and hooks != cli:
@@ -427,7 +439,7 @@ def _version_mismatch(c: _Ctx, versions: dict | None) -> dict:
                       "plugin": hooks, "cli": cli, "risk": OLDER_REWRITES})
     basis = "the version on each audit event" + (", and the installed versions now" if versions else "")
     partial = not written
-    if not written and not versions:
+    if not written and not versions and not found:
         return _result("version_mismatch", "not_evaluated", [], "no versions on the events and none read now")
     return _result("version_mismatch", _status(found, partial), found,
                    basis + ("; the session's own events carry no version (written before 0.1.110)" if partial else ""))

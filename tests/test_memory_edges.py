@@ -288,3 +288,37 @@ class SweepTest(MemoryCase):
         self.assertEqual(count("next_one"), 1)
         torn = [line for line in paths.events_file().read_bytes().split(b"\n") if line.startswith(b'{"type": "torn"')]
         self.assertEqual(torn, [b'{"type": "torn", "at": "'])            # a line of its own, joined to nothing
+
+
+class OlderAthosTest(MemoryCase):
+    def test_tasks_an_older_athos_imports_again_are_counted_once_and_ask_for_a_cycle(self):
+        cycle.run()
+        hot = memory.view().sums()["projects"]["beta"]["tasks"]
+        whole = sum(1 for t in ev.tasks() if t.get("project") == "beta")
+        self.assertEqual(cycle.due(), "")
+        seg = memory.read_segment(memory.manifest()["segments"][0]).splitlines(keepends=True)
+        again = [line for line in seg if json.loads(line).get("task_id") == "old-beta"
+                 and json.loads(line).get("type") in ("task_start", "task_end")]
+        with open(paths.events_file(), "ab") as out:      # an older importer writes the archived turns again
+            out.write(b"".join(again))
+        memory._VIEW.clear()
+        self.assertEqual(memory.view().sums()["projects"]["beta"]["tasks"], hot)
+        self.assertEqual(cycle.due(), "late")
+        cycle.run(auto=True)
+        memory._VIEW.clear()
+        self.assertEqual(memory.view().sums()["projects"]["beta"]["tasks"], hot)
+        self.assertEqual(sum(1 for t in ev.tasks() if t.get("project") == "beta"), whole)
+        self.assertEqual(cycle.due(), "")
+
+    def test_the_audit_says_what_an_older_athos_costs_and_sees_its_imports(self):
+        from athos import audit
+        for cost in ("verifier", "grading", "import"):
+            self.assertIn(cost, audit.OLDER_READS_WINDOW)
+        cycle.run()
+        seg = memory.read_segment(memory.manifest()["segments"][0]).splitlines(keepends=True)
+        again = [line for line in seg if json.loads(line).get("task_id") == "old-beta"]
+        with open(paths.events_file(), "ab") as out:
+            out.write(b"".join(again))
+        r = audit._version_mismatch(audit._Ctx("s", [], [], False), None)
+        self.assertEqual(r["status"], "flagged")
+        self.assertTrue(any("imported again" in f["what"] for f in r["found"]))

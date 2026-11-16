@@ -901,14 +901,24 @@ class View:
         self.stale = False
         self._late: set = set()
         if self.rollups is not None:
-            started = {e.get("task_id") for e in self.events if isinstance(e, dict) and e.get("type") == "task_start"}
+            started = {e.get("task_id") for e, n in zip(self.events, numbers)
+                       if isinstance(e, dict) and e.get("type") == "task_start" and n < cut}
             boundary = self.rollups.get("boundary") or {}
             ids = None
             for e, n in zip(self.events, numbers):
                 if n < cut or not isinstance(e, dict):
                     continue
                 tid = e.get("task_id")
-                if tid and tid not in started and tid not in boundary and tid not in self._late and e.get("type") in (
+                if e.get("type") == "task_start" and tid and tid not in boundary and tid not in self._late:
+                    # A task begun again under an id the archive holds: turns an older Athos imported again. Left
+                    # out until a cycle makes it a boundary task, so it is never counted twice.
+                    if ids is None:
+                        ids = self._ids()
+                    if ids is not None and bloom_has(ids, tid):
+                        self._late.add(tid)
+                        continue
+                    started.add(tid)
+                elif tid and tid not in started and tid not in boundary and tid not in self._late and e.get("type") in (
                         "task_end", "mark", "correction"):
                     if ids is None:
                         ids = self._ids()
