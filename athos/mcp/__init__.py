@@ -378,6 +378,10 @@ def _call(name: str, args: dict, session_id: str = SESSION) -> str:
         return json.dumps(panel(session_id, chat=True), ensure_ascii=False)
     if name == "athos_keep":
         # The person's press in the panel: the only way the chat learns (the model's athos_save is refused there).
+        # Where no panel can be drawn, or in the classic interface, nobody can press it: such a call is not the
+        # person's, so it is refused instead of trusted.
+        if not draws_apps() or not _minimal():
+            raise ValueError("athos_keep is the panel's button: nothing was saved")
         from athos import indicator
         from athos.mcp import keep
         names = _Nameable()

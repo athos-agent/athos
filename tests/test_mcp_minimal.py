@@ -174,6 +174,14 @@ class MinimalChatTest(TempHome):
         again = self.rpc(self.call(1, "athos_keep", action="save"))[0]["result"]
         self.assertTrue(again["isError"])                          # nothing new to save twice
 
+    def test_the_save_button_is_refused_where_no_panel_can_be_drawn(self):
+        r = self.rpc(self.call(1, "athos_find", request="summarise the quarterly numbers for the board"),
+                     self.call(2, "athos_step", new="pull the numbers"),
+                     self.call(3, "athos_keep", action="save"), apps=False)
+        kept = next(m for m in r if m.get("id") == 3)["result"]
+        self.assertTrue(kept["isError"])                           # no panel, so no person pressed anything
+        self.assertEqual([p for p in store.all_pieces() if "quarterly" in p.title.lower()], [])
+
     def test_the_persons_save_adds_new_steps_to_the_piece_in_use(self):
         self.release()
         self.rpc(self.call(1, "athos_find", request="release greet 0.3.0"),
