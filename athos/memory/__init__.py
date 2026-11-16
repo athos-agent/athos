@@ -234,12 +234,39 @@ def _sha_range(read, a: int, b: int) -> str:
     return h.hexdigest()
 
 
-def prefix_chain(read, size: int, segs: list, upto: int | None = None) -> tuple[int, list]:
+def _common_lines(read, at: int, size: int, entry: dict) -> int:
+    """How many bytes from `at` in the live log are, whole line by whole line, the first bytes of this segment (a log
+    put back from a backup that ended inside it): 0 when it cannot be read or nothing matches."""
+    try:
+        raw = read_segment(entry)
+    except (OSError, ValueError):
+        return 0
+    m, step = 0, 1 << 16
+    while m < len(raw) and at + m < size:
+        live = read(at + m, min(size, at + m + step))
+        if not live:
+            break
+        mine = raw[m:m + len(live)]
+        if live == mine:
+            m += len(live)
+            continue
+        k = 0
+        while k < min(len(live), len(mine)) and live[k] == mine[k]:
+            k += 1
+        m += k
+        break
+    if m >= len(raw):
+        m = len(raw)
+    return raw.rfind(b"\n", 0, m) + 1
+
+
+def prefix_chain(read, size: int, segs: list, upto: int | None = None, partial: bool = True) -> tuple[int, list]:
     """How many bytes at the start of the live log are archived segments' own bytes, one after another, and which
     segments: a log trimmed normally starts with none; one a cycle has not trimmed yet starts with its newest
-    segment; one put back from a backup or by a sync tool may start with several. Cheap when it starts with none: the
-    first line's hash against each segment's `head`, and the whole sha256 only when a head matches. `upto`: only
-    segments up to this id (those the reader already counts from elsewhere)."""
+    segment; one put back from a backup or by a sync tool may start with several, the last of them maybe only in part
+    (a backup that ended inside it: its first whole lines, `partial`). Cheap when it starts with none: the first
+    line's hash against each segment's `head`, and the whole sha256 (or, for a part, the segment's own bytes) only
+    when a head matches. `upto`: only segments up to this id (those the reader already counts from elsewhere)."""
     heads: dict = {}
     for e in segs:
         if upto is None or int(e.get("id") or 0) <= upto:
@@ -247,16 +274,25 @@ def prefix_chain(read, size: int, segs: list, upto: int | None = None) -> tuple[
     at, used = 0, []
     while at < size:
         h = _head_at(read, at, size)
+        found = None
         for e in heads.get(h, []) + heads.get(None, []):        # a segment listed before heads were kept: by sha
             n = int(e.get("bytes") or 0)
-            if e in used or not n or size - at < n:
-                continue
-            if _sha_range(read, at, at + n) == e.get("sha256"):
-                at += n
-                used.append(e)
+            if e not in used and n and size - at >= n and _sha_range(read, at, at + n) == e.get("sha256"):
+                found = e
                 break
-        else:
-            break
+        if found is not None:
+            at += int(found["bytes"])
+            used.append(found)
+            continue
+        part = 0
+        for e in heads.get(h, []) if partial and h else []:
+            if e not in used:
+                part = _common_lines(read, at, size, e)
+                if part:
+                    at += part
+                    used.append(e)
+                    break
+        break                                                   # nothing more, or the end of what was put back
     return at, used
 
 

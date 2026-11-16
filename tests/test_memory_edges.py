@@ -74,3 +74,61 @@ class NoHardLinksTest(MemoryCase):
                 cycle.replay_and_prune()
         self.assertEqual(outcomes, ["ok"] * 3)
         self.assertEqual(len({f.name for f in cycle.sidecars()}), len(cycle.sidecars()))
+
+
+class OldBackupTest(MemoryCase):
+    def archived(self):
+        raw = b"".join(memory.read_segment(s) for s in memory.manifest()["segments"])
+        return [line for line in raw.splitlines() if line.strip()]
+
+    def archived_ends(self):
+        return sum(1 for line in self.archived() if json.loads(line).get("type") == "task_end")
+
+    def test_a_backup_ending_inside_a_segment_that_is_not_the_newest(self):
+        full = paths.events_file().read_bytes()
+        cycle.run()
+        with later(22):
+            cycle.run()
+        with later(25):
+            cycle.run()
+        segs = memory.manifest()["segments"]
+        self.assertGreaterEqual(len(segs), 3)
+        lines_before, ends = len(self.archived()), self.archived_ends()
+        second = memory.read_segment(segs[1]).splitlines(keepends=True)
+        backup = full[:segs[0]["bytes"]] + b"".join(second[:len(second) // 2])
+        self.assertTrue(full.startswith(backup))
+        paths.events_file().write_bytes(backup)            # the log as a backup from before the second cut kept it
+        self.assertEqual(count("task_end"), ends)            # read once, before any cycle
+        with later(25):
+            out = cycle.run()
+        self.assertNotIn("refused", out["replay"])
+        self.assertEqual(len(self.archived()), lines_before)     # nothing archived twice
+        self.assertEqual(count("task_end"), ends)
+        self.assertEqual(cycle.compare_rebuild()["ledger_equal"], True)
+
+    def test_a_backup_ending_inside_the_newest_segment(self):
+        cycle.run()
+        first = memory.read_segment(memory.manifest()["segments"][0]).splitlines(keepends=True)
+        lines_before, ends = len(self.archived()), self.archived_ends()
+        paths.events_file().write_bytes(b"".join(first[:len(first) // 2]))
+        self.assertEqual(count("task_end"), ends)
+        outs = [cycle.run(auto=True) for _ in range(2)]
+        self.assertFalse(any(o.get("stuck") or o["replay"].get("refused") for o in outs), outs)
+        self.assertEqual(len(self.archived()), lines_before)
+        self.assertEqual(count("task_end"), ends)
+        self.assertNotIn(first[0], paths.events_file().read_bytes())
+
+    def test_lines_of_an_older_segment_put_back_out_of_place_are_not_archived_again(self):
+        cycle.run()
+        with later(22):
+            cycle.run()
+        segs = memory.manifest()["segments"]
+        self.assertEqual(len(segs), 2)
+        before = self.archived()
+        twins = len(before) - len(set(before))              # the fixture's own identical lines, archived together
+        old = memory.read_segment(segs[0]).splitlines(keepends=True)
+        paths.events_file().write_bytes(b"".join(old[5:9]) + paths.events_file().read_bytes())
+        with later(25):
+            cycle.run()
+        archived = self.archived()
+        self.assertEqual(len(archived) - len(set(archived)), twins)

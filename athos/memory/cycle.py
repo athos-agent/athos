@@ -751,7 +751,7 @@ def recover() -> dict:
         if found:
             man["segments"].sort(key=lambda e: int(e["id"]))
             raw = memory.live_raw()
-            _n, at_head = memory.prefix_chain(lambda a, b: raw[a:b], len(raw), man["segments"])
+            _n, at_head = memory.prefix_chain(lambda a, b: raw[a:b], len(raw), man["segments"], partial=False)
             heads = {e["id"] for e in at_head}
             for e in found:
                 e["state"] = "written" if e["id"] in heads else "pruned"
@@ -800,15 +800,41 @@ def resume() -> dict:
     return done
 
 
+def _stamps(lines) -> tuple[str | None, str | None]:
+    lo = hi = None
+    for line in lines:
+        try:
+            at = json.loads(line).get("at")
+        except (ValueError, AttributeError):
+            continue
+        if isinstance(at, str):
+            lo = at if lo is None or at < lo else lo
+            hi = at if hi is None or at > hi else hi
+    return lo, hi
+
+
+def archived_lines(data: bytes, segs: list) -> set:
+    """The lines of every segment whose time span overlaps that of `data` (or has none recorded): what a line about
+    to be archived may already be, wherever it sits in the archive, read only from the segments that can hold it."""
+    lo, hi = _stamps(data.splitlines())
+    out: set = set()
+    for e in segs:
+        first, last = e.get("first_at"), e.get("last_at")
+        if lo is not None and first and last and (last < lo or first > hi):
+            continue
+        try:
+            out.update(memory.read_segment(e, check=False).splitlines())
+        except (OSError, ValueError):
+            continue
+    return out
+
+
 def _repeats_archived(data: bytes, segs: list) -> bool:
-    """Whether a prefix about to be archived repeats a line of the newest segment: a log put back or merged that
-    does not start at a segment's boundary. Such lines would be archived twice."""
+    """Whether a prefix about to be archived repeats a line of any segment (a log put back or merged that does not
+    start at a segment's boundary): such lines would be archived twice."""
     if not segs:
         return False
-    try:
-        old = set(memory.read_segment(segs[-1], check=False).splitlines())
-    except (OSError, ValueError):
-        return False
+    old = archived_lines(data, segs)
     return any(line in old for line in data.splitlines() if line.strip())
 
 
