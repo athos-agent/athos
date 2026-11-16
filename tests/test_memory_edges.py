@@ -361,3 +361,22 @@ class ManifestTest(MemoryCase):
             self.assertEqual(code, 1, broken)
             self.assertTrue(json.loads(text)["manifest_rebuilt"], broken)
             self.assertEqual(count("task_end"), total, broken)
+
+
+class BoundaryLastTest(MemoryCase):
+    def setUp(self):
+        super().setUp()
+        # In delta, an old task whose late mark keeps it at the boundary, and a newer task, archived whole.
+        rows = task("d1", 50, project="delta", pieces=("keys",)) + task("d2", 40, project="delta", pieces=("ship",))
+        log = paths.events_file()
+        log.write_text("".join(json.dumps(r) + "\n" for r in rows) + log.read_text())
+        write([{"type": "mark", "task_id": "d1", "result": "ok", "at": stamp(2)}])
+
+    def test_the_bars_and_the_last_task_prefer_the_newer_archived_task(self):
+        whole = ev._bars_from(ev.tasks(), "delta")["piece"]
+        cycle.run()
+        v = memory.view()
+        self.assertIn("d1", v.rollups["boundary"])
+        self.assertEqual(whole, "ship")
+        self.assertEqual(v.bars("delta")["piece"], whole)
+        self.assertEqual(v.last_task("delta")["task_id"], "d2")

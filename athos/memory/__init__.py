@@ -1008,11 +1008,13 @@ class View:
     def last_task(self, project: str | None = None) -> dict | None:
         """The last task of a project (any project: None), recent or archived: its id, agent, model and verdict."""
         here = [t for t in self.tasks() if project is None or t.get("project") == project]
-        if here:
-            return max(here, key=lambda t: t.get("ended") or "") if project is None else here[-1]
         arch = (((self.rollups or {}).get("sums") or {}).get("projects") or {})
         lasts = [v["last_task"] for k, v in arch.items() if v.get("last_task") and (project is None or k == project)]
-        return max(lasts, key=lambda t: t.get("ended") or "", default=None)
+        if project is None:
+            return max(here + lasts, key=lambda t: t.get("ended") or "", default=None)
+        # In order of first appearance, as the whole history's: a boundary task (begun before the cut, a late line in
+        # the live log) keeps its archived place, so a newer archived task comes after it.
+        return max(here[-1:] + lasts, key=lambda t: t.get("seq") or 0, default=None)
 
     def walked(self) -> dict:
         """`_walked` over the whole history: archived counts plus the recent rows (finished or not)."""
@@ -1026,14 +1028,13 @@ class View:
         total = self.sums()
         here = [t for t in self.tasks() if project is None or t.get("project") == project]
         last = next((t for t in reversed(here) if t["pieces"] or t["saved"]), None)
-        if last is not None:
-            pid = (last["pieces"] or last["saved"])[0]
-        else:
-            arch = ((self.rollups or {}).get("sums") or {}).get("projects") or {}
-            marks = [v["last"] for k, v in arch.items() if v.get("last") and (project is None or k == project)]
-            if not marks:
-                return None
-            pid = max(marks, key=lambda m: m[0])[1]
+        arch = ((self.rollups or {}).get("sums") or {}).get("projects") or {}
+        marks = [v["last"] for k, v in arch.items() if v.get("last") and (project is None or k == project)]
+        if last is not None:                  # the recent one, unless an archived one came after it (a boundary task)
+            marks.append([last.get("seq") or 0, (last["pieces"] or last["saved"])[0]])
+        if not marks:
+            return None
+        pid = max(marks, key=lambda m: m[0])[1]
         p = total["pieces"].get(pid) or {}
         base = p.get("base")
         base_chars = base.get("request_chars") if base else None
