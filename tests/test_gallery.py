@@ -11,7 +11,7 @@ from tests.helpers import TempHome
 
 ROOT = Path(__file__).resolve().parents[1]
 ATHOS = str(ROOT / "bin" / "athos")
-# No medicine anywhere in the gallery (the hackathon doesn't allow it), in either language.
+# No medicine anywhere in the gallery (by choice), in either language.
 MEDICINE = re.compile(r"\b(medic\w*|médic\w*|patient\w*|paciente\w*|clinic\w*|clínic\w*|diagnos\w*|diagnós\w*|"
                       r"hospital\w*|nurs\w*|enfermer\w*|drug\w*|fármaco\w*|medicament\w*|symptom\w*|síntoma\w*|"
                       r"therap\w*|terap\w*|surg\w*|cirug\w*|prescri\w*|receta\w*)\b", re.I)

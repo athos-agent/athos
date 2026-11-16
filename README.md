@@ -4,292 +4,135 @@
 
 Your AI know-how. Free to move, fast to run.
 
-**Athos turns how you work (your criteria, your steps, your checklists) into a living, local and portable memory, so
-any AI agent works by your rules without you explaining them twice.**
+**Athos keeps how a person works (their steps, criteria and checklists) as markdown files on their own computer, so
+any AI agent works by their rules without being told twice.** A frontier model learns a way of working once; every
+other model, down to a small local one, reuses it.
 
-**Personal intelligence: your know-how, in files you own, run by an open model you choose.** Meta's open-weights Muse
-Spark Open, through OpenRouter, followed the person's know-how in 35 of 35 bench runs and 0 of 35 without it; you pick
-the service that runs it, or host it yourself. Athos personalises the model with your way of working, not its weights:
-that know-how already exports as a fine-tuning dataset (`athos export --dataset`); training a model on it is next.
+This page is written for an AI agent that has to use, install or change Athos. How it works inside:
+[docs/DESIGN.md](docs/DESIGN.md). Every command and file: [docs/REFERENCE.md](docs/REFERENCE.md). Why it exists:
+[WHY.md](WHY.md). For people: [professionals](docs/PROFESSIONALS.md) ([en español](docs/PROFESIONALES.md)),
+[Claude Desktop](docs/guides/claude-desktop-en.md), [the gallery](https://athos-agent.github.io/athos/).
 
-An accountant reviews expense claims every month with rules nobody wrote down: the card fee on foreign receipts, the
-meal cap, which exceptions she accepts. Each new chat forgets them, so she explains them again, or fixes the answer by
-hand. With Athos she teaches them once; from then on **Meta's Muse Spark follows them: 25 of 25 runs right on five
-tasks, against 2 of 25 without them** ([the runs](docs/bench/README.md)), in whichever agent she opens.
+## What it does, in five lines
 
-## Built at the Meta hackathon
+1. **Loads.** With each request, a router picks the pieces of know-how that match, from this project and the
+   person's profile only. Another project's piece comes in only when the person names that project.
+2. **Learns on its own, on a frontier model.** A task whose work an objective check proved (a test run, a build, a
+   commit) can be saved as a *candidate* piece without asking the person.
+3. **Verifies.** A second frontier model, with read-only tools, checks the candidate. Clean reuses then raise its
+   confidence; failures retire it. Only know-how proven this way reaches a weaker model.
+4. **Reuses.** An apply model (cheaper, or local) gets the matching pieces and follows them. It never learns.
+5. **Records.** Every decision (what loaded and why, which model answered, what was saved) is an event in a local
+   log an agent can read back: `athos audit`.
 
-Athos is entered in the [Meta Global AI Developer Hackathon](https://cerebralvalley.ai/e/meta-ai-developer-hackathon/details)
-(Oct 26 – Nov 4, 2026). **Before the event** there was a one-day prototype (Oct 25–26, tag
-[`pre-hackathon`](https://github.com/athos-agent/athos/tree/pre-hackathon)): a Claude Code plugin that saved a way of
-working as a markdown file and loaded it for a matching request, a Codex adapter, a local task report and
-`athos delegate` to a local model. **During the event** we built the rest, and rewrote that prototype's code as
-new code:
+## Models
 
-- **Meta's models and agents:** Athos in Meta's Muse Code (the same plugin) and in OpenCode on Muse Spark,
-  `athos delegate --backend meta` on Muse Spark, and `athos bench`, where Muse Spark with your know-how did 25 of 25
-  runs right and 2 of 25 without it, including a ten-stage expense review with a currency branch. Meta's open-weights Muse Spark Open through OpenRouter (`--backend openrouter`; 35 of 35 runs right with your know-how, 0 of 35 without) or Baseten (`--backend baseten`), a way of
-  working dictated aloud and transcribed by Muse Voice Transcribe (`athos save --from-audio`), and your know-how as a
-  fine-tuning dataset for Fireworks (`athos export --dataset --format fireworks`).
-- **Your way of working, visible:** pages of steps with branches that open only when the case needs them, followed
-  and ticked step by step in Claude Desktop's chat (an MCP app), Claude Code, Codex, Muse Code and OpenCode. The panel
-  shows the strategy (each branch with its condition and the page it goes to, *taken* or *not needed*) and the
-  content (the step being applied, with when it applies and why); *change this step* and *save as a way of working*
-  from the panel; a hand edit becomes a proposed rule.
-- **For professionals:** a first use that asks your profession, a public [gallery](https://athos-agent.github.io/athos/)
-  of ways of working, one memory per project, a journal of what happened lately and curating for your yes.
-
-Every change is a pull request listed in [HACKATHON.md](HACKATHON.md).
-
-### Meta models used, and what Athos builds on them
-
-| Meta model or agent | What Athos does with it | Where |
+| Tier | What it does | Default models |
 |---|---|---|
-| **Muse Spark** (`muse-spark-1.3`) through Meta Model API | Runs a task with your way of working as its instructions (`athos delegate --backend meta`), is measured on your own tasks (`athos bench`), drafts a way of working from a recording, merges colleagues' versions | `athos/adapters/meta/`, `athos/bench/` |
-| **Muse Code** (Meta's coding agent) | Runs the same Athos plugin as Claude Code: your know-how loads for a matching request, each step is reported on the trail, new work offers a save | `.claude-plugin/`, `hooks/`, `athos/adapters/muse/` |
-| **OpenCode on Muse Spark** | An Athos plugin with its own sidebar: the trail, *change this step*, *save as a way of working* | `opencode/` |
-| **Muse Voice Transcribe** | `athos save --from-audio`: dictate how you do a task; Muse Spark turns the transcript into a way of working you confirm | `athos/adapters/meta/` |
-| **Muse Spark Open** (open weights, `meta/muse-spark-open` through OpenRouter, served by providers such as BaseTen and Fireworks; also `--backend baseten`) | Runs the person's way of working in Athos's own loop, reading the files and following each step with tools (`athos delegate`, `athos test`, `athos merge`, `athos bench --agents openrouter`): 35 of 35 bench runs right with the know-how, 0 of 35 without, on seven tasks ([runs](docs/bench/README.md)) | `athos/adapters/openrouter/`, `athos/adapters/baseten/` |
-| **Fine-tuning on Muse open models** (Fireworks) | `athos export --dataset --format fireworks`: your statements and marked tasks as chat JSONL for supervised fine-tuning | `athos/cli.py`, `athos/eval/` |
+| `frontier` | learns and reuses; gets an index of pieces and opens what it needs | `claude-fable-*`, `claude-mythos-*`, `claude-opus-*` |
+| `apply` | reuses only; gets the matching pieces in full | `claude-sonnet-*`, `claude-haiku-*`, and **every model no pattern names** |
 
-What it adds on top: the know-how as plain markdown pages with branches, a router that picks the right page for a
-request, the trail that shows each step as the agent takes it, the bench that checks each run by what it left behind,
-and a gallery to share ways of working. It is an agentic use case end to end: the agent walks the person's steps,
-reports each one, takes a branch only when the case calls for it, and asks before keeping anything new.
+A model Athos does not know is `apply`: an unknown model never learns. Change the lists with
+`athos tiers add frontier '<pattern>'`; `athos tiers which <model-id>` answers for one model.
 
-### Try it in three minutes
+**Local and open models.** `athos delegate <piece-id> "<request>"` runs a task that follows one piece on a model
+served by Ollama on this machine (`--model <name>`), or on a hosted open model (`--backend openrouter|baseten|meta`).
+Any model Ollama serves works this way with no change to Athos, a newly released one included: pull it, pass its name.
+`athos bench` and `athos shadow` measure whether it keeps up with the answers the person approved.
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/athos-agent/athos/main/install.sh | sh
-athos start --lang en --profile finance     # example ways of working, as files in ~/.athos/know-how
-athos show analyse-an-investment-with-my-committee-rules
-```
+## Install
 
-With your own Meta Model API key (`export MODEL_API_KEY=...`, or a line in `~/.athos/.env` as in
-[.env.example](.env.example)), Muse Spark runs one bench case with and without the know-how, about $0.07:
-
-```sh
-athos bench expense-review --agents meta --runs 1 --without
-athos bench report
-```
-
-No key? Every run behind the numbers above is in [docs/bench](docs/bench/README.md), with what each run missed.
-
-**Ask as you always do. Claude follows *your* way of working, and you watch it, step by step.**
-
-![Claude Desktop (not the Code tab). An advisor pastes a fictional fund prospectus and asks to analyse the investment for a client, with no word about Athos. Athos's panel shows the advisor's own way of working as a page with nine steps. Because the investor, the asset and the vehicle are in three countries, the step "Note in which countries…" hands over to another way of working, the cross-border tax check, whose three steps appear nested under it. All nine tick in order as Claude works, and the answer ends by leaving the recommendation to the advisor.](demo/desktop-finance-en.gif)
-
-*Claude Desktop, not the Code tab (fictional prospectus). An advisor asks to analyse an investment for a client, with
-no word about Athos. Claude picks up the advisor's own way of working, "Analyse an investment with my committee's
-rules", and Athos's panel shows it as a page with its steps ticked as Claude does them. One step hands over to
-another way of working only when the case needs it: the investor is in Argentina, the warehouses in Texas and the fund
-in Luxembourg, so the cross-border tax check runs right there, as nested steps (↳), and the walk comes back to the
-numbers. The recommendation is left to the advisor. Waits are hidden, not sped up.*
-
-![The same way of working, with its branch, checked in Claude Desktop, Codex, Muse Code and OpenCode: the same nine steps in order in all four, a hand edit of the answer makes the agent propose the rule, and one click keeps it in that step.](docs/athos-results.jpg)
-
-- **Your way, not a generic one.** Ask a lawyer's "review this lease" and the answer comes back with *their*
-  five-line summary and *their* table: clause, problem, proposed wording, priority. Without it, the same request got
-  a good, generic review.
-- **You see the method, like a model's thinking.** Not tool calls: sentences, a page and a task list. **Change this
-  step** improves your way of working on the spot; a task that needed new steps offers **Save as a way of working**.
-- **It stays yours.** Plain markdown files in `~/.athos`, on your computer, that you can read and edit. The same know-how
-  runs in Claude Code, Codex, Meta's Muse Code and OpenCode.
-
-**The strategy and the content, while it runs.** A way of working is a path through your pages, and the panel shows
-both halves of it. The strategy: where the path branches, the condition behind each branch, the page it goes to, and
-whether the case took it or didn't need it. The content: the step being applied opens to what you wrote, when it
-applies, what to do and why. Here a lawyer's contract review reaches "does the provider process personal data?",
-the contract says it stores customers' emails and call recordings, so the walk goes into the data protection clause:
-
-![Athos's panel in a fictional contract review. "How I am going about it" says it follows «Review a services contract», is at step 5 of 10, and that the case met the condition (the provider processes personal data), so it went into «Add a data protection clause to a services contract». Below, the page's steps: three ticked, then the branch line "If the provider processes personal data → «Add a data protection clause…» · taken", with its first sub-step ticked and the current one, "List the provider's duties", open to its When, what to do and Why.](demo/trail-strategy-en.png)
-
-*The same panel in Claude Desktop's chat and beside Muse Code (`athos watch --web`), checked with both on this
-contract (fictional). When the contract involves no personal data, the same branch reads* not needed *and its steps
-are struck through, instead of waiting as if forgotten.*
-
-**In Codex, Muse Code and OpenCode too** (in OpenCode, in its own sidebar). The same advisor's way of working, with its
-branch, followed in Meta's Muse Code on Muse Spark from a one-line request, with Athos's trail beside it ticking the
-nine steps as Muse reports them:
-
-![Muse Code on Muse Spark analyses a fictional fund prospectus from a one-line request; beside it, Athos's trail says it follows the advisor's committee rules and ticks the nine steps, the three cross-border tax steps nested under "Note in which countries…", ending with the scenarios, the risk table and what an opinion would rest on.](demo/muse-finance-en.gif)
-
-*Muse Code on Muse Spark (fictional prospectus). Waits are hidden, not sped up. The same case in
-[Codex](demo/codex-finance-en.gif) and in [OpenCode's sidebar](demo/opencode-finance-en.gif); other professions:
-[a lawyer in Codex](demo/codex-lawyer-en.gif). In OpenCode, **Athos:
-change this step** and **Athos: save as a way of working** are in its command palette (ctrl+p).*
-
-**Teach it once in Claude; Codex works your way.** A month-end close taught once to Claude Fable 5.2, saved as a
-page, then done the person's way by Sonnet 5.5 in Claude and by GPT-6.1-Sol in Codex: 46% → 100% of the items, nine
-runs out of nine ([article and video](https://athos-agent.github.io/athos/articles/teach-it-once/)).
-
-**A gallery of ways of working.** [Browse examples](https://athos-agent.github.io/athos/) from law, finance,
-journalism, science and operations, each with the branches it takes when the case needs them, each step opening to
-when it applies, what to do and why, and take one into your own Athos with **Use in Athos**. Every profession in it
-is measured: an accountant's expense review, a lawyer's contract review and a support team's ticket policy on Muse
-Spark, a newsroom's source check and a lab's small-sample analysis on Muse Spark Open; each went 5/5 with the page
-and 0/5 without it ([runs](docs/bench/README.md)). Have a checklist you are proud of? Tell your agent *"share my lease
-review with the gallery"*: Athos drafts it, the agent swaps any client data for fictional data and shows you what
-will be published, and the gallery's form opens in your browser, filled in; you press Submit. No account needed
-([more](gallery/CONTRIBUTING.md), [en español](gallery/CONTRIBUIR.md)).
-
-![The published gallery: a finance way of working with its cross-border branch, then the due diligence of a small company in Latin America, whose steps call the finance team's and the legal team's pages and, only when the buyer is in another country, the cross-border tax check. Use in Athos copies the request that adds it; the page also reads in Spanish.](demo/gallery-en.gif)
-
-![Claude Desktop: pasting "Athos · add from gallery: due-diligence-of-a-latam-sme" adds the due diligence and the three pages it calls; then a fictional purchase of 60% of a bakery chain in Córdoba by a Chilean family fund opens the panel with the steps of the finance, legal and cross-border tax pages nested under the steps that call them, and the memo comes back with the two conditions that decide the deal.](demo/desktop-gallery-dd-en.gif)
-
-*Above, the gallery; below, one of its entries added to Claude Desktop with one paste and run on a fictional deal.
-Waits are hidden, not sped up.*
-
-**One memory per project.** As the ways of working grow, each project keeps its own: a session loads its project's
-ways of working and your profile, the few that apply everywhere (another project's only when you name it), starts with what happened lately in
-that project, and **curating** proposes, for your yes, what to tidy: pages used in a project they aren't tagged with,
-a «don't» rule from the corrections you made, pages that keep going wrong or nobody uses.
-
-![In a fictional SRE team's folder: the journal of its recent incidents, what is open, then the curating proposals (tag the pages each project really used, and a «don't» rule from a correction), applied in one line; in the newsroom's folder, only the newsroom's and the general ways of working load.](demo/memory-en.gif)
-
-**Connectors: when a way of working needs a service.** A step of your way of working can need a service, and Athos
-checks it on every request and shows it in the panel. The first one is [pii-guard](https://github.com/watt-mind/pii-guard),
-which masks a client's personal data before the model and restores it in the answer: a lawyer's contract review in
-OpenCode on Muse Spark went through it with every name, email and account masked, and the sidebar said *🔒 data through
-pii-guard*. [How to use it](docs/guides/connectors.md) ([en español](docs/guides/conectores.md)).
-
-![OpenCode on Muse Spark reviews a fictional lease through pii-guard; its sidebar says it follows the lawyer's checklist, that the data goes through pii-guard, and ticks the four steps. Then, from the command palette, "Athos: change this step" opens a box, the lawyer asks for a column with the legal basis, the way of working is improved, and the table comes back with that column.](demo/opencode-pii-en.gif)
-
-*OpenCode on Muse Spark through pii-guard (fictional lease). The trail in OpenCode's sidebar; then **ctrl+p → Athos:
-change this step**, and the lawyer's way of working gains a "legal basis" column, kept for next time.*
-
-## The idea
-
-Working with AI agents today is like hiring a brilliant intern with amnesia: every new chat, every new tool, you
-explain your format, your checklist, your exceptions and the mistakes to avoid all over again. And what you taught
-stays locked in one provider's cloud.
-
-Athos is a **living operations manual** for your work. It picks up your know-how while you work, keeps it as plain
-markdown files on your own computer, shows you, step by step, the agent following it, and lets you move it from an
-expensive model to a cheap or local one, and check it keeps up.
-
-- **From writing prompts to keeping your process.** You don't write prompts: you work with the agent and correct it,
-  and Athos turns that into a way of working, with versions, that you reuse.
-- **From tool calls to your own steps.** Instead of technical API calls, you see a task list of your own steps,
-  ticked as the agent does them.
-- **A small model with your know-how can do the job.** On our bench, Meta's Muse Spark went from 2 of 25 runs right
-  without the know-how to 25 of 25 with it, at 8 to 24 times less per run than Claude Code.
-
-Athos is a musketeer: free, and on its own two feet. Three minutes on why, and Athos at work in Claude Desktop,
-OpenCode on Meta's Muse Spark, and its memory (no sound; fictional data):
-
-[![Athos: your AI know-how, free to move, fast to run (YouTube, 3 min)](https://img.youtube.com/vi/sh7zT3lG5A8/maxresdefault.jpg)](https://youtu.be/sh7zT3lG5A8)
-
-**Guides:** [Claude Desktop](docs/guides/claude-desktop-en.md) ([en español](docs/guides/claude-desktop.md)) · [for lawyers](docs/guides/lawyer.md) ([en español](docs/guides/abogado.md)) ·
-[your checklist is know-how](docs/guides/checklist-en.md) ([en español](docs/guides/checklist.md)) · why this should
-exist and what isn't solved: [WHY.md](WHY.md).
-
-## Your know-how moves, and it works where it lands
-
-Teach a task once, in any of these tools, and the others follow it:
-
-| Agent | How Athos plugs in | What we checked |
-|---|---|---|
-| **Claude Code** (and Claude Desktop's Code tab) | plugin | 21 of 21 bench runs good with the know-how |
-| **Codex** | plugin | 20 of 20 bench runs good with the know-how |
-| **Muse Code** (Meta) | the same plugin as Claude Code | a lawyer's contract review followed step by step; tokens from Muse's own log |
-| **OpenCode** (any model) | plugin | the same review with Meta's Muse Spark; Athos asked, and Muse improved the piece |
-
-In all four, the pieces that match a request are loaded; every task is recorded with the model that answered; and on
-a frontier model, a task whose work a test, a build or a commit proved can be kept as a new piece without asking you,
-which an independent check verifies before a cheaper model ever gets it. A piece written in OpenCode loads in Claude
-Code the next day.
-
-In Claude Code, Athos shows you one thing, at the right of the prompt's footer: a small red ■ with "Athos is learning"
-while it learns from the task, a green ■ with "Athos is collaborating" while one of your ways of working is in use, and
-nothing otherwise. Everything else stays out of sight and goes to its log (`athos audit`). The earlier interface (a
-band above the prompt with **Didn't apply**, **Save** and **Good / Corrected / Failed**, the trail pane, the status
-line) comes back with `ATHOS_UI=classic` or `"ui": "classic"` in `~/.athos/config.json`
-([details](docs/REFERENCE.md#what-you-see-one-small-square)). Plain words count too: "ok excelente, …" marks the last
-task good.
-
-**It starts to pay off on a cheaper model.** On five public bench tasks in five domains (code, data, devices, a
-planning method, finance operations), Meta's Muse Spark did 25 of 25 runs right with the know-how and 2 of 25 without
-it, at 8 to 24 times less per run than Claude Code where we compared. Without it, Muse got what anyone would work out
-(the sales totals, the floor area, the duplicate claims) and missed the rules only the person knows: the report's
-house format, the vent that is tiled over and the 10% for breakage, the card fee on foreign expenses and the meal cap.
-Every request names the files to write, so only the method differs; the first count (19 of 20 and 2 of 20, in the
-first videos) left two requests vague and is replaced by this one, measured on November 1. Small cases written for the
-bench, 5 runs each arm; [how to reproduce](docs/REFERENCE.md#use). The know-how carries into Meta's agents too: on
-the expense review, Muse Code and OpenCode on Muse Spark followed all ten stages in every run with it (2 of 2 each)
-and missed the same four without it (0 of 2), at about 6 to 13 times the cost of a direct call, as an agent reads
-far more context: a task you already master is cheapest delegated straight to the model.
-
-## For professionals, not only programmers
-
-On first use, ask *"set up Athos for a lawyer"* (or *"para una periodista"*): Athos adds example ways of working to
-start from, in English or Spanish: **law** (build the argument of a brief, review a contract against your checklist), **engineering on call** (triage a production incident),
-**journalism** (verify a lead before publishing), **science** (analyse an experiment so another lab can repeat it) and
-**finance and tax advice** (analyse an investment with your committee's rules). They leave every professional decision to you and ask before
-touching client or source data. No terminal needed: Claude Desktop's Code tab runs the plugin. Start with the
-[overview for professionals](docs/PROFESSIONALS.md) ([en español](docs/PROFESIONALES.md)) or the guides above.
-
-**Checklists are know-how.** When a task follows a checklist (you name it, paste it as a list, or the agent opens a
-checklist file), Athos treats it as know-how worth keeping, even if the task only read and answered, and asks to save
-it, or to improve the piece it used with your own items. [How it works](docs/guides/checklist-en.md).
-
-## What else it does
-
-- **Captures and improves your know-how.** Each piece is a plain markdown page you can read and edit, with a version
-  history. Only the pieces that match a request are loaded, and each reuse can improve them.
-- **Yours, and free to move.** Plain files in `~/.athos` that you can read, edit, version and copy. Nothing leaves
-  your machine unless you move it.
-- **Your own benchmark.** Benchmarks measure someone else's tests; Athos measures yours. Tell it how each task went,
-  and ask *"what has my know-how brought?"*: every piece and every model, on your own work.
-- **Hands mastered tasks to cheaper models.** Once a piece has proven itself, the task can run on a smaller model,
-  local or hosted, and Athos's bench shows whether it keeps up.
-
-## Get started
-
-**Claude Desktop (the chat).** Download [athos.mcpb](https://github.com/athos-agent/athos/releases/latest/download/athos.mcpb),
-double-click it and press **Install**; then upload [athos-skill.zip](https://github.com/athos-agent/athos/releases/latest/download/athos-skill.zip) in Customize → Skills and
-open a new chat. Two minutes, no terminal:
-[step by step](docs/guides/claude-desktop-en.md) ([en español](docs/guides/claude-desktop.md)).
-
-**Claude Code, or Claude Desktop's Code tab.** Paste this one line and press Enter:
+**Claude Code** (and Claude Desktop's Code tab):
 
 ```
 /plugin install athos --marketplace athos-agent/athos
 ```
 
-**Codex, Muse Code and OpenCode.** One-time setup in the terminal: [Install](docs/REFERENCE.md#install).
+**The `athos` command** (needed for OpenCode, the terminal, and `delegate`), Python 3.11+ and nothing else:
 
-## How to use it
+```sh
+curl -fsSL https://raw.githubusercontent.com/athos-agent/athos/main/install.sh | sh
+athos start          # language, profession, example ways of working
+```
 
-No commands. You talk to the agent as you always do, in your own language.
+**Codex, Muse Code, OpenCode, Claude Desktop's chat:** [REFERENCE, Install](docs/REFERENCE.md#install). Update the
+command and the plugin together: an older Athos reads only the recent part of a history a newer one has archived
+(`athos doctor` says which agent is behind).
 
-1. **Teach a task once.** Do it with the agent the way you do it: your steps, your checklist, your format, your
-   corrections. When it's done, press **Save as a way of working**, or just say *"save this as a way of working"*.
-2. **Then just ask.** Next time, *"review this lease"* is enough. The answer opens with the way of working it follows,
-   and the panel (Claude Desktop, Claude Code), the sidebar (OpenCode) or the trail beside the agent ticks its steps
-   as they are done.
-3. **Change it when you need to.** Press **Change this step** and write what changes, or simply say it: *"from now on,
-   add a column with the legal basis"*. Your way of working is improved and kept for next time. If you fix by hand a
-   file the agent wrote, it notices and proposes the rule: press **Keep this rule**. A task that needed new steps
-   offers **Save as a way of working** again.
-4. **Say how it went.** In the coding agents, *"great, thanks"* marks the task good and a correction marks it
-   corrected. If a way of working didn't fit the request, press **Didn't apply** and it won't load for those words
-   again.
+## What an agent working with Athos must know
 
-You can also ask in plain words: *"what ways of working do I have?"*, *"show me my contract review"*.
+- **A piece is a markdown page** in `~/.athos/know-how/`, with frontmatter (`title`, `when`, optional `projects`,
+  `visibility`, `status`) and one statement per step: `**When:**`, `**Do:**`, `**Check:**`, `**Because:**`,
+  `**Links:**`. A `Check` is a command or an observable fact that proves the step; without one a piece is never
+  verified.
+- **Follow a piece that was loaded for the request; open one from the index with `athos show <id>`.** `athos show`
+  writes nothing.
+- **Save with `athos save` (stdin).** On a frontier model the session start says when to use `athos save --auto`;
+  an automatic save with secrets, emails, absolute paths of this computer or other projects' names is refused.
+- **Status:** `candidate` (learned, not proven), `verified` (the verifier passed that exact text), `retired` (never
+  loads). A page with no `status` is the person's own: Athos never rewrites it unless asked.
+- **A repository marked public** (`athos public on` writes `.athos.toml`) loads and names only that project's own
+  pieces, and keeps no words of the person's requests. If the marker cannot be read, Athos treats the folder as public.
+- **`visibility: private`** pieces are never named outside their project and never sent to a model by Athos itself.
+- **Nothing leaves the machine** unless the person asks. No telemetry.
 
-Everything stays on your computer, in the `.athos` folder of your home, as plain text you can read and edit. The same
-ways of working run in every agent. For terminal users, every command is in the [reference](docs/REFERENCE.md).
+## Commands an agent reaches for
 
-## What comes next
+```
+athos status            the store and this folder's session, in one line
+athos list              every piece; ● marks the ones allowed to load here
+athos show <id>         print one piece (no side effects)
+athos save [--auto]     store the piece written on stdin
+athos audit             what Athos decided in this session, and what it got wrong
+athos report            what each piece and each model adds to the person's work
+athos tiers             which models learn and which reuse
+athos verify <id>       run the independent verifier on a candidate
+athos memory check      the archive of old events against its manifest
+athos public [on|off]   mark this repository public or not
+athos profile           the few pieces that load in every project
+athos delegate          hand a mastered task to a smaller or local model
+athos doctor            which Athos each agent runs
+```
 
-- **Athos Cloud**, a separate paid service: your know-how kept in sync across your devices, a map you can see it on,
-  a daily say over what is shared, and the improvement agent run for you.
+## What the person sees
 
-## Thanks
+One mark at the right of the prompt's footer in Claude Code: a red ■ "Athos is learning" while a frontier model does
+real work or the verifier runs, a green ■ "Athos is collaborating" while one of their pieces is in use, nothing
+otherwise. `ATHOS_UI=classic` brings back the earlier interface (trail pane, status line, band).
 
-To the people whose ideas shaped Athos: see [WHY.md](WHY.md#thanks).
+## Where things are
 
-## License and copyright
+| Path | What |
+|---|---|
+| `~/.athos/know-how/` | the pieces (markdown), with `.history/` of earlier versions |
+| `~/.athos/events.jsonl` | the live log of events; older ones move to a compressed archive |
+| `~/.athos/log.md` | the same decisions, one line each, for an agent to read |
+| `~/.athos/config.json` | tiers, interface, caps of the verifier, memory settings |
+| `.athos.toml` in a repository | its name for Athos and whether it is public |
+| `athos/` in this repo | the CLI (Python, standard library only) |
+| `hooks/` | the Claude Code hooks and the one UI module (`ui.tsx`) |
+| `athos/adapters/`, `codex/`, `opencode/` | the other agents |
 
-Athos is open source under the Apache License 2.0: the text is in [LICENSE](LICENSE), the notice in [NOTICE](NOTICE).
+## Working on this repository
+
+```sh
+HOME=$(mktemp -d) python3 -m unittest discover -s tests -t .   # never against the real ~/.athos
+claude plugin test . && claude plugin validate .
+```
+
+Hook code must run on Python 3.9 (what macOS ships). Every change is a pull request; nothing is committed straight to
+`main`. The repository is public: no real project names, people or request text in code, tests or commit messages.
+
+## What is measured, and what is not
+
+- With a person's know-how, Meta's Muse Spark did 25 of 25 bench runs right and 2 of 25 without it; the open-weights
+  Muse Spark Open 35 of 35 and 0 of 35 ([runs, and what each missed](docs/bench/README.md)). These are small cases
+  written for the bench.
+- Autonomous learning was tried live: a piece was rejected twice by the verifier, passed on its third version and
+  became verified after three clean reuses.
+- Not measured yet: how much a verified piece helps a weak model on a task it cannot do alone. On an easy task, a
+  small with/without comparison showed no difference.
+
+## License
+
+Apache License 2.0: [LICENSE](LICENSE), [NOTICE](NOTICE). Thanks: [WHY.md](WHY.md#thanks).
