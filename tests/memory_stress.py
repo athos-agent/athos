@@ -3,6 +3,7 @@ not (an older Athos, another tool), while cycles run in a loop and are killed at
 must end up in the history exactly once, and the derived files must equal a rebuild. Synthetic data only.
 
     python3 -m tests.memory_stress <seconds> [locked writers] [unlocked writers] [kill every ~seconds, 0: never]
+                                   [no-links: 1 runs the cycles as on a filesystem without hard links]
 
 The unit suite runs a short version (tests/test_memory_integrity.py)."""
 
@@ -54,9 +55,11 @@ while time.time() < until:
 
 
 def stress(seconds: float, locked: int = 2, unlocked: int = 2, kill_every: float = 0.0, home: str | None = None,
-           seed: int = 1) -> dict:
+           seed: int = 1, no_links: bool = False) -> dict:
     home = home or tempfile.mkdtemp(prefix="athos-stress-")
     env = {**os.environ, "ATHOS_HOME": home, "ATHOS_SPAWN": "off"}
+    if no_links:
+        env["ATHOS_NO_HARDLINKS"] = "1"
     Path(home).mkdir(parents=True, exist_ok=True)
     (Path(home) / "config.json").write_text(json.dumps({"memory": {"keep_days": 8, "keep_bytes": 20000,
                                                                    "auto": False}}))
@@ -105,13 +108,13 @@ def stress(seconds: float, locked: int = 2, unlocked: int = 2, kill_every: float
             "missing": len(expected - set(seen)), "duplicated": sum(1 for v in seen.values() if v > 1),
             "unexpected": len(set(seen) - expected), "cycles_done": got["cycles"], "loops_started": cycles_started,
             "kills": kills, "segments": got["segments"], "states": got["states"], "archive_failures": got["check"],
-            "rebuild": got["rebuild"], "errors": errors, "home": home}
+            "rebuild": got["rebuild"], "errors": errors, "home": home, "no_links": no_links}
 
 
 if __name__ == "__main__":
     args = [float(a) for a in sys.argv[1:]]
     out = stress(args[0], int(args[1]) if len(args) > 1 else 2, int(args[2]) if len(args) > 2 else 2,
-                 args[3] if len(args) > 3 else 0.0)
+                 args[3] if len(args) > 3 else 0.0, no_links=len(args) > 4 and bool(args[4]))
     print(json.dumps({k: v for k, v in out.items() if k != "errors"}, indent=1))
     for e in out["errors"][:3]:
         print(e, file=sys.stderr)

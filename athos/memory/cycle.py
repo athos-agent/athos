@@ -439,11 +439,22 @@ def sidecars() -> list[Path]:
 
 
 def _side_parts(f: Path) -> tuple[int, int, int, int] | None:
+    fields = f.name[len(_side_prefix()):].split("-")
     try:
-        seg_id, n, end, swept = (int(x) for x in f.name[len(_side_prefix()):].split("-"))
+        seg_id, n, end, swept = (int(x) for x in fields[:4])
     except ValueError:
         return None
+    if len(fields) not in (4, 5):
+        return None
     return seg_id, n, end, swept
+
+
+def _side_name(f: Path, seg_id, n, end, swept) -> Path:
+    """A trimmed log's old file under its name for this point swept; the unique token its trim gave it is kept (two
+    trims of the same bytes, a log put back twice, never share a name)."""
+    fields = f.name[len(_side_prefix()):].split("-")
+    token = f"-{fields[4]}" if len(fields) == 5 else ""
+    return f.with_name(f"{_side_prefix()}{seg_id}-{n}-{end}-{swept}{token}")
 
 
 def unswept(f: Path) -> bool:
@@ -483,7 +494,7 @@ def _sweep(f: Path, whole_lines: bool = True) -> tuple[int, Path | None]:
             out.flush()
             os.fsync(out.fileno())
         added = len(chunk)
-    now = f.with_name(f"{_side_prefix()}{seg_id}-{n}-{end}-{swept + len(chunk)}")
+    now = _side_name(f, seg_id, n, end, swept + len(chunk))
     os.replace(f, now)
     return added, now
 
@@ -510,12 +521,74 @@ def sweep(let_go: bool = False) -> dict:
     return out
 
 
+NOLINK_QUIET_S = 1.0         # without hard links: the old file is read until nothing reached it for this long...
+NOLINK_MAX_S = 15.0          # ...but no longer than this
+NO_LINKS = ("this filesystem has no hard links: the trimmed log's old file was read until it stayed quiet for "
+            f"{NOLINK_QUIET_S:g} s instead of being kept under a hidden name; a line an older Athos writes into it "
+            "later than that, or while this cycle is killed, is not carried over")
+_LAST: dict = {}             # what the last prune had to do differently (said in the cycle's event)
+
+
+def _links_ok() -> bool:
+    return os.environ.get("ATHOS_NO_HARDLINKS", "") not in ("1", "on", "true")
+
+
+def _carry(chunk: bytes) -> None:
+    """Append bytes read from a trimmed log's old file to the live log, ending a fragment with a newline so it never
+    joins the next event. Under the append lock (the caller's)."""
+    if not chunk:
+        return
+    if not chunk.endswith(b"\n"):
+        chunk += b"\n"
+    with open(paths.events_file(), "ab") as out:
+        out.write(chunk)
+        out.flush()
+        os.fsync(out.fileno())
+
+
+def _drain_old(h, at: int, clock=time.monotonic, sleep=time.sleep) -> int:
+    """No hard links: the old file is reachable only through the open handle `h`, so it is read here, whole lines
+    carried over as they arrive, until nothing reached it for NOLINK_QUIET_S (a writer that opened the log just before
+    the trim writes within milliseconds), at most NOLINK_MAX_S; then what is left, even an unfinished line. Outside the
+    append lock except for each append. Returns the bytes carried."""
+    carried = 0
+    start = last = clock()
+    while True:
+        try:
+            size = os.fstat(h.fileno()).st_size
+        except OSError:
+            break
+        if size > at:
+            h.seek(at)
+            chunk = h.read(size - at)
+            whole = chunk[:chunk.rfind(b"\n") + 1]
+            if whole:
+                with paths.locked(paths.events_file()):
+                    _carry(whole)
+                at += len(whole)
+                carried += len(whole)
+                last = clock()
+        now = clock()
+        if now - last >= NOLINK_QUIET_S or now - start >= NOLINK_MAX_S:
+            break
+        sleep(min(0.05, NOLINK_QUIET_S))
+    h.seek(at)
+    rest = h.read()
+    if rest:
+        with paths.locked(paths.events_file()):
+            _carry(rest)
+        carried += len(rest)
+    return carried
+
+
 def prune(entry: dict) -> int:
     """Trim from the start of the live log the archived segments it starts with, up to this one, and only while it
     still starts with exactly their bytes (so running it twice trims once, and a log replaced meanwhile is left as it
-    is). The old file stays reachable under a hidden name until the next cycle, so a line a writer without the lock
-    puts into it after the trim (an older Athos) is carried over (`sweep`). The append lock is held only for the copy
-    of what stays and the swap. Returns the bytes trimmed (0: nothing was)."""
+    is). The old file stays reachable under a hidden, unique name until it is quiet, so a line a writer without the
+    lock puts into it after the trim (an older Athos) is carried over (`sweep`). Where the filesystem has no hard
+    links, the old file is instead read through the handle kept open until it stays quiet (`_drain_old`), and said
+    (`NO_LINKS`). The append lock is held only for the copy of what stays and the swap. Returns the bytes trimmed (0:
+    nothing was)."""
     log = paths.events_file()
     segs = memory.segments()
     try:
@@ -531,12 +604,13 @@ def prune(entry: dict) -> int:
         if not n:
             return 0
         head, edge = read(0, 4096), read(max(0, n - 4096), n)
+    held = None
     with paths.locked(log):
         try:
             h = open(log, "rb")
         except FileNotFoundError:
             return 0
-        with h:
+        try:
             def read(a, b, h=h):
                 h.seek(a)
                 return h.read(b - a)
@@ -547,12 +621,14 @@ def prune(entry: dict) -> int:
                 if not n:
                     return 0
             end = now_st.st_size
-            side = log.with_name(f"{_side_prefix()}{entry['id']}-{n}-{end}-{end}")
-            try:
-                os.link(log, side)
-                linked = True
-            except OSError:                               # no hard links here: the tail is read right after the swap
-                linked = False
+            side = log.with_name(f"{_side_prefix()}{entry['id']}-{n}-{end}-{end}-{uuid.uuid4().hex[:8]}")
+            linked = False
+            if _links_ok():
+                try:
+                    os.link(log, side)
+                    linked = True
+                except OSError:                           # no hard links here: the old file is read through `h`
+                    pass
             tmp = log.with_name("." + log.name + f".{uuid.uuid4().hex[:8]}.tmp")
             with open(tmp, "wb") as out:
                 at = n
@@ -573,11 +649,16 @@ def prune(entry: dict) -> int:
             if linked:
                 _sweep(side)
             else:
-                h.seek(end)
-                late = h.read()
-                if late:
-                    with open(log, "ab") as out:
-                        out.write(late)
+                held, h = h, None                         # kept open past the lock: read until it is quiet
+                _LAST["no_links"] = NO_LINKS
+        finally:
+            if h is not None:
+                h.close()
+    if held is not None:
+        try:
+            _drain_old(held, end)
+        finally:
+            held.close()
     ids = [e["id"] for e in used if e.get("state") != "pruned"]
     if ids:
         _set_state(ids, "pruned")
@@ -737,6 +818,7 @@ def replay_and_prune(now: _dt.datetime | None = None) -> dict:
     it, and trim it. With nothing to cut, the rollups are still refreshed when an archive exists (late lines, a
     deleted rollup file). Anything it cannot do safely it leaves as it is and says why (`refused`)."""
     now = now or _now()
+    _LAST.clear()
     out = {"resumed": resume(), "archived_lines": 0, "archived_bytes": 0, "segment": None, "segments": 0,
            "compressed": 0}
     if out["resumed"].get("refused"):
@@ -790,6 +872,8 @@ def replay_and_prune(now: _dt.datetime | None = None) -> dict:
                    compressed=sum(memory.segment_path(e).stat().st_size for e in entries))
     if memory.has_archive():
         out["rollup_bytes"] = write_rollups()
+    if _LAST.get("no_links"):
+        out["no_links"] = _LAST["no_links"]
     return out
 
 
@@ -1072,7 +1156,7 @@ def run(now: _dt.datetime | None = None, model: bool | None = None, runner=None,
         _event(run_id, "replay", t0, archived_lines=r["archived_lines"], archived_bytes=r["archived_bytes"],
                compressed_bytes=r["compressed"], resumed=r["resumed"], live_before=before["live"],
                live_after=after["live"], rollup_bytes=after["rollups"], segments=after["segments"],
-               **{k: r[k] for k in ("refused", "trimmed_again") if r.get(k)})
+               **{k: r[k] for k in ("refused", "trimmed_again", "no_links") if r.get(k)})
         progress = bool(r["archived_lines"] or r.get("trimmed_again") or r["resumed"].get("pruned")
                         or r["resumed"].get("folded")) or reason in ("late", "rollups", "sweep", "asked")
         if auto and not progress:
