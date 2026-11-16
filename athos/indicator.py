@@ -20,9 +20,11 @@ ATHOS_UI environment variable, then from `"ui"` in `<home>/config.json`.
 Claude Desktop's chat (`athos mcp`) has no hooks: its state comes from the session the MCP server keeps (`chat`), by
 the same rules in its own words, and is recorded the same way (`observe(..., chat=True)`):
 
-    collaborating   athos_find handed over a piece for the task, or a step of one is being reported (athos_step)
+    collaborating   athos_find handed over a piece for the task, or a step of one is being reported (athos_step);
+                    it wins, also while a save improves that piece
     learning        no piece is in use and the model reports steps the know-how lacks (athos_step `new`): a new way
-                    of working is being drafted; or a save from the chat is being written
+                    of working is being drafted; or the model's save from the chat (autolearn.chat `own`) is being
+                    written
     idle            nothing matched and nothing is drafted, the task is done (athos_done), or it has not moved for
                     STALE_S
 """
@@ -142,22 +144,24 @@ def chat(state: dict, sid: str | None = None, allowed=None) -> tuple[str, str]:
     may be named there (what athos_find may hand over); a step reported on any other piece counts for nothing."""
     if _off():
         return IDLE, "off"
-    if state.get("chat_saving"):
-        return LEARNING, "saving"
     task = state.get("task_id")
     end = state.get("task_end")
     trail = state.get("trail") or []
+    ended = isinstance(end, dict) and end.get("task_id") == task
+    live = bool(task or trail) and not ended and not (sid and not _fresh(sid))
+    ok = (lambda q: True) if allowed is None else (lambda q: q in allowed)
+    if live and any(ok(q) for q in state.get("task_why") or {}):
+        return COLLABORATING, "piece_found"                  # collaborating wins, a save under way included
+    if live and any(x.get("kind") == "step" and ok(x.get("piece")) for x in trail):
+        return COLLABORATING, "step_reported"
+    if state.get("chat_saving"):
+        return LEARNING, "saving"
     if not task and not trail:
         return IDLE, "no_task"
-    if isinstance(end, dict) and end.get("task_id") == task:
+    if ended:
         return IDLE, "between_tasks"
     if sid and not _fresh(sid):
         return IDLE, "stale_task"
-    ok = (lambda q: True) if allowed is None else (lambda q: q in allowed)
-    if any(ok(q) for q in state.get("task_why") or {}):
-        return COLLABORATING, "piece_found"
-    if any(x.get("kind") == "step" and ok(x.get("piece")) for x in trail):
-        return COLLABORATING, "step_reported"
     if any(x.get("kind") == "new" for x in trail):
         return LEARNING, "drafting_steps"
     return IDLE, "nothing_in_use"

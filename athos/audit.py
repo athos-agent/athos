@@ -502,8 +502,21 @@ def _log_lines(project: str, since=None, until=None) -> list[str]:
     return out
 
 
+def _chat_own() -> bool:
+    """Whether the person lets Claude Desktop's chat save on its own (autolearn.chat `own`): its saves are theirs."""
+    from athos import autolearn
+    return autolearn.chat_mode() == autolearn.CHAT_OWN
+
+
+def _chat_saves(c: _Ctx) -> list[dict]:
+    """The saves the model made in Claude Desktop's chat (`learn` events marked `chat`), the person's own by their
+    choice while autolearn.chat is `own`."""
+    return [e for e in c.of("learn") if e.get("decision") == "saved" and e.get("chat")]
+
+
 def _weak_evidence_learning(c: _Ctx) -> dict:
-    learns = [e for e in c.of("learn") if e.get("decision") == "saved"]
+    # A chat save claims no evidence: it is the person's own piece by their choice, not autonomous learning.
+    learns = [e for e in c.of("learn") if e.get("decision") == "saved" and not (e.get("chat") and _chat_own())]
     if not learns:
         return _result("weak_evidence_learning", "not_evaluated", [], "no autonomous save in this session")
     found = [{"task_id": e.get("task_id"), "piece": c.name(e.get("piece") or ""), "evidence": e.get("evidence"),
@@ -528,9 +541,12 @@ def _save_in_apply_mode(c: _Ctx) -> dict:
     """An autonomous save on a model that is not frontier, or (since 0.1.124, when apply models stopped saving) any
     task of an apply model that saved a piece."""
     from athos import tiers
+    own = _chat_own()
+    chat = len(_chat_saves(c)) if own else 0
     found = [{"task_id": e.get("task_id"), "piece": c.name(e.get("piece") or ""), "model": e.get("model"),
-              "how": "autonomous"} for e in c.of("learn")
-             if e.get("decision") == "saved" and (e.get("mode") != "learn" or e.get("tier") != tiers.FRONTIER)]
+              "how": "chat" if e.get("chat") else "autonomous"} for e in c.of("learn")
+             if e.get("decision") == "saved" and (e.get("mode") != "learn" or e.get("tier") != tiers.FRONTIER)
+             and not (e.get("chat") and own)]
     if not _version_at_least(c.evs, (0, 1, 124)):
         status = _status(found, True) if found or c.of("learn") else "not_evaluated"
         return _result("save_in_apply_mode", status, found,
@@ -540,8 +556,12 @@ def _save_in_apply_mode(c: _Ctx) -> dict:
         if e.get("saved") and model and model != "unknown" and tiers.tier_of(model) != tiers.FRONTIER:
             found.append({"task_id": e.get("task_id"), "piece": ", ".join(c.name(p) for p in e["saved"]),
                           "model": model, "how": "task_end"})
-    return _result("save_in_apply_mode", _status(found, False), found,
-                   "learn events and the pieces each task saved, with the model that answered it")
+    out = _result("save_in_apply_mode", _status(found, False), found,
+                  "learn events and the pieces each task saved, with the model that answered it"
+                  + (f"; {chat} save(s) from Claude Desktop's chat, yours by your choice (autolearn.chat own), "
+                     "listed and not flagged" if chat else ""))
+    out["chat_saves"] = chat
+    return out
 
 
 def _project_events(c: _Ctx, everything: list[dict], kinds: set[str]) -> list[dict]:
@@ -793,12 +813,14 @@ def _learning(c: _Ctx) -> dict:
     autonomous guide."""
     learns = c.of("learn")
     by = lambda d, r=None: [e for e in learns if e.get("decision") == d and (r is None or e.get("reason") == r)]
-    return {"qualified": len(by("qualified")), "asked": len(by("asked")), "saved": len(by("saved")),
+    return {"qualified": len(by("qualified")), "asked": len(by("asked")),
+            "saved": len([e for e in by("saved") if not e.get("chat")]),
             "saved_nothing": len(by("skipped", "model_saved_nothing")),
             "refused": len([e for e in by("skipped") if e.get("reason") not in (
                 "model_saved_nothing", "no_strong_evidence", "last_verification_failed", "correction_after_success",
                 "apply_model")]),
-            "without_guide": len([e for e in by("qualified") if not e.get("guide")])}
+            "without_guide": len([e for e in by("qualified") if not e.get("guide")]),
+            "chat_saved": len(_chat_saves(c))}
 
 
 def _public_not_declared(c: _Ctx, cwd: str | None) -> dict:
@@ -886,7 +908,9 @@ def render(report: dict) -> str:
                          f" task(s) qualified without a save before the end ({learning['asked']} asked at the stop) · "
                          f"{learning['saved_nothing']} ended with nothing saved · {learning['refused']} save(s) refused"
                          + (f" · {learning['without_guide']} without the session guide" if learning['without_guide']
-                            else ""))
+                            else "")
+                         + (f" · {learning['chat_saved']} saved from Claude Desktop's chat (yours: autolearn.chat)"
+                            if learning.get("chat_saved") else ""))
         if not m["audit_events"]:
             lines.append("  (recorded before the audit events: some rules are partial or could not be checked)")
         for r in s["rules"]:

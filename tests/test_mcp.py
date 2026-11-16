@@ -33,13 +33,14 @@ class McpTest(TempHome):
                      {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                       "params": {"name": "athos_save", "arguments": {"text": "no frontmatter"}}},
                      {"jsonrpc": "2.0", "id": 3, "method": "nope"})
-        # The MCP server cannot tell who wrote the request, so the save is the model's, and in Claude Desktop the
-        # model is not known: nothing is saved (tests/test_who_saves.py has the rest).
-        self.assertTrue(r[0]["result"]["isError"])
-        self.assertIn("not saved", r[0]["result"]["content"][0]["text"])
+        # The MCP server cannot tell who wrote the request, so the save is the model's; the person lets the chat save
+        # on its own (autolearn.chat `own`, the default), so it is their own piece (tests/test_mcp_minimal.py and
+        # tests/test_who_saves.py have the rest).
+        self.assertFalse(r[0]["result"]["isError"])
+        self.assertEqual(store.get("tag-a-release").status, "")
         self.assertTrue(r[1]["result"]["isError"])
+        self.assertIn("not saved", r[1]["result"]["content"][0]["text"])
         self.assertEqual(r[2]["error"]["code"], -32601)
-        self.assertIsNone(store.get("tag-a-release"))
 
 
 class McpAppTest(TempHome):

@@ -38,12 +38,21 @@ INSTRUCTIONS = ("The person's own know-how, kept by Athos as a wiki of pieces. B
                 "\"Athos · adjust\" or \"Athos · ajustar\" names <piece>#<statement> and how it should change: improve "
                 "that piece with athos_save (its id and a note), then go on. Answer those in one short line.")
 # The minimal interface: the panel shows only the mark; the model still reports the steps (they drive it), and nothing
-# of them is shown.
-INSTRUCTIONS_MINIMAL = ("The person's own know-how, kept by Athos as a wiki of pieces. Before each task, call athos_find "
-                        "with the request: follow the pieces it returns, statement by statement, and cite them as "
-                        "[[page#id]]. As you start each statement call athos_step with <piece-id>#<statement_id>; a step "
-                        "the task needs that no piece has, athos_step with `new` (a few words, in the person's "
-                        "language). Once per step, never per action, and say nothing about it.")
+# of them is shown. With autolearn.chat `own` (the default) the chat saves on its own, as the person chose: the model
+# keeps what a task taught without asking, and the piece is the person's own.
+SAVE_NEW = ("When a task of several steps followed no way of working and is done, save what it taught once with "
+            "athos_save, right before athos_done: a frontmatter with title and when, then one statement per step "
+            "(## #id with **When:** **Do:** **Because:**). Don't announce it or ask the person.")
+SAVE_IMPROVE = ("When the task followed a way of working and added steps it lacks, improve that piece instead of "
+                "creating a new one: athos_save with its id, the whole piece with the new steps, and a note, once, "
+                "right before athos_done, without announcing it or asking.")
+_MINIMAL_BASE = ("The person's own know-how, kept by Athos as a wiki of pieces. Before each task, call athos_find with "
+                 "the request: follow the pieces it returns, statement by statement, and cite them as [[page#id]]. As "
+                 "you start each statement call athos_step with <piece-id>#<statement_id>; a step the task needs that "
+                 "no piece has, athos_step with `new` (a few words, in the person's language). Once per step, never "
+                 "per action, and say nothing about it.")
+INSTRUCTIONS_MINIMAL = _MINIMAL_BASE + " " + SAVE_NEW + " " + SAVE_IMPROVE
+INSTRUCTIONS_MINIMAL_OFF = _MINIMAL_BASE + " Don't call athos_save: nothing the model saves is kept in this chat."
 # How the model talks to the person once Athos's panel shows the method: in the chat, only the answer. The person
 # may be a lawyer or a journalist, not the author of the notes in the piece (2026-10-30, Claude Desktop: the answer
 # narrated tools in English, cited "piece v7" and "checked live on 27/10" and pasted the piece's commands).
@@ -287,6 +296,42 @@ def _minimal() -> bool:
     return indicator.minimal()
 
 
+def _chat_saves() -> bool:
+    """Whether the model's athos_save is kept in the chat (autolearn.chat `own`, the default)."""
+    from athos import autolearn
+    return autolearn.chat_mode() == autolearn.CHAT_OWN
+
+
+def instructions() -> str:
+    if not _minimal():
+        return INSTRUCTIONS
+    return INSTRUCTIONS_MINIMAL if _chat_saves() else INSTRUCTIONS_MINIMAL_OFF
+
+
+def _save_from_chat(text: str, session_id: str):
+    """autolearn.save_chat with the chat's state `learning` (why `saving`) while the piece is written (collaborating
+    still wins when the save improves the piece in use)."""
+    import contextlib
+    import time
+    from athos import autolearn, indicator
+    names = _Nameable()
+
+    def observe() -> None:
+        indicator.observe(session_id, chat_allowed=names.ids, chat_state=True)
+
+    @contextlib.contextmanager
+    def writing():
+        session.update(session_id, chat_saving=time.time())
+        observe()
+        try:
+            yield
+        finally:
+            session.update(session_id, chat_saving=None)
+            observe()
+
+    return autolearn.save_chat(text, session_id, names.may_name, writing)
+
+
 def _call(name: str, args: dict, session_id: str = SESSION) -> str:
     if name == "athos_done":
         state = session.load(session_id)
@@ -311,8 +356,9 @@ def _call(name: str, args: dict, session_id: str = SESSION) -> str:
             from athos import indicator
             first = (" The person has no ways of working yet: Athos's panel offers them examples for their profession, "
                      "one click each." if not store.all_pieces() and draws_apps() and not indicator.minimal() else "")
+            keep = (" " + SAVE_NEW) if _minimal() and _chat_saves() else ""
             return ("No know-how for this request yet. If the task takes several steps, report each with athos_step "
-                    "`new`: they draft a new way of working." + first)
+                    "`new`: they draft a new way of working." + keep + first)
         session.update(session_id, task_why={p.id: load.why(args.get("request", ""), p) for p in found})
         pages = {p.id: p for p in store.all_pieces()}
         out = []
@@ -334,7 +380,8 @@ def _call(name: str, args: dict, session_id: str = SESSION) -> str:
                    "task needs that none of them has: athos_step with `new`. With each call, `did`: one short line "
                    "of what you did in the step you are leaving. If you keep your own progress list for the task, "
                    "use these same steps as its items. When the task is done, right before your final answer, call "
-                   "athos_done with one short line of what came out." + ("" if _minimal() else "\n\n" + RATINGS))
+                   "athos_done with one short line of what came out."
+                   + ((" " + SAVE_IMPROVE if _chat_saves() else "") if _minimal() else "\n\n" + RATINGS))
         return "\n\n---\n\n".join(out)
     if name == "athos_show":
         p = store.get(args.get("id", ""))
@@ -360,14 +407,19 @@ def _call(name: str, args: dict, session_id: str = SESSION) -> str:
     if name == "athos_list":
         return "\n".join(f"- `{p.id}` {p.title}. When: {p.when}" for p in store.all_pieces()) or "No pieces yet."
     if name == "athos_save":
-        # The MCP server cannot tell who wrote a request: every athos_save is the model's. On a model that is not a
-        # frontier one (in Claude Desktop the model is not known) nothing is saved; on a frontier one it goes
-        # through the autonomous pipeline, which needs evidence the hooks gather and a project.
+        # The MCP server cannot tell who wrote a request: every athos_save is the model's. With autolearn.chat `own`
+        # (the default) the person chose to let the chat save on its own: the piece is theirs, after the private-data
+        # and near-duplicate checks. With `off`, on a model that is not a frontier one (in Claude Desktop the model is
+        # not known) nothing is saved; on a frontier one it goes through the autonomous pipeline, which needs evidence
+        # the hooks gather and a project.
         from athos import autolearn
-        refused = autolearn.refuse_model_save(session_id)
-        if refused:
-            raise ValueError(refused)
-        piece, line, failed = autolearn.save_model(args.get("text", ""), session_id, None, None)
+        if _chat_saves():
+            piece, line, failed = _save_from_chat(args.get("text", ""), session_id)
+        else:
+            refused = autolearn.refuse_model_save(session_id)
+            if refused:
+                raise ValueError(refused)
+            piece, line, failed = autolearn.save_model(args.get("text", ""), session_id, None, None)
         if failed:
             raise ValueError(line)
         diff = piece.version > 1
@@ -449,7 +501,7 @@ def handle(msg: dict) -> dict | None:
             result = {"protocolVersion": params.get("protocolVersion") or PROTOCOL,
                       "capabilities": {"tools": {}, "resources": {}, "extensions": {UI_EXTENSION: {}}},
                       "serverInfo": {"name": "athos", "version": "1"},
-                      "instructions": INSTRUCTIONS_MINIMAL if _minimal() else INSTRUCTIONS}
+                      "instructions": instructions()}
         elif method == "tools/list":
             result = {"tools": tools()}
         elif method == "resources/list":
