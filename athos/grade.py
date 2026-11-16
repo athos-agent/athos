@@ -16,8 +16,10 @@
     verified → candidate    ageing: no use and no re-verification in `age_days` (90). Using a piece moves its
                             last-used date, so use slows ageing. Legacy pieces do not age.
 
-A reuse is judged when the person's next request arrives, once their reaction and their edits are known (`finish_task`),
-never in the session that wrote or improved the piece:
+A reuse is judged when the task ends (the Stop hook), when its objective evidence is final (`finish_task`); the person's
+next request may amend it with their reaction (words: confidence only) or their edits (strong, tied evidence); a task
+that ended without being graded is caught up at the next session start in its project (`catch_up`). One piece of work
+counts once (the latest judgement of a task), never in the session that wrote or improved the piece:
 
     frontier   clean: the task's evidence has a strong positive item and nothing against the work; corrected: strong
                evidence tied to the piece (a change of the person's credited to it, one of its Checks failing last);
@@ -259,7 +261,7 @@ def _maybe_set_aside(piece_id: str) -> None:
 def _reuses(evs: list[dict], since: str = "", version: int | None = None) -> list[dict]:
     """The reuse events at or after `since`, and of `version` only when one is given: a status change, a revert and an
     improvement each make a new version, so outcomes counted by version start again from the piece's last change."""
-    return [e for e in evs if e.get("type") == "reuse" and (e.get("at") or "") >= since
+    return [e for e in counted_reuses(evs) if (e.get("at") or "") >= since
             and (version is None or e.get("version") == version)]
 
 
@@ -405,45 +407,77 @@ def _outcome(pid: str, tier: str, items: list[dict]) -> tuple[str, list[str]]:
     return "unverified", ["nothing_proved_the_work"] + weak
 
 
-def finish_task(sid: str | None, task_id: str | None, state: dict) -> list[dict]:
-    """The task before the person's new request is over, with their reaction and edits known: one `reuse` event per
-    piece it used (not the one it saved), then each piece is graded. An apply model's failure marks the piece for
-    review at the next frontier session."""
+def _delta(outcome: str, basis: list[str]) -> float:
+    """What a graded reuse does to confidence: a clean one raises it, a corrected or failed one lowers it, and words
+    that read as a correction lower it a little when nothing stronger did."""
+    if outcome == "clean":
+        return CLEAN_REUSE
+    if outcome in ("corrected", "failed"):
+        return NEGATIVE_REUSE
+    return WEAK_NEGATIVE if "reaction_corrected" in (basis or []) else 0.0
+
+
+def counted_reuses(evs: list[dict]) -> list[dict]:
+    """The reuse events that count, in log order: for each piece and task only the latest one (a task is graded when
+    it ends and amended when the person's next request brings their words or their edits), so one piece of work
+    never yields two reuses. An event without a task (a replay) counts on its own."""
+    last: dict[tuple, int] = {}
+    for n, e in enumerate(evs):
+        if e.get("type") == "reuse" and e.get("task_id"):
+            last[(e.get("piece"), e.get("task_id"))] = n
+    return [e for n, e in enumerate(evs) if e.get("type") == "reuse"
+            and (not e.get("task_id") or last.get((e.get("piece"), e.get("task_id"))) == n)]
+
+
+def finish_task(sid: str | None, task_id: str | None, state: dict, stage: str = "stop") -> list[dict]:
+    """Grade the pieces a task used: one `reuse` event per piece (not one it saved), then each piece is graded.
+
+    Called when the task ends (`stage` "stop": the objective evidence is final then), again when the person's next
+    request brings their reaction and their edits ("next_request"), and for a task that ended without being graded
+    ("catch_up", at the next session start in the project). The task is judged afresh each time; a new event is
+    written only when the outcome or its basis changed, and it `amends` the earlier one, which stops counting
+    (`counted_reuses`). Confidence moves by the difference. An apply model's failure marks the piece for review at the
+    next frontier session. Returns the events written."""
     from athos import autolearn
     if not task_id:
         return []
     # The session that wrote (or improved) a piece does not count its reuse: the same model, the same context, often
-    # the same work seen twice.
+    # the same work seen twice. A reuse graded before the piece was improved in the same session stops counting.
     written = set(state.get("task_saved") or []) | set(state.get("saved") or [])
-    used = [p for p in dict.fromkeys(state.get("task_loaded") or []) if p not in written]
-    if not used:
-        return []
+    loaded = list(dict.fromkeys(state.get("task_loaded") or []))
     model = state.get("model")
     mode = autolearn.mode_for(model)
     if mode == autolearn.UNKNOWN or not session.observed(state):
         return []                                # a reuse is credited to a tier only when the model was seen
-
     tier = "frontier" if mode == autolearn.LEARN else "apply"
+    evs = [e for e in ev.events() if e.get("type") == "reuse" and e.get("task_id") == task_id]
     items = evidence.of_task(task_id)
     out = []
-    for pid in used:
+    for pid in loaded:
+        before = next((e for e in reversed(evs) if e.get("piece") == pid), None)
+        if pid in written and not before:
+            continue
         p = store.get(pid)
         if p is None:
             continue
-        outcome, basis = _outcome(pid, tier, items)
+        if pid in written:
+            outcome, basis = "unverified", ["written_in_session"]
+        else:
+            outcome, basis = _outcome(pid, tier, items)
+        if before and (before.get("outcome"), list(before.get("basis") or [])) == (outcome, basis):
+            continue                             # nothing new about this task
         verdict = latest_verdict(p) if p.status == "candidate" else None
-        event = {"type": "reuse", "piece": pid, "version": p.version, "task_id": task_id,
-                 "verdict": (verdict or {}).get("outcome"),
-                 "session_id": sid, "tier": tier, "model": model, "outcome": outcome,
-                 "basis": basis, "status": store.status(p), "project": p.projects[0] if p.projects else None}
+        event = {"type": "reuse", "piece": pid, "version": before.get("version") if before else p.version,
+                 "task_id": task_id, "verdict": before.get("verdict") if before else (verdict or {}).get("outcome"),
+                 "session_id": sid, "tier": tier, "model": model, "outcome": outcome, "basis": basis,
+                 "status": store.status(p), "project": p.projects[0] if p.projects else None, "stage": stage,
+                 **({"amends": before.get("outcome")} if before else {})}
         ev.audit(event)
         out.append(event)
-        if "reaction_corrected" in basis and outcome not in ("corrected", "failed"):
-            _set_confidence(p, WEAK_NEGATIVE)      # words only: confidence, never the status
-        if outcome == "clean":
-            _set_confidence(p, CLEAN_REUSE)
-        elif outcome in ("corrected", "failed"):
-            _set_confidence(p, NEGATIVE_REUSE)
+        change = _delta(outcome, basis) - (_delta(before.get("outcome"), before.get("basis")) if before else 0.0)
+        if change:
+            _set_confidence(p, change)
+        if outcome in ("corrected", "failed"):
             strong = bool(set(basis) & STRONG_NEGATIVE)
             if tier == "apply":
                 mark_review(pid, f"{outcome} on {model}: {', '.join(basis)}")
@@ -451,6 +485,50 @@ def finish_task(sid: str | None, task_id: str | None, state: dict) -> list[dict]
                 demote(pid, f"{outcome} reuse on {tier} ({', '.join(basis)})", strong)
             continue
         evaluate(pid, trigger=f"reuse {outcome}")
+    return out
+
+
+def catch_up(project: str | None, days: int = 14, limit: int = 50) -> list[dict]:
+    """Grade the tasks of a project that ended (a `task_end`) without being graded: a session killed before its next
+    request, or one run by a version that graded only at the next request. Read from the log: the pieces the task
+    used, the pieces its session saved, its model and whether the model was seen. The same rules as at the end of a
+    task (`finish_task`), at the next session start in the project. Returns the events written."""
+    if not project:
+        return []
+    evs = ev.events()
+    since = ev._iso(ev.now() - _dt.timedelta(days=days))
+    starts = {e.get("task_id"): e for e in evs if e.get("type") == "task_start" and e.get("task_id")}
+    graded = {(e.get("piece"), e.get("task_id")) for e in evs if e.get("type") == "reuse"}
+    wrong = {(e.get("task_id"), e.get("piece")) for e in evs if e.get("type") == "correction"
+             and e.get("target") == "task_pieces"}
+    saved_by: dict[str, set] = {}
+    for e in evs:
+        if e.get("session_id") and (e.get("type") == "task_end" or (e.get("type") == "learn"
+                                                                    and e.get("decision") == "saved")):
+            saved_by.setdefault(e["session_id"], set()).update(e.get("saved") or [])
+            if e.get("piece") and e.get("type") == "learn":
+                saved_by[e["session_id"]].add(e["piece"])
+    ends: dict[str, dict] = {}
+    for e in evs:
+        if e.get("type") != "task_end" or not e.get("task_id") or (e.get("at") or "") < since:
+            continue
+        start = starts.get(e["task_id"]) or {}
+        if start.get("project") != project:
+            continue
+        held = ends.setdefault(e["task_id"], {"pieces": [], "saved": [], "session_id": e.get("session_id")})
+        held["pieces"] = list(dict.fromkeys([*held["pieces"], *(e.get("pieces") or [])]))
+        held["saved"] = list(dict.fromkeys([*held["saved"], *(e.get("saved") or [])]))
+        if e.get("model") not in (None, "", session.UNKNOWN_MODEL):
+            held["model"], held["observed"] = e["model"], e.get("model_observed") is not False
+    out = []
+    for task_id, held in list(ends.items())[-limit:]:
+        pieces = [p for p in held["pieces"] if (p, task_id) not in graded and (task_id, p) not in wrong]
+        if not pieces or not held.get("model"):
+            continue
+        state = {"task_loaded": pieces, "task_saved": held["saved"],
+                 "saved": sorted(saved_by.get(held.get("session_id") or "", set())), "model": held["model"],
+                 "model_observed": held.get("observed", False)}
+        out += finish_task(held.get("session_id"), task_id, state, stage="catch_up")
     return out
 
 

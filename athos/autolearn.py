@@ -27,6 +27,7 @@ The settings live in `<home>/config.json` under `"autolearn"`; anything not save
 from __future__ import annotations
 
 import copy
+import datetime as _dt
 import re
 
 from athos import session
@@ -248,10 +249,50 @@ def on_next_request(sid: str | None) -> None:
         return
     state = session.load(sid)
     asked = state.get("auto_ask") or {}
-    if asked and not asked.get("answered") and asked.get("task_id") == state.get("task_id"):
+    if asked and not asked.get("answered") and asked.get("task_id") == state.get("task_id") \
+            and asked.get("task_id") not in _settled_tasks():
         note(sid, state, "skipped", "model_saved_nothing", ask=asked.get("ask") or "stop")
     if asked:
         session.update(sid, auto_ask=None)
+
+
+def _settled_tasks() -> set:
+    """Tasks whose ask to keep what they taught was answered: a save, or a `skipped` decision after the ask."""
+    from athos import eval as ev
+    return {e.get("task_id") for e in ev.events() if e.get("type") == "learn"
+            and (e.get("decision") == "saved" or e.get("reason") == "model_saved_nothing")}
+
+
+SETTLE_AFTER_S = 600     # an ask still open this long after its task's last end is over: no hook will answer it
+
+
+def catch_up(project: str | None) -> list[str]:
+    """At a session start: the frontier tasks of this project that qualified to keep what they taught (`qualified`,
+    `asked`) and ended without a save, in a session that never sent another request (one request, or killed), are
+    recorded as `model_saved_nothing`, as the next request would have. Only once the task's last end is
+    SETTLE_AFTER_S old, so a session still at work answers its own. Returns the task ids recorded."""
+    from athos import eval as ev
+    if not project:
+        return []
+    evs = ev.events()
+    settled = {e.get("task_id") for e in evs if e.get("type") == "learn"
+               and (e.get("decision") == "saved" or e.get("reason") == "model_saved_nothing")}
+    ended = {}
+    for e in evs:
+        if e.get("type") == "task_end" and e.get("task_id"):
+            ended[e["task_id"]] = e.get("at") or ""
+    cutoff = ev._iso(ev.now() - _dt.timedelta(seconds=SETTLE_AFTER_S))
+    out = []
+    for e in evs:
+        tid = e.get("task_id")
+        if e.get("type") != "learn" or e.get("decision") not in ("qualified", "asked") or e.get("project") != project \
+                or not tid or tid in settled or tid in out or not ended.get(tid) or ended[tid] > cutoff:
+            continue
+        sid = e.get("session_id")
+        state = {"task_id": tid, "model": e.get("model"), "project": project}
+        note(sid, state, "skipped", "model_saved_nothing", ask=e.get("ask") or "stop", caught_up=True)
+        out.append(tid)
+    return out
 
 
 # ------------------------------------------------------------------------------------------------ the save

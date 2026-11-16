@@ -788,7 +788,9 @@ one; a learned piece of this project it may improve, under the same checks, and 
 own verifier run (a verified piece improved this way is verified again from scratch). A candidate does not
 reach an apply model until it is verified. Every decision is a `learn` event: qualified (`ask: guide`), asked (`ask:
 stop`), saved, or skipped with its reason (no strong evidence, a failed last verification, private data, an apply
-model, the model stopping without saving, or `set_aside` below).
+model, the model stopping without saving, or `set_aside` below). A task that qualified and ended without a
+save is recorded as `model_saved_nothing` by the session's next request or, for a session that never sent one, by the
+next session start in the project ten minutes or more after the task ended (`caught_up`).
 
 **A rejected candidate comes back as something to fix.** When the verifier's latest verdict on a candidate's current
 text is a fail, and the candidate is one Athos learned (it has a `status` and `learned_by`), a frontier session of
@@ -921,8 +923,9 @@ Every model run Athos starts (verifiers and replays together) counts against a d
 not logged in, a model the account cannot use) costs nothing and uses no attempt, and an unavailable model is retried
 once with the worker's own model. Only one verifier runs at a time (its lock is taken in one step). A cap of 0 turns
 model runs off, and `"verifier": {"on": false}` turns the verifier off. A run refused by the cap, failed or timed out
-leaves the piece a candidate and says why (`grade` and `learn` events); a candidate still waiting is picked up at a
-later end of turn, at most two attempts. Bundles are pruned to the last 50 at the end of a turn, except those still
+leaves the piece a candidate and says why (`grade` and `learn` events); a candidate still waiting is picked up, without
+anyone asking, by the first session start or end of turn the cap allows (after a day's cap, the next day's first one),
+at most two attempts. Bundles are pruned to the last 50 at the end of a turn, except those still
 waiting. `athos verify <id>` runs it by hand, in the foreground; `athos verify --pending` the oldest waiting one.
 `athos verify <id> --rebuild` verifies a candidate again (after a failed verdict, say) from a fresh bundle built from
 the task its latest bundle recorded: the diff of that task's commits and the snapshot read from its last commit, in a
@@ -954,9 +957,14 @@ made no commit, it says so (outcome `error`) and the piece stays a candidate.
   goes back to candidate, checked when a session starts. Using a piece moves its last-used date, so use slows ageing.
   Legacy pieces do not age.
 
-A reuse is judged when your next request arrives, once your reaction and your edits are known: a `reuse` event per piece
-the task used (opened, on a frontier model; given, on an apply model), never in the session that saved or improved
-it. A message the harness sends in the middle of the work (a background task's `<task-notification>`, a subagent's
+A reuse is judged when the task ends (the Stop hook), when its objective evidence is final: a `reuse` event per piece the
+task used (opened, on a frontier model; given, on an apply model), never in the session that saved or improved it, so
+a session with a single request, and the last task of any session, are judged too. Your next request may amend it:
+your reaction read from words lowers confidence (−0.1) and keeps that reuse from counting as clean, and an edit of yours
+credited to the piece makes it corrected; the amendment is a new `reuse` event for the same task (`amends`: the outcome
+it replaces), written only when the outcome changes, and only the latest one of a task counts, so one piece of work is
+never two reuses. A task that ended without being judged (a session killed before its next request, an older version)
+is judged at the next session start in its project (`stage` catch_up), with the same rules, from the log. A message the harness sends in the middle of the work (a background task's `<task-notification>`, a subagent's
 report: text in one of the harness's wrappers) does not start a task: the open task goes on (a `task_continued`
 event), so one piece of work is judged once. On a frontier model it is **clean** when the task's evidence has a strong item for the work and nothing against
 it, **corrected** on strong evidence tied to the piece (an edit of yours credited to it, one of its Checks failing
@@ -1000,7 +1008,7 @@ piece. Both runs count against the same daily cap.
 | event | written when | fields |
 |---|---|---|
 | `grade` | a piece moves, or a verifier outcome or a rule leaves it where it is | `piece`, `version`, `from`, `to` (candidate, verified, retired, legacy), `basis`, and for a move `trigger`, `verifier_pass`, `verifier_model`, `frontier_clean`, `apply_pass`, `risk`, `checks` |
-| `reuse` | the next request after a task that used a piece, or a replay | `piece`, `version`, `task_id`, `tier` (frontier, apply), `model`, `outcome` (clean, corrected, failed, unverified, replay_pass, replay_fail), `basis` (strong_positive, no_correction, check_passed, check_failed, person_edit, person_edit_not_this_piece, revert, last_verification_failed, reaction_corrected, no_check_ran, nothing_proved_the_work, replay, score), `status`, `verdict` (the verifier's latest verdict on that text at the time, for a candidate: a reuse under `fail` never counts towards promotion) |
+| `reuse` | the end of a task that used a piece (and its amendment by the next request, or its catch-up at a later session start), or a replay | `piece`, `version`, `task_id`, `stage` (stop, next_request, catch_up), `amends` (the outcome it replaces), `tier` (frontier, apply), `model`, `outcome` (clean, corrected, failed, unverified, replay_pass, replay_fail), `basis` (strong_positive, no_correction, check_passed, check_failed, person_edit, person_edit_not_this_piece, revert, last_verification_failed, reaction_corrected, no_check_ran, nothing_proved_the_work, written_in_session, replay, score), `status`, `verdict` (the verifier's latest verdict on that text at the time, for a candidate: a reuse under `fail` never counts towards promotion) |
 | `reverify` | an old piece is checked against the environment | `piece`, `version`, `age_days`, `checked`, `missing` (files, commands, scripts, targets: counts), `stale` |
 
 **Repairing polluted statistics.** Sessions recorded before 0.1.111 counted pieces of other projects as used (a

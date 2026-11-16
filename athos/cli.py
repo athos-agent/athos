@@ -354,8 +354,19 @@ def _add_context(hook_event: str, text: str) -> None:
 def _on_session_start(event: dict, platform: str) -> None:
     """A session opens: the know-how that may load for it goes in as context (nothing at all on an empty store), and
     the overnight review runs if it is due; its proposals are offered once, never applied without the person's yes."""
-    from athos import grade
+    from athos import grade, verify
     _quietly(grade.age_all)                  # verified pieces unused and unverified for too long: back to candidate
+    sid = event.get("session_id", "default")
+    project = paths.project_of(event["cwd"]) if event.get("cwd") else None
+    if capture.enabled():
+        # Tasks of this project that ended without being graded (a session killed before its next request, an older
+        # version), and asks to keep what a task taught that no save answered: settled now.
+        _quietly(grade.catch_up, project)
+        _quietly(autolearn.catch_up, project)
+    # A candidate left waiting (the daily cap, a run that failed to start) is verified without anyone asking: the
+    # first session start or Stop that the cap allows starts it.
+    if _quietly(verify.maybe_spawn_pending, ME):
+        session.update(sid, verifying_since=time.time())
     intro = load.on_session_start(event, _cmd(), platform)
     from athos import consolidate, start
     dream = _quietly(consolidate.run) if consolidate.due() else None
@@ -368,8 +379,6 @@ def _on_session_start(event: dict, platform: str) -> None:
                  f"language; if they say yes, run `{_cmd()} dream` to list them and `{_cmd()} dream --apply N` for "
                  f"each one they choose, then do what it prints.")
         intro = (intro + "\n\n" + offer) if intro else offer
-    sid = event.get("session_id", "default")
-    project = paths.project_of(event["cwd"]) if event.get("cwd") else None
     _quietly(load.note_session_context, sid, project, len(intro or ""), {"review": len(offer)})
     if intro:
         _add_context("SessionStart", intro)
@@ -407,7 +416,7 @@ def _on_prompt(event: dict, platform: str) -> None:
         return
     if sid and _continues_task(event, session.load(sid)):
         # A message the harness sends in the middle of the work (a background task's notification, a subagent's
-        # report) is not a new request: the task goes on, and is graded once, at the person's next request.
+        # report) is not a new request: the task goes on, and is graded again when it ends.
         state = session.load(sid)
         ev.audit({"type": "task_continued", "session_id": sid, "task_id": state.get("task_id"),
                   "same_prompt_id": bool(event.get("prompt_id")) and event.get("prompt_id") == state.get(
@@ -437,9 +446,10 @@ def _on_prompt(event: dict, platform: str) -> None:
                                              tell=autolearn.tells_edits(sid) and not indicator.minimal())
             _quietly(evidence.note_person_edits, found, previous)
             added["edit"] = len(learned or "")
-            # The task before this request is over, its reaction and edits known: each piece it used is graded.
+            # The task before this request was graded when it ended; the person's words and edits, known only now,
+            # amend that grading (a new event only when they change it).
             from athos import grade
-            _quietly(grade.finish_task, sid, previous, before)
+            _quietly(grade.finish_task, sid, previous, before, "next_request")
             context = (context + "\n" + learned) if context and learned else (context or learned)
         if share.asked(prompt) and _act_on(event, "share"):
             # The person asked to share a way of working with the gallery: a draft, anonymised by the agent in sight,
@@ -590,6 +600,12 @@ def _on_stop(event: dict, platform: str) -> None:
             session.update(event["session_id"], auto_ask={**asked, "closed": True})
     rec = ev.task_end(event)
     _quietly(cases.on_task_end, event, rec)
+    if rec and capture.enabled():
+        # The task's objective evidence is final now: each piece it used is graded here, so a session with one
+        # request, and the last task of any session, are graded too. The person's next request may amend it.
+        from athos import grade
+        ended = event.get("session_id", "default")
+        _quietly(grade.finish_task, ended, rec.get("task_id"), session.load(ended))
     _quietly(evidence.prune)                  # only the last few hundred tasks' evidence stays
     _quietly(replay.maybe_spawn, ME)          # background shadowing, when the person turned it on
     from athos import verify
