@@ -61,40 +61,47 @@ Write a request that matches one of your ways of working:
 
 > Review this lease: [text]
 
-Before starting, Claude asks Athos and the **trail panel** opens in the conversation:
+Before starting, Claude asks Athos and a small **Athos panel** opens in the conversation. While Claude follows one
+of your ways of working, it shows:
 
 ```
-Good morning, Ana
-1 way of working ready
-
-«Review a lease agreement» v1 · 1/4 steps · matched: lease, review
- ✓ #parties-and-term
- ▶ #adjustment
-   check the rent adjustment clause
- ○ #termination
- ○ #risk-table
- + new: check the guarantee
-Subagents: …   Skills: …
-
-[ Change this step ]  [ Save as a way of working ]  [ Keep beside ]  [ Full screen ]
+■ Athos is collaborating                      (green)
+Review a lease agreement
+ ✓ Check the parties and the term
+ ▶ Check the rent adjustment clause   [ Change this step ]
+ ○ Check termination
+ ○ Build the risk table
 ```
 
-- **✓** step done, **▶** the step Claude is on now (with what it does), **○** what's left.
-- **+ new:** a step the task needed that your way of working doesn't have yet.
-- **matched:** the words of your request that made Athos pick that way of working.
+- **✓** step done, **▶** the step Claude is on now, **○** what's left. A step that leads to another of your ways of
+  working shows its steps indented under it, marked *taken* or *not needed*.
 - The panel updates by itself while Claude works.
-- If no way of working fits the request, the panel says so and drafts a new one from the steps Claude takes.
 
+If none of your ways of working fits the request, Claude notes the steps it takes, and the panel shows them as a new
+way of working being drafted:
+
+```
+■ Athos is learning                           (red)
+ ✓ Read the clauses
+ ▶ Check the guarantee
+[ Save as a way of working ]
+```
+
+When nothing fits and nothing is being drafted, the panel stays empty. When the task is done the square goes away.
 The panel speaks the language you write in, English or Spanish.
 
 ## 5. Correct and improve without commands
 
-- **[Change this step]**: a field opens under the panel. Write how the step Claude is on should change (for example *"also
-  compare against the CPI"*) and press **Send**. It goes to the chat as your message; Claude improves your way of
-  working (a new version is kept) and goes on with the change.
-- **[Save as a way of working]**: shows when there were **+ new** steps. Claude saves the task with them included.
-- **[Keep beside]** and **[Full screen]**: show only if your Claude Desktop lets the panel move. With **Keep beside**
-  the panel stays in view while you keep talking.
+- **[Change this step]**: a field opens. Write how the step Claude is on should change (for example *"also compare
+  against the CPI"*) and press **Send**. Athos writes it into that step of your way of working (a new version is
+  kept), and it goes to the chat as your message, so Claude goes on with the change.
+- **[Save as a way of working]**: shows when there were new steps, also after the task is done. Athos saves them as a
+  way of working of yours: a new one named after your request, or new steps added to the one Claude followed.
+
+Only these two buttons save in the chat: Claude itself never saves your ways of working there.
+
+Want the old, larger panel (greeting, stars on each step, a receipt at the end, **Keep beside**)? Add
+`"ui": "classic"` to `~/.athos/config.json`.
 
 Claude Desktop may ask you to confirm before a panel message is sent to the chat, or before an Athos tool is used.
 That's normal.

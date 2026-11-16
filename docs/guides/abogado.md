@@ -48,22 +48,20 @@ Lo que vas a ver:
 - La IA arranca con una línea como *«Sigo tu forma de trabajar "Revisar un contrato con tu checklist": primero los
   datos del cliente, después el resumen y la tabla de cláusulas.»* Así sabés qué método está aplicando.
 - Antes de abrir el contrato te pregunta si tiene datos de clientes que no deberían salir de tu computadora.
-- Mientras trabaja, debajo del cuadro de texto aparecen los pasos que sigue, en orden
-  (`#datos_fuera → #partes_y_objeto → #clausulas_clave → #observaciones → …`).
-- Al terminar, como la tarea siguió un checklist, Athos le pregunta a la IA si vale la pena guardarlo. Tu checklist
-  queda como forma de trabajar: un archivo de texto tuyo, en tu computadora.
+- Mientras trabaja, un cuadradito a la derecha, al pie del cuadro de texto, dice **Athos está colaborando** (verde)
+  mientras sigue una de tus formas de trabajar, o **Athos está aprendiendo** (rojo) mientras aprende una nueva. Nada
+  más de Athos se interpone.
+- Para guardar tu checklist como forma de trabajar, escribí *«Athos · guardar: guardá esta tarea como forma de
+  trabajar»* al terminar. Queda como un archivo de texto tuyo, en tu computadora. En el chat de Claude Desktop un
+  panel chico muestra el mismo cuadrado con la lista de pasos y un botón **Guardar como forma de trabajar**.
 
 La segunda vez alcanza con: *«Revisá este contrato de servicios, represento al proveedor.»*
 
-## 3. Marcá cómo salió
+## 3. La interfaz anterior
 
-Después de cada tarea aparecen tres botones: **Salió bien**, **Lo corregí**, **Falló**. Tardás un segundo, y con esas
-marcas Athos te muestra qué formas de trabajar te sirven y en qué herramienta (la barra debajo del cuadro de texto).
-Si escribís «perfecto, ahora…» o «está mal…», Athos lo toma como marca.
-
-Arriba del cuadro de texto Athos también te dice qué forma de trabajar usó, cómo le fue hasta ahora y por qué palabras
-la eligió. Si no correspondía, tocá **No aplicaba**: con esas palabras no se vuelve a cargar. Y cuando una tarea vale la
-pena, aparece **Guardar**: la forma de trabajar se guarda solo si vos querés.
+Los pasos debajo del cuadro de texto, el botón **Guardar** arriba, **No aplicaba** y las marcas **Salió bien**, **Lo
+corregí**, **Falló** después de cada tarea siguen estando si los querés: agregá `"ui": "classic"` en
+`~/.athos/config.json`.
 
 ## 4. Lo mismo, en tus otras herramientas
 

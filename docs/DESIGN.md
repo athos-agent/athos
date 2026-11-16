@@ -157,6 +157,14 @@ history is never edited: `athos repair --apply` appends correction events.
 running), `collaborating` (a piece is in use), `idle` (nothing drawn). The module draws a red or green square beside
 the mode labels of the prompt footer. A failure anywhere clears the mark instead of showing an error.
 
+Claude Desktop's chat has no hooks: `indicator.chat` computes the same three states from the MCP server's session
+(`collaborating` while a piece `athos_find` handed over, or a step of one, is in use; `learning` while new steps are
+drafted with no piece, or while a save the person pressed is written; `idle` otherwise), recorded as the same `ui`
+event. `athos_find` opens the panel (`athos/mcp/trail.html`) in a minimal form: the square as its header, the piece's
+steps or the drafted ones under it, and two buttons, **Change this step** and **Save as a way of working**, which call
+the app-only `athos_keep`. That press is the only way the chat learns: the model's `athos_save` is refused there. The
+panel names only pieces `athos_find` may hand over. `"ui": "classic"` brings back the old panel.
+
 ## Changing Athos
 
 - Tests use a throwaway `HOME`; never the real `~/.athos`.

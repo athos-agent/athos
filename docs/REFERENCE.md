@@ -87,9 +87,8 @@ back everything below: the status line, the trail pane, the band with [Save], [N
 [Change this step] and [Keep this rule], the verdict row, the bars, the "following" line and its steps, the toasts,
 and the lines the model was asked to tell you. `ATHOS_UI=minimal` (or `"ui": "minimal"`) is the default.
 
-What stays visible where, in the minimal interface: in Desktop's regular chat the trail panel no longer opens on its
-own (the model's `athos_find` and `athos_done` no longer carry it), and `athos_library` still opens the library when
-you ask; in OpenCode the sidebar stays where you put it, but its step toasts are off; `athos watch`, `athos watch
+What stays visible where, in the minimal interface: in Desktop's regular chat the panel opens in a minimal form with
+the same square (see "In Claude Desktop"), and `athos_library` still opens the library when you ask; in OpenCode the sidebar stays where you put it, but its step toasts are off; `athos watch`, `athos watch
 --web` and `athos library` show what they always showed, only when you run them. A command you type yourself
 (`athos list`, `athos mark`, …) prints as before.
 
@@ -1080,7 +1079,8 @@ gives a candidate, on strong evidence, after the private-data check, then the ve
 could not resolve, nothing is saved or changed at all, from any folder, through the CLI or MCP (`athos save`, `athos
 revert`, `athos merge --apply`, `athos curate apply|restore`, `athos_save` and `athos_merge` with `apply`), and the
 refusal says how you can save it yourself. No session found while an agent runs the command counts as a model Athos
-could not resolve. In Claude Desktop's chat the model is not known, so its `athos_save` saves nothing.
+could not resolve. In Claude Desktop's chat the model is not known, so its `athos_save` saves nothing; what you save
+there goes through the panel's own buttons (see "In Claude Desktop").
 
 On an apply model nothing is ever offered or asked for. Another agent's models (Codex, Muse Code, OpenCode) are apply
 models until you name them frontier with `athos tiers add frontier <pattern>`. `"autolearn": {"on": false}` in
@@ -1389,14 +1389,34 @@ the trail pane beside the transcript. For the regular **chat**, which takes MCP 
 as a Desktop extension: `athos desktop` builds `dist/athos.mcpb`; double-click it (or drag it into Settings →
 Extensions). It runs `athos mcp` against your own `~/.athos`.
 
-In the chat, Athos finds the know-how for each request (`athos_find`) and, in the classic interface (`"ui": "classic"`
-in `~/.athos/config.json`), opens its **trail panel** in the conversation (MCP Apps); in the minimal one (the default)
-the panel does not open on its own. The panel: a greeting, the piece the task walks with each step ✓ done, ▶ now and ○ ahead as the model
-reports it (`athos_step`), the steps your know-how lacks, and two buttons: **Change this step** (you write how the step
-changes; the piece is improved) and **Save as a way of working**. **Keep beside** pins the panel where the host allows it. In a
-chat without MCP Apps, the same tools answer as text. The chat's model is not known to Athos and an MCP server cannot
-tell who wrote a request, so the model's `athos_save` (and `athos_merge` with `apply`) saves and changes nothing there
-(see "Who may save").
+In the chat, Athos finds the know-how for each request (`athos_find`), and in a chat that draws MCP Apps that call
+opens Athos's panel in the conversation. In the minimal interface (the default) the panel is small, and its header is
+the same square as in Claude Code:
+
+| state | the panel's header | under it | when |
+|---|---|---|---|
+| collaborating | a green ■ and `Athos is collaborating` (`Athos está colaborando`) | the piece's title and its steps: ✓ done, ▶ now, ○ ahead, the steps of a page a step hands over to indented under it ("taken" / "not needed"); **Change this step** on the current one | `athos_find` handed over one of your pieces, or a step of one is being reported (`athos_step`) |
+| learning | a red ■ and `Athos is learning` (`Athos está aprendiendo`) | the steps your know-how lacks, as the model reports them (`athos_step` with `new`), and **Save as a way of working** | the task follows no piece and new steps are being drafted, or a save you pressed is being written |
+| idle | nothing: the panel is empty and takes no room | — | nothing matched and nothing is drafted, the task is done (`athos_done`), or it has not moved in 6 minutes |
+
+Collaborating wins when both apply, and new steps reported beside a piece are listed under it with the same button.
+Once the task is done the square goes away; if it drafted steps you have not saved, the list and **Save as a way of
+working** stay, without a header. Nothing else is drawn: no greeting, no first-use or other-agents blocks, no stars,
+no **Keep beside**, no offers. The state is computed by `indicator.py` (`chat`), and each change is one `ui` event in
+`athos audit`, as in Claude Code.
+
+The two buttons are how you teach in the chat. **Save as a way of working** writes the task's new steps as a way of
+working you own (no `status`): a new piece titled by your request, or, when the task followed a piece, a new version
+of it with the steps added. **Change this step** opens a field; what you write goes into that step (a new version of
+the piece) and into the chat as your own message, so the task goes on as changed. Both are your presses, through a
+tool only the panel can call (`athos_keep`); the model's own `athos_save` (and `athos_merge` with `apply`) still saves
+and changes nothing in the chat, since the chat's model is not known to Athos and an MCP server cannot tell who wrote a
+request (see "Who may save"). The panel names only pieces `athos_find` may hand over there (your selection, with no
+folder: `athos load`); a step reported on any other piece, or a piece opened with `athos_show`, is not drawn.
+
+`"ui": "classic"` in `~/.athos/config.json` brings back the old panel: the moment's card, stars on any step, the
+receipt at the end (`athos_done` opens it), and **Keep beside**. In a chat without MCP Apps, the same tools answer as
+text.
 
 Step by step, for people who don't program: [docs/guides/claude-desktop-en.md](guides/claude-desktop-en.md)
 (en español: [docs/guides/claude-desktop.md](guides/claude-desktop.md)).

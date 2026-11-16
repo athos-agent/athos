@@ -63,40 +63,48 @@ Escribí un pedido que coincida con una forma de trabajar tuya:
 
 > Revisá este contrato de locación: [texto]
 
-Antes de empezar, Claude consulta a Athos y se abre el **panel de trayectoria** en la conversación:
+Antes de empezar, Claude consulta a Athos y se abre un **panel de Athos** chico en la conversación. Mientras Claude
+sigue una de tus formas de trabajar, muestra:
 
 ```
-Buen día, Matías
-1 forma de trabajar lista
-
-«Revisar un contrato de locación» v1 · 1/4 pasos · coincidió: contrato, locación
- ✓ #partes-y-plazo
- ▶ #actualizacion
-   revisar la cláusula de actualización del alquiler
- ○ #rescision
- ○ #tabla-de-riesgos
- + nuevo: verificar la garantía
-Subagentes: …   Skills: …
-
-[ Cambiar este paso ]  [ Guardar como forma de trabajar ]  [ Fijar al costado ]  [ Pantalla completa ]
+■ Athos está colaborando                      (verde)
+Revisar un contrato de locación
+ ✓ Revisar partes y plazo
+ ▶ Revisar la cláusula de actualización   [ Cambiar este paso ]
+ ○ Revisar la rescisión
+ ○ Armar la tabla de riesgos
 ```
 
-- **✓** paso hecho, **▶** el paso en el que está Claude ahora (con lo que hace), **○** lo que falta.
-- **+ nuevo:** un paso que la tarea necesitó y tu forma de trabajar todavía no tiene.
-- **coincidió:** las palabras de tu pedido que hicieron que Athos eligiera esa forma de trabajar.
+- **✓** paso hecho, **▶** el paso en el que está Claude ahora, **○** lo que falta. Un paso que lleva a otra forma de
+  trabajar tuya muestra sus pasos con sangría debajo, marcados *tomado* o *no hizo falta*.
 - El panel se actualiza solo mientras Claude avanza.
-- Si no hay ninguna forma de trabajar para el pedido, el panel lo dice y va armando una nueva con los pasos que da Claude.
 
+Si ninguna forma de trabajar corresponde al pedido, Claude anota los pasos que da, y el panel los muestra como una
+forma de trabajar nueva en borrador:
+
+```
+■ Athos está aprendiendo                      (rojo)
+ ✓ Leer las cláusulas
+ ▶ Verificar la garantía
+[ Guardar como forma de trabajar ]
+```
+
+Si no corresponde nada y no se está armando nada, el panel queda vacío. Cuando la tarea termina, el cuadrado se va.
 El panel habla el idioma en el que escribís, español o inglés.
 
 ## 5. Corregir y mejorar sin escribir comandos
 
-- **[Cambiar este paso]**: se abre un campo debajo del panel. Escribí cómo tiene que cambiar el paso en el que está Claude
-  (por ejemplo *«además, comparar con el índice ICL»*) y tocá **Enviar**. Va al chat como mensaje tuyo; Claude mejora
-  tu forma de trabajar (queda una versión nueva) y sigue la tarea con el cambio.
-- **[Guardar como forma de trabajar]**: aparece cuando hubo pasos **+ nuevo**. Claude guarda la tarea con esos pasos incluidos.
-- **[Fijar al costado]** y **[Pantalla completa]**: aparecen solo si tu versión de Claude Desktop permite mover el
-  panel. Con **Fijar al costado** el panel queda a la vista mientras seguís conversando.
+- **[Cambiar este paso]**: se abre un campo. Escribí cómo tiene que cambiar el paso en el que está Claude (por ejemplo
+  *«además, comparar con el índice ICL»*) y tocá **Enviar**. Athos lo escribe en ese paso de tu forma de trabajar
+  (queda una versión nueva) y va al chat como mensaje tuyo, así Claude sigue la tarea con el cambio.
+- **[Guardar como forma de trabajar]**: aparece cuando hubo pasos nuevos, también después de terminar la tarea. Athos
+  los guarda como forma de trabajar tuya: una nueva con el nombre de tu pedido, o pasos nuevos agregados a la que
+  siguió Claude.
+
+En el chat solo guardan estos dos botones: Claude mismo nunca guarda tus formas de trabajar ahí.
+
+¿Querés el panel anterior, más grande (saludo, estrellas en cada paso, un resumen al final, **Fijar al costado**)?
+Agregá `"ui": "classic"` en `~/.athos/config.json`.
 
 Claude Desktop puede pedirte que confirmes antes de mandar al chat un mensaje del panel o antes de usar una herramienta
 de Athos. Es normal.

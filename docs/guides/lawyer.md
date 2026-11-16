@@ -47,17 +47,19 @@ What you will see:
 - The AI opens with a line like *"Following your 'Review a contract against your checklist': client data first, then
   the summary and the clause table."* You know which method it applies.
 - Before opening the contract it asks whether it holds client data that should not leave your computer.
-- While it works, the steps it follows show under the input box, in order.
-- When it finishes, since the task followed a checklist, Athos offers **Save** above the input box (in Muse Code,
-  OpenCode and Codex it asks the AI instead). Your checklist becomes a way of working: a plain text file of yours, on
-  your computer.
+- While it works, a small square at the right of the input box's footer says **Athos is collaborating** (green)
+  while it follows one of your ways of working, or **Athos is learning** (red) while it learns a new one. Nothing else
+  from Athos gets in your way.
+- To keep your checklist as a way of working, write *"Athos · save: keep this task as a way of working"* when the
+  task is done. It becomes a plain text file of yours, on your computer. In Claude Desktop's chat a small panel shows
+  the same square with the list of steps, and a **Save as a way of working** button.
 
 Next time: *"Review this services agreement, I act for the supplier."*
 
-## 3. Mark how it went
+## 3. The old interface
 
-After each task three buttons appear: **Good**, **Corrected**, **Failed**. One second, and with those marks Athos
-shows which ways of working serve you, and in which tool (the bar under the input box).
+The steps under the input box, the **Save** button above it and the **Good**, **Corrected**, **Failed** marks after
+each task are still there if you want them: add `"ui": "classic"` to `~/.athos/config.json`.
 
 ## 4. The same, in your other tools
 
