@@ -604,8 +604,8 @@ def sums(tasks: list[dict]) -> dict:
             pr = out["projects"].setdefault(proj, {"tasks": 0, "journal": 0, "journal_pieces": {}, "last": None,
                                                    "scratch": 0, "ok": 0, "marked": 0, "last_task": None})
             if pr["last_task"] is None or (t.get("seq") or 0) > pr["last_task"]["seq"]:
-                pr["last_task"] = {"seq": t.get("seq") or 0, "platform": t.get("platform"), "model": t.get("model"),
-                                   "result": t.get("result"), "ended": t.get("ended")}
+                pr["last_task"] = {"seq": t.get("seq") or 0, "task_id": t.get("task_id"), "platform": t.get("platform"),
+                                   "model": t.get("model"), "result": t.get("result"), "ended": t.get("ended")}
             pr["tasks"] += 1
             pr["scratch"] += bool(t.get("scratch"))
             pr["ok"] += res == "ok"
@@ -905,6 +905,15 @@ class View:
             self._rows = rows
             self._tasks = finished(rows.values(), wrong, copy=False)
         return self._tasks
+
+    def last_task(self, project: str | None = None) -> dict | None:
+        """The last task of a project (any project: None), recent or archived: its id, agent, model and verdict."""
+        here = [t for t in self.tasks() if project is None or t.get("project") == project]
+        if here:
+            return max(here, key=lambda t: t.get("ended") or "") if project is None else here[-1]
+        arch = (((self.rollups or {}).get("sums") or {}).get("projects") or {})
+        lasts = [v["last_task"] for k, v in arch.items() if v.get("last_task") and (project is None or k == project)]
+        return max(lasts, key=lambda t: t.get("ended") or "", default=None)
 
     def walked(self) -> dict:
         """`_walked` over the whole history: archived counts plus the recent rows (finished or not)."""

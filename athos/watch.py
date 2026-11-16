@@ -33,7 +33,8 @@ def frame(project: str, color: bool = True) -> str:
         for row in b["agents"]:
             bar, words = ev.bar_line(row)
             out.append(f"  {row['label']:<12}" + c(COLORS.get(row["platform"], "0"), bar) + f"  {words}")
-    last = next((t for t in reversed(ev.tasks()) if t.get("project") == project), None)
+    from athos import memory
+    last = memory.view().last_task(project)     # the rollups and the live log: it redraws every 2 s
     if last:
         agent = dict(ev.AGENTS).get(last.get("platform"), last.get("platform"))
         out += ["", c("2", f"  last task: {agent} / {last.get('model', 'unknown')} · {last['result']}")]

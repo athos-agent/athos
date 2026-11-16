@@ -562,11 +562,16 @@ def last_task_id(session_id: str | None = None, project: str | None = None) -> T
     """Which task a bare `athos mark` means. Candidates are this session's task and every task of this project
     (so a Codex run in the same folder after a Claude Code session wins if it ended later); with no candidate,
     the task that ended last anywhere."""
-    known = tasks()
+    from athos import memory
+    v = memory.view()                         # the recent window and the rollups: never the archive
+    known = v.tasks()
     sessions_task = session.load(session_id).get("task_id") if session_id and known else None
     candidates = [t for t in known if t["task_id"] == sessions_task or (project and t.get("project") == project)]
     pool = candidates or known
-    return max(pool, key=lambda t: t.get("ended") or "")["task_id"] if pool else None
+    if pool:
+        return max(pool, key=lambda t: t.get("ended") or "")["task_id"]
+    last = (v.last_task(project) if project else None) or v.last_task()   # nothing recent: the last archived one
+    return last.get("task_id") if last else None
 
 
 def mark(result: str, task_id: TaskId | None = None, session_id: str | None = None,

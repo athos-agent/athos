@@ -364,7 +364,10 @@ read the live log. All of these are `"memory"` keys in `~/.athos/config.json`.
 
 **What reads what.** The hooks (session start, prompt, tool, stop) and `athos status` read only the rollups and the
 live log, so what they cost does not grow with the archive: a piece's record and the bars, the journal, the grading
-history of a learned piece, which candidates wait for the verifier, the shadow runs and the star review. Offline
+history of a learned piece, which candidates wait for the verifier, the shadow runs and the star review; so do
+`athos watch`, which redraws every two seconds, and the choice of the task a bare `athos mark` marks (the importers of
+other agents' sessions it runs first still read the whole history, which they need to never import a session
+twice). Offline
 commands read the whole history, the archive decompressed and then the live log: `athos report`, `audit`, `curate`,
 `repair`, `bench route --from-store`, the importers of Codex and Muse Code sessions; `report`, `audit` and `repair`
 say so on stderr (`history: N archived event(s) in K segment(s) read with the live log`) when there is an archive.

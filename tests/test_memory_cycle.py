@@ -560,3 +560,27 @@ class EditCorrectionTest(MemoryCase):
         self.assertEqual(self.steps(), [{"piece": "keys", "step": "one", "edits": 2}])
         ev.append(self.undo(b, 0))
         self.assertEqual(self.steps(), [])
+
+
+class OfflineHotPathTest(MemoryCase):
+    """`athos watch` redraws every two seconds and `athos mark` picks the task to mark: neither reads the archive."""
+
+    def test_watch_and_mark_never_read_the_whole_history(self):
+        from athos import watch
+        cycle.run()
+        before = watch.frame("alpha", color=False)
+        reads = []
+
+        def forbidden(*_a, **_k):
+            reads.append(1)
+            raise AssertionError("read the whole history")
+        with mock.patch.object(memory, "archived_events", forbidden), \
+                mock.patch.object(memory, "read_segment", forbidden), \
+                mock.patch.object(ev, "events", forbidden), mock.patch.object(ev, "tasks", forbidden):
+            frame = watch.frame("alpha", color=False)
+            tid = ev.last_task_id(None, "alpha")
+            with contextlib.chdir(self.alpha), contextlib.redirect_stdout(io.StringIO()):
+                self.assertIn(cli.main(["mark", "g", tid]), (0, None))
+        self.assertEqual(reads, [])
+        self.assertEqual(frame, before)
+        self.assertEqual(tid, "new9")
