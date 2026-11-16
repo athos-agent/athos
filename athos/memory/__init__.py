@@ -190,6 +190,20 @@ def decode(raw: bytes) -> list:
     return out
 
 
+def iter_decode(raw: bytes, start: int = 0) -> Iterable:
+    """The events of raw log bytes from `start`, one line at a time (split on newlines, as the hot view reads the
+    live log), never holding every event, nor a copy of the bytes, at once."""
+    at, size = start, len(raw)
+    while at < size:
+        end = raw.find(b"\n", at)
+        end = size if end < 0 else end
+        try:
+            yield json.loads(raw[at:end].decode("utf-8", errors="replace"))
+        except ValueError:
+            pass
+        at = end + 1
+
+
 def segment_events(entry: dict, raw: bytes | None = None) -> list:
     """A segment's events, without the lines it holds only as repeats of lines archived before it (`repeats`: their
     numbers; the bytes stay, so the live log can still be trimmed of them, but they are never counted twice)."""
@@ -816,7 +830,7 @@ def _task_ids(events: Iterable) -> set:
     return {e.get("task_id") for e in events if isinstance(e, dict) and e.get("task_id")}
 
 
-def aggregate(ledger: dict, live: list, live_bytes: int = 0, live_head: str = "") -> dict:
+def aggregate(ledger: dict, live: Iterable, live_bytes: int = 0, live_head: str = "") -> dict:
     """The rollups the hooks read, bounded by the window and the number of pieces and projects: `sums` over the
     archived tasks that no live event mentions (the others, the boundary, are kept whole in `boundary` so a hot reader
     folds their live lines on top of them); the archived uses that began after the earliest boundary task one by one

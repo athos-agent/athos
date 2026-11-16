@@ -499,9 +499,11 @@ def write_rollups(led: dict | None = None) -> int:
     led = led if led is not None else memory.load_ledger()
     raw, segs, _ok = memory.live_and_segments()
     upto = int(led["folded"][-1]) if led["folded"] else 0
-    raw = raw[memory.archived_prefix(raw, segs, upto):]
-    live = memory.decode(raw)
-    roll = memory.aggregate(led, live, len(raw), memory._head_sha(raw))
+    skip = memory.archived_prefix(raw, segs, upto)
+    end = raw.find(b"\n", skip)
+    head = memory._sha(raw[skip:end if end >= 0 else len(raw)])[:16] if len(raw) > skip else ""
+    roll = memory.aggregate(led, memory.iter_decode(raw, skip), len(raw) - skip, head)    # streamed, never all at once
+    del raw
     return memory.write_json(memory.rollups_file(), roll)
 
 
@@ -1053,8 +1055,8 @@ def compare_rebuild() -> dict:
     led = memory.rebuild_ledger()
     stored = memory.load_ledger()
     raw, segs, _ok = memory.live_and_segments()
-    raw = raw[memory.archived_prefix(raw, segs, int(led["folded"][-1]) if led["folded"] else 0):]
-    fresh = memory.aggregate(led, memory.decode(raw))
+    skip = memory.archived_prefix(raw, segs, int(led["folded"][-1]) if led["folded"] else 0)
+    fresh = memory.aggregate(led, memory.iter_decode(raw, skip))
     roll = memory.load_rollups() or {}
     roll_cmp = {k: v for k, v in roll.items() if k != "live_mark"}
     fresh_cmp = {k: v for k, v in fresh.items() if k != "live_mark"}

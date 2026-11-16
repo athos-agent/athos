@@ -492,3 +492,13 @@ class ClockAndQuietTest(MemoryCase):
             self.assertEqual(cycle.due(), "sweep")              # the next Stop asks for the cycle that lets it go
             cycle.run(auto=True)
         self.assertEqual(cycle.sidecars(), [])
+
+
+class StreamTest(MemoryCase):
+    def test_the_rollups_never_hold_every_live_event_at_once(self):
+        cycle.run()
+        before = memory.rollups_file().read_bytes()
+        with mock.patch.object(memory, "decode", side_effect=AssertionError("the whole live log decoded at once")):
+            cycle.write_rollups()
+        self.assertEqual(cycle.compare_rebuild()["rollups_equal"], True)
+        self.assertEqual(json.loads(memory.rollups_file().read_bytes())["boundary"], json.loads(before)["boundary"])
