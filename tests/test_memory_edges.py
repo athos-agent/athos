@@ -142,12 +142,16 @@ class BareMarkTest(MemoryCase):
         import contextlib
         import io
         from athos import cli
-        out = io.StringIO()
-        with contextlib.chdir(folder), contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
-            try:
-                code = cli.main(["mark", key])
-            except SystemExit as stop:
-                code = stop.code
+        out, back = io.StringIO(), os.getcwd()
+        os.chdir(folder)                                   # (contextlib.chdir is 3.11: the hooks run on 3.9)
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+                try:
+                    code = cli.main(["mark", key])
+                except SystemExit as stop:
+                    code = stop.code
+        finally:
+            os.chdir(back)
         return code, out.getvalue()
 
     def marks(self):
