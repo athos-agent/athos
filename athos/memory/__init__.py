@@ -162,17 +162,23 @@ def decode(raw: bytes) -> list:
 _ARCHIVE_CACHE: dict = {}
 
 
-def archived_events() -> list:
-    """Every archived event, oldest first (the whole archive, decompressed): for offline commands only. Cached per
-    process until the manifest changes."""
+def segments() -> list:
+    """The manifest's segments, or [] when there is no archive or its manifest cannot be read (said elsewhere)."""
     try:
-        st = manifest_file().stat()
-        key = (str(manifest_file()), st.st_ino, st.st_size, st.st_mtime_ns)
-    except OSError:
+        return manifest()["segments"]
+    except paths.StateUnreadable:
         return []
+
+
+def archived_events(segs: list | None = None) -> list:
+    """Every archived event of these segments (by default the manifest's), oldest first: for offline commands only.
+    Cached per process for the same segments. A full-history reader passes the segments it read together with the
+    live log (`eval.events`), so the two are one view."""
+    segs = segments() if segs is None else segs
+    key = tuple((s.get("id"), s.get("sha256")) for s in segs)
     if _ARCHIVE_CACHE.get("key") != key:
         rows, bad = [], []
-        for entry in manifest()["segments"]:
+        for entry in segs:
             try:
                 raw = read_segment(entry)
             except SegmentDamaged:               # nothing of it can be read: left out, and said
@@ -189,25 +195,77 @@ def archived_events() -> list:
     return _ARCHIVE_CACHE["rows"]
 
 
+def pending_segments() -> list:
+    """Segments a stopped cycle left half done (written and maybe folded, the live log not trimmed yet), oldest
+    first."""
+    return [s for s in segments() if s.get("state") in ("written", "folded")]
+
+
 def pending_segment() -> dict | None:
-    """The newest segment whose prefix may still be at the start of the live log (written, the live log not trimmed
-    yet: a cycle under way or interrupted), or None."""
-    try:
-        segs = manifest()["segments"]
-    except paths.StateUnreadable:
-        return None
-    last = segs[-1] if segs else None
-    return last if last and last.get("state") != "pruned" else None
+    """The newest segment a stopped cycle left half done, or None."""
+    left = pending_segments()
+    return left[-1] if left else None
+
+
+def _head_at(read, at: int, size: int) -> str:
+    """The short sha of the line that starts at `at` (what a segment's `head` is), reading through `read(a, b)`."""
+    chunk, end = b"", -1
+    while end < 0 and at + len(chunk) < size:
+        more = read(at + len(chunk), min(size, at + len(chunk) + 65536))
+        if not more:
+            break
+        chunk += more
+        end = chunk.find(b"\n")
+    return _sha(chunk[:end if end >= 0 else len(chunk)])[:16] if chunk else ""
+
+
+def _sha_range(read, a: int, b: int) -> str:
+    h = hashlib.sha256()
+    while a < b:
+        piece = read(a, min(b, a + (1 << 22)))
+        if not piece:
+            break
+        h.update(piece)
+        a += len(piece)
+    return h.hexdigest()
+
+
+def prefix_chain(read, size: int, segs: list, upto: int | None = None) -> tuple[int, list]:
+    """How many bytes at the start of the live log are archived segments' own bytes, one after another, and which
+    segments: a log trimmed normally starts with none; one a cycle has not trimmed yet starts with its newest
+    segment; one put back from a backup or by a sync tool may start with several. Cheap when it starts with none: the
+    first line's hash against each segment's `head`, and the whole sha256 only when a head matches. `upto`: only
+    segments up to this id (those the reader already counts from elsewhere)."""
+    heads: dict = {}
+    for e in segs:
+        if upto is None or int(e.get("id") or 0) <= upto:
+            heads.setdefault(e.get("head"), []).append(e)
+    at, used = 0, []
+    while at < size:
+        h = _head_at(read, at, size)
+        for e in heads.get(h, []) + heads.get(None, []):        # a segment listed before heads were kept: by sha
+            n = int(e.get("bytes") or 0)
+            if e in used or not n or size - at < n:
+                continue
+            if _sha_range(read, at, at + n) == e.get("sha256"):
+                at += n
+                used.append(e)
+                break
+        else:
+            break
+    return at, used
+
+
+def archived_prefix(raw: bytes, segs: list, upto: int | None = None) -> int:
+    """`prefix_chain` over live log bytes already read."""
+    view = memoryview(raw)
+    return prefix_chain(lambda a, b: bytes(view[a:b]), len(raw), segs, upto)[0]
 
 
 def live_skip(raw: bytes, entry: dict | None) -> int:
-    """How many bytes at the start of the live log are the segment's own (0 when the log no longer starts with it)."""
-    if not entry:
-        return 0
-    n = int(entry.get("bytes") or 0)
-    if n and len(raw) >= n and _sha(raw[:n]) == entry.get("sha256"):
-        return n
-    return 0
+    """How many bytes at the start of the live log are this one segment's own (0 when the log does not start with
+    it)."""
+    return archived_prefix(raw, [entry], None) if entry else 0
 
 
 def live_raw() -> bytes:
@@ -215,6 +273,19 @@ def live_raw() -> bytes:
         return paths.events_file().read_bytes()
     except OSError:
         return b""
+
+
+def live_and_segments() -> tuple[bytes, list, bool]:
+    """The live log and the manifest's segments read as one view, under the lock every append and every trim takes
+    (the live log first): a cycle cannot trim between the two reads, so a reader never misses a segment nor counts
+    one twice (with `archived_prefix`). The third value: whether the manifest could be read."""
+    with paths.locked(paths.events_file()):
+        raw = live_raw()
+        try:
+            segs, ok = manifest()["segments"], True
+        except paths.StateUnreadable:
+            segs, ok = [], False
+    return raw, segs, ok
 
 
 # ------------------------------------------------------------------------------------------------ the ledger
@@ -558,7 +629,7 @@ _ROLLUP_CACHE: dict = {}
 
 def write_json(target: Path, data: dict) -> int:
     text = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    paths.write_atomic(target, text)
+    paths.write_atomic(target, text, durable=True)        # the manifest above all must survive a power cut
     return len(text.encode())
 
 
@@ -574,12 +645,15 @@ class View:
     changes."""
 
     def __init__(self):
-        self.rollups = load_rollups()
+        # The live log first, then the rollups and the manifest: a cycle writes the rollups that fold a segment
+        # before it trims the live log, so whatever happens between the reads, every line is counted once.
         raw = live_raw()
-        entry = pending_segment()
+        self.rollups = load_rollups()
         skip = 0
-        if entry and self.rollups and self.rollups.get("through") == entry.get("id"):
-            skip = live_skip(raw, entry)             # folded already: the live copy of the segment is not counted twice
+        if self.rollups and self.rollups.get("through") is not None:
+            # Segments the rollups folded that the live log still starts with (a cycle under way, or a log put back
+            # from a backup): their lines are not counted twice. A segment not folded yet is read from the live log.
+            skip = archived_prefix(raw, segments(), int(self.rollups["through"]))
         raw = raw[skip:]
         mark = (self.rollups or {}).get("live_mark") or {}
         known = int(mark.get("bytes") or 0) if mark.get("head") and mark.get("head") == _head_sha(raw) else 0

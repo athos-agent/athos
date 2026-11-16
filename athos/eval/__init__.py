@@ -247,11 +247,12 @@ def events() -> list[Event]:
     if key[0][1] is None and key[1][1] is None:
         return []
     if _EVENTS_CACHE.get("key") != key:
-        archived = memory.archived_events() if key[1][1] is not None else []
-        raw = memory.live_raw()
-        # A segment written while the live log still starts with its lines (a cycle under way, or one that stopped
-        # before trimming): those lines are read once, from the archive.
-        raw = raw[memory.live_skip(raw, memory.pending_segment()):] if archived else raw
+        # The live log and the manifest as one view (under the log's lock, the live log first), then the segments it
+        # lists, which never change once listed: a cycle that archives and trims meanwhile cannot hide a segment,
+        # and a segment whose lines the live log still starts with (a cycle under way, a log put back) counts once.
+        raw, segs, _ok = memory.live_and_segments()
+        archived = memory.archived_events(segs) if segs else []
+        raw = raw[memory.archived_prefix(raw, segs):] if segs else raw
         live = list(_decoded(raw.decode("utf-8", errors="replace").splitlines()))
         _EVENTS_CACHE.update(key=key, rows=archived + live)
     return [dict(e) if isinstance(e, dict) else e for e in _EVENTS_CACHE["rows"]]

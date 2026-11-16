@@ -239,9 +239,25 @@ def _read_marker(root: Path) -> dict:
     return out
 
 
-def write_atomic(target: Path, text: str) -> None:
+def fsync_dir(folder: Path) -> None:
+    """Make a folder's entries (a file just renamed into it) survive a power cut. Best effort: some platforms cannot
+    open a folder."""
+    try:
+        fd = os.open(str(folder), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def write_atomic(target: Path, text: str, durable: bool = False) -> None:
     """Replace a file's content in one step: written to a temporary file beside it, then moved over it, so a reader
-    sees the old content or the new one, never half of either."""
+    sees the old content or the new one, never half of either. `durable`: the content and the folder's entry are
+    synced to disk too, so a power cut leaves the old file or the new one, never an empty one."""
     import tempfile
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -249,7 +265,12 @@ def write_atomic(target: Path, text: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as out:
             out.write(text)
+            if durable:
+                out.flush()
+                os.fsync(out.fileno())
         os.replace(tmp, target)
+        if durable:
+            fsync_dir(target.parent)
     except BaseException:
         try:
             os.unlink(tmp)

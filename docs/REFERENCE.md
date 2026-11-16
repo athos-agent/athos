@@ -375,14 +375,35 @@ in any case; offline commands count it immediately.
    project's own page. The no-model cycle writes no piece file: associations stay in the rollups and the project
    pages.
 
-Every step can be interrupted and run again: a segment is written atomically before anything refers to it, the
-ledger lists the segments it folded, and the live log is trimmed only while it still starts with the segment's exact
-bytes, under the lock every append takes (an older Athos that appends without it while the log is trimmed has its
-line carried over). Tidying never deletes a segment: one the manifest does not list (a cycle
-stopped between writing it and listing it, or a manifest lost) is listed again, one that cannot be read is moved to
-`memory/archive/damaged/`, and a ledger or rollups that are lost or unreadable are made again by the next cycle,
-which the hooks start as soon as they notice. One cycle runs at a time (`memory/.cycle.lock`; one left by a cycle
-that died is taken over). The
+Every step can be interrupted and run again: a segment is written atomically before anything refers to it (synced,
+with its folder, and so are the manifest, the ledger and the rollups, so a power cut leaves the old file or the new
+one), the ledger lists the segments it folded, and the live log is trimmed only while it still starts with the
+segments' exact bytes, under the lock every append takes, held only for the copy of what stays. A first cycle on a
+long log reads it as a stream and writes segments of 8 MB at most.
+
+Nothing is lost or counted twice whoever else writes the log:
+
+- *A writer without the lock* (an older Athos, another tool) that opened the log before a trim and writes after it
+  writes into the old file: it stays reachable under a hidden name (`.events.jsonl.trim-…`) and what reaches it is
+  carried over at the end of the cycle and again at the next one (the Stop hook asks for a cycle when something waits
+  there), until nobody has written into it for 30 seconds.
+- *A log put back* after a trim (a backup restore, a sync tool, two machines sharing the home) starts with segments
+  already archived: every reader skips them by their bytes, whatever their state, and the next cycle trims them
+  again; bytes the archive already holds are never written as a new segment. A log that repeats archived lines
+  without starting at a segment's boundary is neither archived nor trimmed, and a log replaced between archiving and
+  trimming is left as it is (its segment is marked `kept`); either way the cycle's `replay` event says why
+  (`refused`).
+- *Readers during a cycle* read the live log first and then the manifest and the rollups (a full-history read takes
+  the append lock for those two reads), so a cycle that archives and trims meanwhile can neither hide a segment from
+  them nor make them count one twice.
+
+Tidying never deletes a segment: a temporary segment left by a power cut is promoted when it decompresses (dropped
+only when the same bytes are already in place, set aside in `memory/archive/damaged/` otherwise); one the manifest
+does not list is listed again; one that cannot be read is moved to `damaged/`; a manifest that cannot be read is
+moved there too and rebuilt from the segments on disk; and a ledger or rollups that are lost or unreadable are made
+again by the next cycle, which the hooks start as soon as they notice. One cycle runs at a time: an exclusive `flock`
+on `memory/.cycle.lock` held for the whole run, so it is never taken from a live process and goes with a process that
+died. The
 Stop hook starts it detached and at low priority, the way it starts the verifier, when the live log passes
 `trigger_bytes` (6 MB) or its oldest event is older than `trigger_days` (37), or a segment was left half done, or a
 late line waits; `"memory": {"auto": false}` turns that off. Each phase is a `memory_cycle` event (`run_id`, `phase`
