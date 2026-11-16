@@ -259,7 +259,8 @@ def on_next_request(sid: str | None) -> None:
 def _settled_tasks() -> set:
     """Tasks whose ask to keep what they taught was answered: a save, or a `skipped` decision after the ask."""
     from athos import eval as ev
-    return {e.get("task_id") for e in ev.events() if e.get("type") == "learn"
+    # A hook asks: the recent window (the session's own task is a recent one), never the archive.
+    return {e.get("task_id") for e in ev.live_events() if e.get("type") == "learn"
             and (e.get("decision") == "saved" or e.get("reason") == "model_saved_nothing")}
 
 
@@ -274,7 +275,9 @@ def catch_up(project: str | None) -> list[str]:
     from athos import eval as ev
     if not project:
         return []
-    evs = ev.events()
+    # A hook (the session start): the recent window, never the archive. A task's ask and its answer come after its
+    # start, so an ask still in the live log has its answer there too.
+    evs = ev.live_events()
     settled = {e.get("task_id") for e in evs if e.get("type") == "learn"
                and (e.get("decision") == "saved" or e.get("reason") == "model_saved_nothing")}
     ended = {}

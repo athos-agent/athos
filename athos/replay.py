@@ -150,12 +150,15 @@ def render_tests(r: dict, lang: str = "en") -> str:
 
 # ------------------------------------------------------------------------------------------------ shadow
 def shadow_events() -> list[dict]:
-    return [e for e in ev.events() if e.get("type") == "shadow"]
+    """Every shadow run, oldest first: archived ones from the rollups, recent ones from the live log (memory.View)."""
+    from athos import memory
+    return memory.view().shadows()
 
 
 def pending(model: str, limit: int | None = None) -> list[dict]:
     """The good cases not yet replayed on this model with the piece as it is now, newest first."""
-    done = {(e.get("case"), e.get("piece"), e.get("version"), e.get("model")) for e in shadow_events()}
+    from athos import memory
+    done = memory.view().shadow_done()
     out = []
     for c in reversed(cases.references()):
         p = store.get(c["piece"])
@@ -273,7 +276,8 @@ def label(model: str) -> str:
 
 
 def _told() -> set:
-    return {(e.get("piece"), e.get("model")) for e in ev.events() if e.get("type") == "handoff_told"}
+    from athos import memory
+    return memory.view().told()
 
 
 def handoffs() -> list[dict]:

@@ -120,11 +120,10 @@ def take_pending(session_id: str) -> str:
 
 def history(piece: str | None, step: str | None, limit: int = 3) -> list[dict]:
     """Earlier stars at this same step (or page), newest first: context the panel shows when the task gets there."""
-    from athos import eval as ev
+    from athos import memory
     if not piece:
         return []
-    out = [e for e in ev.events() if e.get("type") == "rating" and e.get("piece") == piece
-           and (step is None or e.get("step") == step)]
+    out = [e for e in memory.view().ratings() if e.get("piece") == piece and (step is None or e.get("step") == step)]
     return [{"stars": e["stars"], "at": e.get("at"), "request": (e.get("request") or "")[:80]}
             for e in reversed(out[-limit:])]
 

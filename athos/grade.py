@@ -151,8 +151,10 @@ def risk(p: store.Piece) -> str:
 
 
 def _events(piece_id: str) -> list[dict]:
-    return [e for e in ev.events() if e.get("piece") == piece_id and e.get("type") in ("verify", "reuse", "grade",
-                                                                                         "learn")]
+    """The piece's verify, reuse, grade and learn events, oldest first: the archived ones from the rollups and the
+    live log's (memory.View), never the archive itself."""
+    from athos import memory
+    return memory.view().grade_events(piece_id)
 
 
 def _since(evs: list[dict]) -> str:
@@ -429,6 +431,16 @@ def counted_reuses(evs: list[dict]) -> list[dict]:
             and (not e.get("task_id") or last.get((e.get("piece"), e.get("task_id"))) == n)]
 
 
+def _reuses_on_record() -> list[dict]:
+    """The reuse events a hook can see, oldest first: those the rollups keep of the archived history (each piece's
+    grading history, memory.keep_grade) and the live log's. Never the archive itself."""
+    from athos import memory
+    view = memory.view()
+    old = [e for kept in ((view.rollups or {}).get("grade") or {}).values() for e in kept
+           if e.get("type") == "reuse"]
+    return old + view.of_type("reuse")
+
+
 def finish_task(sid: str | None, task_id: str | None, state: dict, stage: str = "stop") -> list[dict]:
     """Grade the pieces a task used: one `reuse` event per piece (not one it saved), then each piece is graded.
 
@@ -450,7 +462,7 @@ def finish_task(sid: str | None, task_id: str | None, state: dict, stage: str = 
     if mode == autolearn.UNKNOWN or not session.observed(state):
         return []                                # a reuse is credited to a tier only when the model was seen
     tier = "frontier" if mode == autolearn.LEARN else "apply"
-    evs = [e for e in ev.events() if e.get("type") == "reuse" and e.get("task_id") == task_id]
+    evs = [e for e in _reuses_on_record() if e.get("task_id") == task_id]
     items = evidence.of_task(task_id)
     out = []
     for pid in loaded:
@@ -495,10 +507,16 @@ def catch_up(project: str | None, days: int = 14, limit: int = 50) -> list[dict]
     task (`finish_task`), at the next session start in the project. Returns the events written."""
     if not project:
         return []
-    evs = ev.events()
+    from athos import memory
+    # A hook: the recent window and the rollups (memory.View), never the archive. A task begun before the cut (the
+    # boundary) has its start folded in the rollups; a reuse already archived is in their grading history.
+    view = memory.view()
+    evs = [e for e in view.events if isinstance(e, dict)]
     since = ev._iso(ev.now() - _dt.timedelta(days=days))
-    starts = {e.get("task_id"): e for e in evs if e.get("type") == "task_start" and e.get("task_id")}
-    graded = {(e.get("piece"), e.get("task_id")) for e in evs if e.get("type") == "reuse"}
+    starts = {tid: {"project": row.get("project")}
+              for tid, row in ((view.rollups or {}).get("boundary") or {}).items()}
+    starts.update({e.get("task_id"): e for e in evs if e.get("type") == "task_start" and e.get("task_id")})
+    graded = {(e.get("piece"), e.get("task_id")) for e in _reuses_on_record()}
     wrong = {(e.get("task_id"), e.get("piece")) for e in evs if e.get("type") == "correction"
              and e.get("target") == "task_pieces"}
     saved_by: dict[str, set] = {}

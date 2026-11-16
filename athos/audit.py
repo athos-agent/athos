@@ -26,7 +26,7 @@ import os
 import re
 from pathlib import Path
 
-from athos import control, eval as ev, store
+from athos import control, eval as ev, paths, store
 
 RULES = (
     ("other_project_load", "a piece of another project loaded without the request naming that project"),
@@ -52,6 +52,11 @@ RULES = (
                             "does not say whether it is public"),
     ("marker_name_ignored", "the repository the audit runs in has a .athos.toml whose name is not the folder's and "
                             "was never accepted on this machine, so Athos uses the folder's name"),
+    ("memory_rollup_mismatch", "the ledger or the rollups the hooks read differ from a rebuild from the archive"),
+    ("memory_archive_integrity", "an archived segment of the log is missing, unreadable, or not the bytes its "
+                                 "manifest recorded"),
+    ("memory_wrote_legacy", "the dream cycle wrote into a piece without a status (one the person owns)"),
+    ("memory_model_over_cap", "a model pass of the dream cycle ran without reserving its cap first, or over the cap"),
 )
 WEAK_EVIDENCE = {"", "model", "model_opinion", "self_report"}
 AUDIT_TYPES = {"route", "edit_seen", "model", "trigger", "hook_error", "learn", "grade", "ui", "context", "piece_opened",
@@ -156,6 +161,10 @@ def _other_project_load(c: _Ctx) -> dict:
         piece_projects = set(c.byid[pid].projects)
         if route is not None:
             named = set(route.get("named_projects") or []) & piece_projects
+            if how == "opened":
+                # A project whose name is a common word, offered to a frontier model in one index line: the model
+                # decided the request meant it, and opened one of its pieces.
+                named |= set(route.get("offered_projects") or []) & piece_projects
             known = True
         else:
             start = c.start_of.get(tid) or {}
@@ -377,12 +386,52 @@ OLDER_REWRITES = ("an older Athos that rewrites a piece drops the frontmatter li
                   "its status. Update every agent's Athos (`athos doctor`) before saving")
 
 
+OLDER_READS_WINDOW = ("an Athos older than {oldest} reads only the live window of a log the dream cycle archived "
+                      "(the last weeks), and says nothing of it: its report, export and benches leave the archived "
+                      "history out; its Stop hook can start the verifier again, a paid run, for a version whose "
+                      "verdict is archived; its grading rules see none of the archived outcomes, so it neither retires "
+                      "what the whole history would nor verifies a candidate whose pass is archived; and its importers "
+                      "import again a Codex or Muse session whose tasks were archived (the same task ids: offline "
+                      "commands count them once, the hooks leave them out and ask for a cycle, which counts them "
+                      "once). Update every agent's Athos (`athos doctor`)")
+REIMPORTED = "tasks the archive holds were imported again into the live log"
+
+
+def _older(version: str | None, than: str) -> bool:
+    try:
+        return tuple(int(x) for x in str(version).split(".")) < tuple(int(x) for x in than.split("."))
+    except ValueError:
+        return False
+
+
 def _version_mismatch(c: _Ctx, versions: dict | None) -> dict:
+    from athos import memory
     found = []
     written = sorted({e.get("v") for e in c.evs if e.get("type") in AUDIT_TYPES and e.get("v")})
     if len(written) > 1:
         found.append({"what": "the session's events were written by more than one version", "versions": written,
                       "risk": OLDER_REWRITES})
+    if memory.has_archive():
+        try:
+            oldest = memory.manifest().get("oldest_reader") or memory.OLDEST_READER
+        except paths.StateUnreadable:
+            oldest = memory.OLDEST_READER
+        # A manifest written before both lines met says 0.1.166, a number the main line also used without the archive.
+        oldest = memory.OLDEST_READER if _older(oldest, memory.OLDEST_READER) else oldest
+        old = sorted({v for v in written if _older(v, oldest)})
+        old_agents = {a: v for a, v in ((versions or {}).get("agents") or {}).items() if _older(v, oldest)}
+        if old or old_agents:
+            found.append({"what": "an Athos older than the archived log's format is at work here",
+                          **({"versions": old} if old else {}), **({"installed": old_agents} if old_agents else {}),
+                          "risk": OLDER_READS_WINDOW.format(oldest=oldest)})
+        # An older Athos that only reads or imports leaves no version: its imports are seen by their task ids, a live
+        # `task_start` for a task the ledger already folded (an offline command: the ledger, never the archive).
+        archived = memory.ledger_counts().get("rows") or {}
+        again = sorted({e.get("task_id") for e in memory.view().events if isinstance(e, dict)
+                        and e.get("type") == "task_start" and e.get("task_id") in archived})
+        if again:
+            found.append({"what": REIMPORTED + " (an Athos older than the archive's format, likely)",
+                          "tasks": len(again), "risk": OLDER_READS_WINDOW.format(oldest=oldest)})
     agents = (versions or {}).get("agents") or {}
     hooks, cli = agents.get("claude-code"), agents.get("path")
     if hooks and cli and hooks != cli:
@@ -390,7 +439,7 @@ def _version_mismatch(c: _Ctx, versions: dict | None) -> dict:
                       "plugin": hooks, "cli": cli, "risk": OLDER_REWRITES})
     basis = "the version on each audit event" + (", and the installed versions now" if versions else "")
     partial = not written
-    if not written and not versions:
+    if not written and not versions and not found:
         return _result("version_mismatch", "not_evaluated", [], "no versions on the events and none read now")
     return _result("version_mismatch", _status(found, partial), found,
                    basis + ("; the session's own events carry no version (written before 0.1.110)" if partial else ""))
@@ -577,10 +626,22 @@ def _overlapping_pieces(c: _Ctx) -> dict:
     if not c.project:
         return _result("overlapping_pieces", "not_evaluated", [], "no project for this session")
     mine = [p for p in c.byid.values() if c.project in p.projects]
-    found = [{"piece": c.name(x["piece"]), "same_as": c.name(x["other"]), "score": x["score"],
-              "fix": "athos show both; keep one way of working (improve one, retire the other)"
-              + ("; the other is your own piece" if x["other_owned"] else "")}
-             for x in wiki.overlapping(mine)]
+
+    def merged(a, b) -> bool:                  # the dream cycle's merge of these very pieces (athos/memory/dream_model)
+        return a is not None and b is not None and "dream:merge" in (a.evidence or []) and \
+            f"from:{b.id}" in (a.evidence or [])
+    found, proposals = [], 0
+    for x in wiki.overlapping(mine):
+        a, b = c.byid.get(x["piece"]), c.byid.get(x["other"])
+        merge = a if merged(a, b) else b if merged(b, a) else None
+        if merge is not None and store.status(merge) == "candidate":
+            proposals += 1                     # a proposal to merge them, waiting for the verifier: no accident
+            continue
+        found.append({"piece": c.name(x["piece"]), "same_as": c.name(x["other"]), "score": x["score"],
+                      "fix": ("the dream cycle's merge of them was accepted: retire the pieces it came from"
+                              if merge is not None else
+                              "athos show both; keep one way of working (improve one, retire the other)"
+                              + ("; the other is your own piece" if x["other_owned"] else ""))})
     from athos import grade
     listed = {f["piece"] for f in found}
     for pid, m in grade.reviews().items():     # saved next to a piece the person owns, marked at the save
@@ -590,7 +651,9 @@ def _overlapping_pieces(c: _Ctx) -> dict:
             found.append({"piece": c.name(pid), "same_as": str(m.get("why") or ""), "score": None,
                           "fix": "athos show both; your own piece was not changed"})
     return _result("overlapping_pieces", _status(found, False), found,
-                   f"the project's pieces as they are now, compared page by page (score ≥ {wiki.SAME_WAY})")
+                   f"the project's pieces as they are now, compared page by page (score ≥ {wiki.SAME_WAY})"
+                   + (f"; {proposals} pair(s) left out: a merge the dream cycle proposed of those same pieces, "
+                      "waiting for the verifier" if proposals else ""))
 
 
 def _verifier_over_cap(everything: list[dict]) -> dict:
@@ -630,6 +693,76 @@ def _verifier_over_cap(everything: list[dict]) -> dict:
             found.append(over)
     return _result("verifier_over_cap", _status(found, False), found,
                    "model_run events per UTC day (a run with no reported cost counts the cap it reserved)")
+
+
+_MEMORY_CHECK: dict = {}
+
+
+def _memory_checks() -> dict:
+    """The archive's integrity and a rebuild of the derived files, once per process and state of the files (the
+    audit checks several sessions)."""
+    from athos import memory
+    from athos.memory import cycle
+    key = []
+    for f in (memory.manifest_file(), memory.ledger_file(), memory.rollups_file()):
+        try:
+            st = f.stat()
+            key.append((st.st_size, st.st_mtime_ns))
+        except OSError:
+            key.append(None)
+    if _MEMORY_CHECK.get("key") != key:
+        if key[0] is None:
+            out = {"archive": None, "rebuild": None}
+        else:
+            bad = cycle.check_archive()
+            out = {"archive": bad, "rebuild": None if bad else cycle.compare_rebuild()}
+        _MEMORY_CHECK.update(key=key, out=out)
+    return _MEMORY_CHECK["out"]
+
+
+def _memory_rules(everything: list[dict]) -> list[dict]:
+    """The dream cycle, outside any session: the archive and the derived files against a rebuild, piece files it
+    wrote, and its model pass against the cap."""
+    from athos import store
+    checks = _memory_checks()
+    if checks["archive"] is None:
+        integrity = _result("memory_archive_integrity", "not_evaluated", [], "no archive yet")
+        mismatch = _result("memory_rollup_mismatch", "not_evaluated", [], "no archive yet")
+    else:
+        integrity = _result("memory_archive_integrity", _status(checks["archive"], False), checks["archive"],
+                            "each segment's bytes and sha256 against the manifest")
+        if checks["rebuild"] is None:
+            mismatch = _result("memory_rollup_mismatch", "not_evaluated", [], "the archive fails its integrity check")
+        else:
+            found = [{"file": f} for f, ok in (("ledger.json", checks["rebuild"]["ledger_equal"]),
+                                               ("rollups.json", checks["rebuild"]["rollups_equal"]
+                                                or not checks["rebuild"]["rollups_present"])) if not ok]
+            mismatch = _result("memory_rollup_mismatch", _status(found, False), found,
+                               "the ledger and the rollups against a fold of the whole archive and the live log")
+    byid = {p.id: p for p in store.all_pieces()}
+    wrote = [w for e in everything if e.get("type") == "memory_cycle" for w in e.get("wrote") or []]
+    legacy = [{"piece": w.get("piece"), "run_id": None} for w in wrote if w.get("status_before") in (None, "", "legacy")]
+    for p in byid.values():                    # and the files themselves: a dream version on a piece with no status
+        if store.legacy(p) and any("athos-dream" in (h or "") for h in p.history):
+            legacy.append({"piece": p.id, "from": "history"})
+    if not wrote and not legacy and not any(e.get("type") == "memory_cycle" for e in everything):
+        wrote_rule = _result("memory_wrote_legacy", "not_evaluated", [], "no dream cycle has run")
+    else:
+        wrote_rule = _result("memory_wrote_legacy", _status(legacy, False), legacy,
+                             "pieces the cycle reported writing, and pieces whose history has a dream version")
+    runs = [e for e in everything if e.get("type") == "model_run" and e.get("purpose") == "dream"]
+    reserved = {e.get("run_id") for e in runs if e.get("phase") == "reserved"}
+    unreserved = [{"run_id": e.get("run_id"), "at": e.get("at")} for e in runs
+                  if e.get("phase") == "settled" and e.get("started") and e.get("run_id") not in reserved]
+    over = [f for f in _verifier_over_cap([e for e in everything if e.get("type") == "model_run"])["found"]]
+    if not runs:
+        cap_rule = _result("memory_model_over_cap", "not_evaluated", [], "no model pass has run")
+    else:
+        found = unreserved + ([{"day": f["day"], "over": "daily cap shared with the verifier"} for f in over]
+                              if any(str(e.get("at", ""))[:10] in {f["day"] for f in over} for e in runs) else [])
+        cap_rule = _result("memory_model_over_cap", _status(found, False), found,
+                           "dream model_run events: a reservation before each run, and the day's shared cap")
+    return [mismatch, integrity, wrote_rule, cap_rule]
 
 
 # ------------------------------------------------------------------------------------------------ the report
@@ -714,7 +847,7 @@ def check(sid: str, evs: list[dict], pieces: list[store.Piece] | None = None, ve
              _version_mismatch(c, versions), _private_piece_named(c), _weak_evidence_learning(c),
              _public_not_declared(c, cwd), _marker_name_ignored(cwd), _save_in_apply_mode(c), _promotion_without_verifier(c, everything),
              _verifier_saw_summary(c, everything), _verifier_over_cap(everything), _candidate_set_aside(c, everything),
-             _overlapping_pieces(c)]
+             _overlapping_pieces(c), *_memory_rules(everything)]
     return {"summary": _summary(c), "rules": rules,
             "anomalies": sum(r["count"] for r in rules if r["status"] == "flagged")}
 

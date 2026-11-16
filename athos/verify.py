@@ -843,12 +843,13 @@ def allowance(per_run: float | None = None) -> tuple[bool, str, float]:
     return True, "", round(min(cap, left), 4)
 
 
-def reserve(purpose: str, piece: store.Piece | None, model: str, **more) -> tuple[bool, str, float, str | None]:
+def reserve(purpose: str, piece: store.Piece | None, model: str, per_run: float | None = None,
+            **more) -> tuple[bool, str, float, str | None]:
     """Take a run's cap from today's budget before it starts, under the ledger's lock, so two sessions can never both
     start a run past the cap. (ok, why not, the cap reserved, the run's id). A refusal is a `model_run` event."""
     import uuid
     with paths.locked(_ledger_file()):
-        allowed, why, cap = allowance()
+        allowed, why, cap = allowance(per_run)
         if not allowed:
             run_id = None
         else:
@@ -909,9 +910,10 @@ def note_run(purpose: str, piece: store.Piece | None, model: str, result: dict |
 
 
 def run_model(purpose: str, piece: store.Piece | None, model: str, prompt: str, folder: Path, runner,
-              timeout: float, **more) -> tuple[dict | None, str, float]:
-    """One model run under the cap: reserve, run, settle, record. (result or None when refused, why refused, cap)."""
-    ok, why, cap, run_id = reserve(purpose, piece, model, **more)
+              timeout: float, per_run: float | None = None, **more) -> tuple[dict | None, str, float]:
+    """One model run under the cap: reserve, run, settle, record. (result or None when refused, why refused, cap).
+    `per_run`: a smaller cap for this run than the verifier's own."""
+    ok, why, cap, run_id = reserve(purpose, piece, model, per_run, **more)
     if not ok:
         return None, why, 0.0
     try:
@@ -1137,10 +1139,8 @@ def _name(piece: store.Piece, project: str | None) -> str:
 def pending() -> list[tuple[str, Path]]:
     """Candidates whose current version has a bundle and no verdict yet (never run, or an error to retry while
     attempts remain), oldest first."""
-    done = {}
-    for e in ev.events():
-        if e.get("type") == "verify" and e.get("outcome") in ("pass", "fail"):
-            done[(e.get("piece"), e.get("version"))] = True
+    from athos import memory
+    done = memory.view().verify_done()        # the rollups and the live log, never the archive
     out = []
     for p in store.all_pieces():
         if p.status != "candidate" or (p.id, p.version) in done:
