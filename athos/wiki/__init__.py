@@ -168,6 +168,70 @@ def overlaps(piece: store.Piece, pieces: list[store.Piece] | None = None) -> lis
     return out
 
 
+# ------------------------------------------------------------------------------------------------ the same way twice
+# Two pages for the same way of working, at the page level (`overlaps` compares single statements). The score is the
+# share of the words two heads (title and **When**, in the router's own words: load._base_words) have in common, plus
+# FILE_BONUS when both heads name the same file and LINK_BONUS when the new page links to the other one. Calibrated on
+# 18 ordered pairs of near-duplicates learned in live tests (the lowest scored 0.55: a narrower page that names the
+# same file and links to the broader one's steps) against 1776 ordered same-project pairs of a person's own pages,
+# genuinely different ways of working (the highest scored 0.49, the 99th percentile 0.33); SAME_WAY sits between them.
+# A page the task itself opened and followed is held to a lower bar, SAME_WAY_OPENED: a page saved right after
+# following another one is most often that one again (2 of the 1776 different pairs reach it; all 18 duplicates do).
+SAME_WAY = 0.5
+SAME_WAY_OPENED = 0.4
+FILE_BONUS = 0.2
+LINK_BONUS = 0.2
+_NAMED_FILE = re.compile(r"(?<![\w/.-])(?:[\w.-]+/)*[\w-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|md|json|jsonl|toml|ya?ml|sh|go|"
+                         r"rs|java|kt|rb|swift|c|h|cpp|css|html|sql|txt|lock|cfg|ini)\b")
+
+
+def named_files(p: store.Piece) -> set[str]:
+    """The files a page's title and **When** name (`benchmark/stories.ts`, `setup.py`): what the task changes."""
+    return set(_NAMED_FILE.findall(f"{p.title} {p.when}"))
+
+
+def same_way_score(new: store.Piece, old: store.Piece) -> float:
+    """How much `new` reads as the same way of working as `old` (see SAME_WAY)."""
+    from athos import load
+    a, b = load._base_words(f"{new.title} {new.when}"), load._base_words(f"{old.title} {old.when}")
+    score = len(a & b) / len(a | b) if a | b else 0.0
+    if named_files(new) & named_files(old):
+        score += FILE_BONUS
+    if any(page == old.id for page, _ in LINK.findall(new.body)):
+        score += LINK_BONUS
+    return round(score, 3)
+
+
+def same_way(new: store.Piece, pieces: list[store.Piece], opened: set[str] | None = None) -> list[tuple[float,
+                                                                                                       store.Piece]]:
+    """The pages among `pieces` (itself and retired ones left out) that read as the same way of working as `new`
+    (SAME_WAY; SAME_WAY_OPENED for those in `opened`, the pages the task opened), best first."""
+    opened = opened or set()
+    found = [(same_way_score(new, p), p) for p in pieces if p.id != new.id and store.status(p) != "retired"]
+    return sorted([(sc, p) for sc, p in found if sc >= (SAME_WAY_OPENED if p.id in opened else SAME_WAY)],
+                  key=lambda pair: (-pair[0], pair[1].id))
+
+
+def overlapping(pieces: list[store.Piece] | None = None) -> list[dict]:
+    """Pairs of pages of the same project that read as the same way of working, at least one of them learned (a page
+    with a status: two of the person's own are theirs to keep): {"piece", "other", "score", "project"}, the learned
+    one first. Nothing is merged or changed: the person decides, and the dream review is where a merge is proposed."""
+    pieces = store.all_pieces() if pieces is None else pieces
+    live = [p for p in pieces if store.status(p) != "retired"]
+    out = []
+    for i, a in enumerate(live):
+        for b in live[i + 1:]:
+            shared = sorted(set(a.projects) & set(b.projects))
+            if not shared or not (a.status or b.status):
+                continue
+            score = max(same_way_score(a, b), same_way_score(b, a))
+            if score >= SAME_WAY:
+                first, second = (a, b) if a.status else (b, a)
+                out.append({"piece": first.id, "other": second.id, "score": score, "project": shared[0],
+                            "other_owned": not second.status})
+    return out
+
+
 def stale(pieces: list[store.Piece] | None = None, tasks: list[dict] | None = None,
           today: str | None = None) -> list[str]:
     """Candidates to retire, from the recorded tasks (nothing is removed): pages no task loaded in the last

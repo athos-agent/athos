@@ -46,6 +46,8 @@ RULES = (
     ("verifier_over_cap", "model runs Athos started in one day above the daily cap of runs or of cost"),
     ("candidate_set_aside", "a candidate the verifier rejected version after version, set aside for the person: the "
                             "model no longer rewrites it and only the person can fix, keep or retire it"),
+    ("overlapping_pieces", "two pieces of the project for the same way of working, at least one learned by Athos: "
+                           "the person decides which to keep (nothing is merged or changed)"),
     ("public_not_declared", "the repository the audit runs in is pushed to a code-hosting site and its .athos.toml "
                             "does not say whether it is public"),
     ("marker_name_ignored", "the repository the audit runs in has a .athos.toml whose name is not the folder's and "
@@ -568,6 +570,29 @@ def _candidate_set_aside(c: _Ctx, everything: list[dict]) -> dict:
                    "grade events that set a piece aside, against the review marks and the piece's status now")
 
 
+def _overlapping_pieces(c: _Ctx) -> dict:
+    """Pieces of this project that read as the same way of working (wiki.overlapping), one of them learned: what
+    autonomous learning should have improved instead of repeating, or a new piece next to one the person owns."""
+    from athos import wiki
+    if not c.project:
+        return _result("overlapping_pieces", "not_evaluated", [], "no project for this session")
+    mine = [p for p in c.byid.values() if c.project in p.projects]
+    found = [{"piece": c.name(x["piece"]), "same_as": c.name(x["other"]), "score": x["score"],
+              "fix": "athos show both; keep one way of working (improve one, retire the other)"
+              + ("; the other is your own piece" if x["other_owned"] else "")}
+             for x in wiki.overlapping(mine)]
+    from athos import grade
+    listed = {f["piece"] for f in found}
+    for pid, m in grade.reviews().items():     # saved next to a piece the person owns, marked at the save
+        p = c.byid.get(pid)
+        if (m or {}).get("kind") == "overlap" and p is not None and c.project in p.projects \
+                and store.status(p) != "retired" and c.name(pid) not in listed:
+            found.append({"piece": c.name(pid), "same_as": str(m.get("why") or ""), "score": None,
+                          "fix": "athos show both; your own piece was not changed"})
+    return _result("overlapping_pieces", _status(found, False), found,
+                   f"the project's pieces as they are now, compared page by page (score ≥ {wiki.SAME_WAY})")
+
+
 def _verifier_over_cap(everything: list[dict]) -> dict:
     """Per UTC day, each model run Athos started against the caps it recorded (a cap raised during the day applies to
     the runs after it)."""
@@ -688,7 +713,8 @@ def check(sid: str, evs: list[dict], pieces: list[store.Piece] | None = None, ve
              _model_inconsistent(c, transcripts), _injected_over_cap(c), _trigger_not_from_person(c),
              _version_mismatch(c, versions), _private_piece_named(c), _weak_evidence_learning(c),
              _public_not_declared(c, cwd), _marker_name_ignored(cwd), _save_in_apply_mode(c), _promotion_without_verifier(c, everything),
-             _verifier_saw_summary(c, everything), _verifier_over_cap(everything), _candidate_set_aside(c, everything)]
+             _verifier_saw_summary(c, everything), _verifier_over_cap(everything), _candidate_set_aside(c, everything),
+             _overlapping_pieces(c)]
     return {"summary": _summary(c), "rules": rules,
             "anomalies": sum(r["count"] for r in rules if r["status"] == "flagged")}
 

@@ -823,10 +823,23 @@ def report(today: _dt.date | None = None) -> dict:
     from athos import grade
     reuses = grade.counted_reuses(events())
     rows = [_piece_row(pid, known.get(pid), ts, today, reuses) for pid in sorted(known.keys() | mentioned)]
-    aside = {pid: m for pid, m in grade.reviews().items() if (m or {}).get("kind") == "set_aside"}
-    for row in rows:                           # the verifier kept rejecting it: only the person can decide now
+    aside = {pid: m for pid, m in grade.reviews().items() if (m or {}).get("kind") in ("set_aside", "overlap")}
+    for row in rows:              # the verifier kept rejecting it, or it repeats the person's own piece: theirs to decide
         if row["piece"] in aside:
             row["review"] = [*row["review"], aside[row["piece"]].get("why") or "set aside"]
+    from athos import wiki
+    try:
+        twins = wiki.overlapping(list(known.values()))
+    except OSError:
+        twins = []
+    by_id = {row["piece"]: row for row in rows}
+    for pair in twins:                         # two pieces for one way of working: the person decides, nothing merges
+        row = by_id.get(pair["piece"])
+        if row is not None:
+            owned = " (your own piece, not changed)" if pair["other_owned"] else ""
+            line = f"same way of working as {pair['other']}{owned}"
+            if line not in row["review"]:
+                row["review"] = [*row["review"], line]
     return {"generated": _iso(now()), "tasks": len(ts),
             "evaluated": sum(1 for t in ts if t["result"] != UNMARKED),
             "pieces": rows, "models": _model_rows(ts),

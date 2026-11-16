@@ -93,18 +93,19 @@ AUTO_FORMAT = _save_format().replace("{cmd} save <<'EOF'", "{cmd} save --auto <<
 AUTO_GUIDE = """## Learning on its own (Athos)
 
 Athos learns from this session without asking the person. {when}, if the task taught something reusable (how it was
-solved, a rule that was not obvious, how to tell it went right), save exactly one new piece by running:
+solved, a non-obvious rule, how to tell it went right), save exactly one piece by running:
 
 {format}
 
-Otherwise do nothing, and don't mention Athos. Every step needs a **Check:**: the command in backticks that proves
-it went right and can be run again later in this repository, or the fact anyone can observe; a piece without a
-runnable Check is never verified. Run each verification command on its own at least once before finishing (not piped,
+Otherwise do nothing; don't mention Athos. Every step needs a **Check:**: a command in backticks that proves it went
+right and can be rerun here, or a fact anyone can observe; without a runnable Check a piece is
+never verified. Run each verification command on its own at least once before finishing (not piped,
 not chained after `||`): only then is it recorded. Write only what the task showed and someone could check in the repository (its files, its history, what its commands print), and leave out timings and other incidental observations. State the person's preferences as rules to follow, not as things they said. No secrets, emails, links, folders of this computer
-(use paths relative to the repository) or other projects' names: a piece that carries any is not saved. It is kept as
-a candidate of this project only, and an independent check, not you, decides whether the work was right; until then
-a weaker model never gets it. New pieces only, unless Athos says one was rejected: then save it with its `id:`.
-Don't announce the save in your answer or print the piece.
+(use paths relative to the repository) or other projects' names: such a piece is not saved. It stays a candidate until
+an independent check, not you, accepts it. If the task followed an Athos piece and taught nothing
+it lacks, save nothing; if what it taught belongs there and the piece has a `status:` (or was rejected), save it whole
+with its `id:` and a `note:`. New pieces only for a different way of working. Don't announce the save or print the
+piece.
 
 """
 
@@ -112,10 +113,10 @@ Don't announce the save in your answer or print the piece.
 # When the model keeps what a task taught, by `autolearn.ask`: on its own before its final answer (`guide`, the
 # default: nothing is said at the end of the task), or when the Stop hook's one line asks (`stop`).
 AUTO_WHEN = {
-    "guide": "Before your final answer to a task whose work an objective check proved in this session (a test run, a "
-             "build or a linter that passed, a commit), as the last thing you do",
-    "stop": "When a task ends after real work that objective checks proved (a test run, a build or a linter that "
-            "passed, a commit), Athos's Stop hook says so once, in one short line. Then",
+    "guide": "Before your final answer to a task whose work an objective check proved (a test run, build or linter "
+             "that passed, a commit), as the last thing you do",
+    "stop": "When a task ends after work objective checks proved (a test run, build or linter that passed, a "
+            "commit), Athos's Stop hook says so once, in one short line. Then",
 }
 
 # The person's own save, for a session where they see nothing of Athos (the minimal interface): no button, no line.

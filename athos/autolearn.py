@@ -348,6 +348,17 @@ def save_auto(text: str, sid: str, cwd: str | None, transcript_path: str | None 
     if not ok:
         return refuse(reason, "this task has no objective evidence that the work was right (a verification that "
                               "passed, a commit); the model's own word is not enough")
+    twin, owned = same_way_as(text, project, state)
+    if twin is not None:
+        from athos import grade
+        rejected = grade.rejection(twin[1])
+        if rejected and rejected["set_aside"]:
+            return refuse("duplicate", f"this is the same way of working as `{twin[1].id}` (\"{twin[1].title}\"), "
+                                       f"which the verifier rejected version after version; it waits for the person "
+                                       f"to decide, so nothing is saved for it now.", overlaps=[twin[1].id],
+                          score=twin[0])
+        return refuse("duplicate", DUPLICATE.format(id=twin[1].id, title=twin[1].title), overlaps=[twin[1].id],
+                      score=twin[0])
     found = private_findings(text, project)
     if found:
         return refuse("private_data", "it looks like it carries private data (" + ", ".join(found) + "). Rewrite "
@@ -360,14 +371,21 @@ def save_auto(text: str, sid: str, cwd: str | None, transcript_path: str | None 
     draft = store.Piece(id="draft", title="", when="", body=_body)
     learning = {"status": "candidate", "learned_by": state.get("model") or "", "confidence": INITIAL_CONFIDENCE,
                 "evidence": evidence.summary(items, task_id), "risk": risk_of(draft), "visibility": "project",
-                "note": f"learned on its own ({state.get('model')}), a candidate"}
+                "note": f"learned on its own ({state.get('model')}), a candidate"
+                        + (f"; the same way of working as {', '.join(p.id for _s, p in owned)}, not changed"
+                           if owned else "")}
     try:
         piece, _ = capture.save_text(text, sid, cwd, transcript_path, learning=learning)
     except ValueError as problem:
         return refuse("invalid", str(problem))
     checks = runnable_checks(piece)
+    if owned:                                  # a piece the person owns is never changed: the overlap is shown instead
+        from athos import grade
+        grade.mark_review(piece.id, "same way of working as " + ", ".join(p.id for _s, p in owned)
+                          + " (your own piece, not changed)", kind="overlap")
     note(sid, state, "saved", reason, items, cwd, piece=piece.id, version=piece.version, risk=piece.risk,
-         checks=checks, confidence=float(INITIAL_CONFIDENCE))
+         checks=checks, confidence=float(INITIAL_CONFIDENCE),
+         **({"overlaps": [p.id for _s, p in owned], "score": owned[0][0]} if owned else {}))
     from athos import replay
     try:                                       # with replays on: the task becomes the candidate's case
         replay.keep_candidate_case(piece, session.load(sid), transcript_path)
@@ -398,6 +416,31 @@ def refuse_model_save(sid: str | None, what: str = "save") -> str | None:
     return (f"not saved: this session runs on {model}, {kind}. Apply models and models Athos could not resolve never "
             f"create or change a piece (`athos tiers` lists which models learn); the person can save it with "
             f"their [Save] button or an `Athos · save:` request.")
+
+
+DUPLICATE = ("this is the same way of working as `{id}` (\"{title}\"), a piece Athos learned in this project. Improve "
+             "that piece instead of creating another: run `athos save --auto` again with the whole piece rewritten "
+             "(its steps and what this task added: a step, a Check, a case it did not cover), with `id: {id}` and a "
+             "`note:` saying what changed in its frontmatter. If this task taught nothing that piece lacks, save "
+             "nothing.")
+
+
+def same_way_as(text: str, project: str | None, state: dict):
+    """Before a new candidate is created, the pieces it would repeat (wiki.same_way, a check that does not rely on
+    the model's judgement): those of this project and those the task opened. Returns (the learned piece of this
+    project it repeats, as (score, piece), to refuse the save and improve that one instead, or None; the pieces the
+    person owns, or of another project, that it repeats: created anyway, never changed, and marked)."""
+    from athos import capture, store, wiki
+    try:
+        _meta, title, when, _pid, body = capture._fields(text)
+    except (ValueError, AttributeError):
+        return None, []
+    draft = store.Piece(id="draft", title=title or "", when=when or "", body=body or "", projects=[project or ""])
+    opened = set(state.get("task_opened") or []) | set(state.get("task_loaded") or [])
+    pool = [p for p in store.all_pieces() if (project and project in p.projects) or p.id in opened]
+    found = wiki.same_way(draft, pool, opened)
+    mine = [(sc, p) for sc, p in found if p.status and project in p.projects]
+    return (mine[0] if mine else None), [(sc, p) for sc, p in found if not (p.status and project in p.projects)]
 
 
 def save_model(text: str, sid: str, cwd: str | None, transcript_path: str | None = None):

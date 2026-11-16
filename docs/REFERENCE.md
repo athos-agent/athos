@@ -461,7 +461,7 @@ of it keeps a request's words: only its length and a 12-character fingerprint (`
 | `context` | a session starts | `hook` (session_start), `project`, `injected_total` (everything the hook handed the model), `injected_parts` (`index`, `journal`, `guide`, `offer`, `audit_hint`, `review`), `index_cap` |
 | `piece_opened` | the tool hook sees the agent run `athos show <id>` | `task_id`, `piece`, `projects` (in a public repository only this project, never another's name), `via` (show), `offered` (the frontier index of this request listed it), `again` (it was already in use for the task), `project` |
 | `hook_error` | a hook swallows an exception so your session carries on | `hook`, `where`, `error` (the exception's kind), `line` (file and line inside Athos), never its message; what the hook prints on stderr is the same kind and place, never the message either (it may quote a request or a path) |
-| `learn` | autonomous learning decides about a task: it asks the model to keep what it taught, saves, or skips (every decision, with its reason) | `task_id`, `decision` (asked, saved, skipped), `reason` (strong_evidence, no_strong_evidence, last_verification_failed, correction_after_success, apply_model, model_unknown, model_guessed (a frontier model only guessed so far, not seen), private_data, set_aside, no_project, off, invalid, model_saved_nothing), `model`, `tier`, `work_mode`, `mode` (learn, apply, unknown), `project`, `strong`, `weak`, `positive`, `negative` (the task's evidence counted), `evidence` (its short summary), `grounds`, and for a save `piece`, `version`, `risk`, `checks` (runnable Check lines), `confidence`; for a private-data refusal `private` (the kinds found, never the text) |
+| `learn` | autonomous learning decides about a task: it asks the model to keep what it taught, saves, or skips (every decision, with its reason) | `task_id`, `decision` (asked, saved, skipped), `reason` (strong_evidence, no_strong_evidence, last_verification_failed, correction_after_success, apply_model, model_unknown, model_guessed (a frontier model only guessed so far, not seen), private_data, set_aside, duplicate, no_project, off, invalid, model_saved_nothing), `model`, `tier`, `work_mode`, `mode` (learn, apply, unknown), `project`, `strong`, `weak`, `positive`, `negative` (the task's evidence counted), `evidence` (its short summary), `grounds`, and for a save `piece`, `version`, `risk`, `checks` (runnable Check lines), `confidence`; for a private-data refusal `private` (the kinds found, never the text); for a `duplicate` refusal, or a save next to a piece of yours, `overlaps` (the ids) and `score`; `caught_up` when a later session start recorded it |
 | `ui` | reserved for the panel's state | not written yet |
 
 Every one of them also carries `at`, `session_id` and `v`, the version of Athos that wrote it. `candidates.reason`
@@ -519,6 +519,7 @@ with no such session, this project's latest, else the last one anywhere:
 | `promotion_without_verifier` | a piece of the session's project moved to verified with no earlier passing verdict of the independent verifier whose prompt carried paths only |
 | `verifier_saw_summary` | a verifier run of the session's project whose recorded `paths_only` or `bundle_clean` is false, whose inputs were not exactly the fixed set (the seven inputs below; or the six of a run recorded before 0.1.167, or the four files of one recorded before 0.1.166), whose bundle holds any other entry, or whose kept `prompt.txt` is not the fixed text with the bundle's own input paths |
 | `candidate_set_aside` | a candidate of this project the verifier rejected 3 versions in a row, still a candidate and still marked: the model no longer rewrites it, and only you can fix, keep or retire it |
+| `overlapping_pieces` | two pieces of this project for the same way of working (page-level score of 0.5 or more), at least one learned by Athos, or a learned piece saved next to one of yours (marked at the save): you decide which to keep; nothing is merged or changed |
 | `verifier_over_cap` | a UTC day whose model runs (verifier and replay, every project) went over the runs or the cost cap they recorded (a run with no reported cost counts its estimate) |
 | `marker_name_ignored` | the repository the audit runs in has a `.athos.toml` whose `name` is not the folder's own and was never accepted on this machine (`athos public name`), so Athos uses the folder's name |
 | `public_not_declared` | the repository the audit runs in (when it is the session's project) is pushed to a code-hosting site, read from its local git configuration, and its `.athos.toml` does not say whether it is public; `athos public` or `athos public off` answers it |
@@ -786,19 +787,35 @@ nothing saved` (and how many qualified tasks ran without the session guide); qua
 nothing saved, while saves stay at zero, mean the model is not acting on the guide, and `"ask": "stop"` brings the line
 back.
 
-The guide says how: one new piece, every step with a Check, only what someone could check in the repository (its
+The guide says how: one piece, every step with a Check, only what someone could check in the repository (its
 files, its history, what its commands print; no timings or other incidental observations), your preferences written as
 rules to follow rather than as things you said, no secrets, emails, links, folders of this computer or other projects'
-names. `athos save --auto` then saves it without asking you, as a `candidate` of the current project only (`visibility: project`), with
+names; when the task followed an Athos piece, nothing if it taught nothing that piece lacks, that same piece improved
+(with its `id:`) if what it taught belongs there and it is a learned one, and a new piece only for a different way of
+working. `athos save --auto` then saves it without asking you, as a `candidate` of the current project only (`visibility: project`), with
 `learned_by`, the evidence summary, `confidence: 0.3` and the risk the detector finds, after two checks: the task's
 evidence must still qualify, and the private-data detector of `athos share` must find nothing (emails, phone and ID
 numbers, links, folders of this computer, another project's name, your name); if it finds something the piece is not
-saved and the model is told which kinds, never the text. It never changes your own pieces (no `status`) or a retired
+saved and the model is told which kinds, never the text. **One way of working, one piece**: before a new candidate is
+created it is compared, page by page, with the pieces of the project and those the task opened (the share of the words
+their titles and **When** lines have in common, in the router's own words, plus 0.2 when both name the same file and
+0.2 when the new page links to the other one). At 0.5 or more against a learned piece of this project (0.4 against a
+piece the task opened and followed), the save is refused (`learn` reason `duplicate`, with `overlaps` and `score`) and
+the model reads: "not saved: this is the same way of working as `<id>` ("<title>"), a piece Athos learned in this
+project. Improve that piece instead of creating another: run `athos save --auto` again with the whole piece rewritten
+(its steps and what this task added: a step, a Check, a case it did not cover), with `id: <id>` and a `note:` saying
+what changed in its frontmatter. If this task taught nothing that piece lacks, save nothing." A set-aside piece is not
+bypassed: nothing is saved for it. Against a piece you own, nothing of yours changes: the new piece is saved, its
+history line says which of yours it repeats, a review mark shows it in `athos report`, and `athos audit` lists it (rule
+`overlapping_pieces`, which also lists pairs of learned pieces already in the store; nothing is merged or deleted). The
+bars were calibrated on 18 near-duplicate pairs learned in live tests (lowest score 0.55) against 1776 same-project
+pairs of a person's own, genuinely different pieces (highest 0.49; 2 of them reach 0.4). It never changes your own
+pieces (no `status`) or a retired
 one; a learned piece of this project it may improve, under the same checks, and the new version is a candidate with its
 own verifier run (a verified piece improved this way is verified again from scratch). A candidate does not
 reach an apply model until it is verified. Every decision is a `learn` event: qualified (`ask: guide`), asked (`ask:
 stop`), saved, or skipped with its reason (no strong evidence, a failed last verification, private data, an apply
-model, the model stopping without saving, or `set_aside` below). A task that qualified and ended without a
+model, the model stopping without saving, `duplicate`, or `set_aside` below). A task that qualified and ended without a
 save is recorded as `model_saved_nothing` by the session's next request or, for a session that never sent one, by the
 next session start in the project ten minutes or more after the task ended (`caught_up`).
 
