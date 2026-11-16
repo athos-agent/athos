@@ -67,9 +67,8 @@ class NothingVerifiedTest(unittest.TestCase):
             self.assertIsNotNone(evidence._REVERT.match(evidence._bare(cmd)), cmd)
 
     def test_a_commit_helper_is_not_a_commit(self):
-        for cmd in ["git commit-tree abc -m x", "git commit --help", "git commit -h", "git commit --dry-run -m x"]:
-            self.assertIsNone(evidence._COMMIT.match(evidence._bare(cmd)), cmd)
-        self.assertIsNotNone(evidence._COMMIT.match(evidence._bare("git commit -m 'x'")))
+        # Commits are seen by HEAD moving (evidence.observe_head), never by reading the command: no pattern to match.
+        self.assertFalse(hasattr(evidence, "_COMMIT"))
 
 
 class ZeroTestsTest(TempHome):
@@ -147,18 +146,22 @@ class CommitTest(TempHome):
                         "--allow-empty", "-m", "x"], cwd=self.repo, check=True)
 
     def test_a_commit_counts_only_when_head_moved(self):
-        head = evidence.head(self.repo)
+        import time
+        stamp = {**evidence.start_stamp(self.repo), "at": time.time()}
+        head = stamp["head"]
         event = {"session_id": "s1", "cwd": self.repo, "tool_name": "Bash", "tool_input": {"command": "git commit -m x"},
                  "tool_response": {"stdout": "nothing to commit"}}
-        self.assertEqual(evidence.on_tool(event, "s1", started={"head": head}), [])     # nothing to commit
+        self.assertEqual(evidence.on_tool(event, "s1", started=stamp), [])              # nothing to commit
         self.assertEqual(evidence.on_tool(event, "s1"), [])                            # no stamp: can't tell
         subprocess.run(["git", "-c", "user.email=a@example.com", "-c", "user.name=a", "commit", "-q",
                         "--allow-empty", "-m", "y"], cwd=self.repo, check=True)
-        [item] = evidence.on_tool(event, "s1", started={"head": head})
+        [item] = evidence.on_tool(event, "s1", started=stamp)
         self.assertEqual(item["type"], "commit")
+        self.assertNotEqual(item["sha"], head[:12])
 
-    def test_a_commit_that_did_not_own_the_success_is_not_recorded(self):
-        for cmd in ["git commit -m x || true", "git commit -m x; echo done", "git commit --help"]:
+    def test_without_a_stamp_no_commit_is_recorded(self):
+        # Without the PreToolUse stamp nothing says HEAD moved during this call, whatever the command reads like.
+        for cmd in ["git commit -m x", "git commit -m x || true", "git commit -m x; echo done", "git commit --help"]:
             self.assertEqual([i["type"] for i in _bash("s1", cmd, self.repo)], [], cmd)
 
 

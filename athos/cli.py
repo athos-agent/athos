@@ -523,7 +523,7 @@ _SAVE_COMMAND = re.compile(r"(?:^|[\s/;&|(])athos\s+save\b")
 
 def _on_tool_start(event: dict, platform: str) -> None:
     """A tool call is about to run (PreToolUse): stamp its start for the edit detector and the indicator, keep the
-    repository's HEAD before a `git commit` (a commit is evidence only when HEAD moved), and note an `athos save` a
+    repository's HEAD before a shell command (a commit is evidence only when HEAD moved), and note an `athos save` a
     subagent runs (its model is not the session's). Nothing is said; it must stay fast."""
     sid = event.get("session_id", "default")
     if not session.load(sid).get("task_id"):
@@ -533,8 +533,10 @@ def _on_tool_start(event: dict, platform: str) -> None:
     if edits.is_shell(event):
         cmd = (event.get("tool_input") or {}).get("command")
         cmd = " ".join(map(str, cmd)) if isinstance(cmd, list) else str(cmd or "")
-        if re.search(r"\bgit\b", cmd) and re.search(r"\bcommit\b", cmd):
-            extra["head"] = evidence.head(event.get("cwd"))
+        if not event.get("agent_id") and capture.enabled():
+            # HEAD and its branch before every shell command in a repository: its end sees whether HEAD moved,
+            # whatever the command said (evidence.observe_head). One `git rev-parse`; nothing outside a repository.
+            extra.update(evidence.start_stamp(event.get("cwd")))
         if _SAVE_COMMAND.search(cmd):
             extra["athos_save"] = True
     edits.on_tool_start(event, sid, extra)

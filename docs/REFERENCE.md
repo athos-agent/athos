@@ -682,33 +682,69 @@ command's output beside it, for the verifier:
 
 | item | written when | strength |
 |---|---|---|
-| `verify` | a verification command ends: a test runner (pytest, `python -m unittest`, `npm test`, `npm run test:*`, `go test`, `cargo test`, `make test`/`check`, jest, vitest, …), a build (`npm run build`, `cargo build`, `go build`, `tsc`, …), a linter (`ruff check`, eslint, flake8, `black --check`, …), a type checker (mypy, pyright, `tsc --noEmit`, `go vet`, `cargo check`), or the **Check** of a piece the task uses; with `ok`, `kind`, `label` and `check_of` | strong when the hook saw that command's own exit status |
-| `commit` | `git commit` succeeded, owned the command's success, and moved HEAD from where the PreToolUse hook saw it (with its hash) | strong |
-| `revert` | `git revert`, `git reset --hard`, `git checkout -- …` or `git restore` succeeded (not `git revert --abort` or `--quit`, `git reset --hard` onto `origin/…`, `upstream/…` or `@{u}`, nor `git restore --staged` alone) | strong, against the work |
+| `verify` | a verification command ends: a test runner (pytest, `python -m unittest`, `npm test`, `npm run test:*`, `go test`, `cargo test`, `make test`/`check`, jest, vitest, …), a build (`npm run build`, `cargo build`, `go build`, `tsc`, …), a linter (`ruff check`, eslint, flake8, `black --check`, …), a type checker (mypy, pyright, `tsc --noEmit`, `go vet`, `cargo check`), a project's own check script (`npm run validate`, `npm run verify`, `npm run check`, and the same under pnpm, yarn and bun), or the **Check** of a piece the task uses; with `ok`, `kind`, `label`, `check_of` and, when strong, the `rule` that made it so | strong when the hook saw that command's own exit status, or its runner's own summary (below) |
+| `commit` | HEAD moved during a shell command, to a commit made during it (author and committer times at or after the command started), whatever the command's text was: a heredoc message, `git commit -F -`, an alias, a script that commits; one item per such commit (`sha`, `basis: head_moved`, `amend` for an amend) | strong (weak when a subagent was working at the same time) |
+| `revert` | HEAD moved back on the same branch (commits dropped, none added: `git reset --hard HEAD~1`; `basis: head_moved_back`), or `git revert`, `git reset --hard`, `git checkout -- …` or `git restore` succeeded (`basis: command`; not `git revert --abort` or `--quit`, `git reset --hard` onto `origin/…`, `upstream/…` or `@{u}`, nor `git restore --staged` alone) | strong, against the work |
+| `rewrite` | HEAD moved sideways on the same branch (commits dropped and others added: a rebase, a reset onto another commit) | strong, neither for nor against: not a commit |
 | `person_edit` | the edit detector gave a change to you (see above): a correction | strong, against the work |
 | `reaction` | your next words plainly judged the task (`ok`, `corrected`) | weak: read from words |
 | `model_claim` | the model's own statement about its work | weak |
 
-A command's exit status is its own only when it runs alone or in a chain joined by `&&`: `pytest | tail` reports
-`tail`'s status and `pytest || true` always succeeds, so those count as weak. A failure counts as that command's only
-when it is last and only setup (`cd`, `export`, `source`) or a `;` comes before it; a failed chain with a verification
-in it whose failure cannot be pinned on one command (`pytest && npm run build`, `pytest 2>&1 | tail`) is a strong item
-against the work all the same (`unattributed`), until a later verification passes. Strong is kept for commands that
+**How a command is read.** The hooks read a shell command as the shell would decide what runs: quotes, backslash
+escapes and line continuations, `#` comments, `$( … )` and backquotes (kept inside their word, never read as
+commands), heredocs (`<<EOF`, `<<'EOF'`, `<<-EOF`, several on a line: the body is data, and the command goes on after
+the terminator line; a body with no terminator takes the rest), `&&`, `||`, `|`, `;`, `&`, newlines, and grouping in
+`( … )` and `{ …; }` (a group's status is its last command's). A command that runs `athos` is still read; `athos`
+itself verifies nothing.
+
+A command's exit status is a verification's own, and the item is strong, by one of these rules (kept as `rule`):
+
+| rule | when | e.g. |
+|---|---|---|
+| `alone` | the whole command is that verification | `pytest -q` |
+| `and_chain` | only `&&` joins it to the commands before it in its list and to everything after it: the command succeeded only if it did | `cd app && npm test && git commit …` |
+| `last_in_sequence` | it is the last command, after a `;`, a newline or a heredoc's terminator: the status is the last command's | a heredoc that edits a file, then `npm test` on the next line |
+| `pipefail` | piped only into `tail`, `head` or `tee` when the command itself turns pipefail on first, joined by `&&` | `set -o pipefail && pytest -q \| tail -5` |
+| `runner_summary:<runner>` | (success only) the call succeeded but the status is not the verification's, and its output carries its runner's own final summary in a format Athos reads exactly, once: pytest (`4 passed in 0.12s`, with or without `=` bars), `python -m unittest` (`Ran 4 tests in 0.1s` then `OK`), jest (`Tests: 5 passed, 5 total`), vitest (`Tests  3 passed (3)`); the command must name the runner itself (`npm test` may run anything), run it once, pipe it (if at all) only into `tail`, `head` or `tee`, not send its output to a file, and run nothing else that prints text of its own choosing (`echo`, `printf`, `cat`, `sed`, …) | `pytest -q 2>&1 \| tail -5` printing `4 passed in 0.3s` |
+
+A summary that counts a failure or an error is a strong failure by the same rule, even when `tail` succeeded. A
+summary that counts no passing test, two summaries, or anything else ambiguous leaves the item weak; a failed call is
+never upgraded by a clean summary. Anything else is weak: `pytest | tail` without pipefail or a summary reports
+`tail`'s status, `pytest || true` always succeeds, and `npm test; ls` reports `ls`'s. A failure counts as that
+command's only when it is last and only setup (`cd`, `export`, `source`) or a `;` comes before it in its list (rule
+`alone` or `last_command`); a failed chain with a verification in it whose failure cannot be pinned on one command
+(`pytest && npm run build`, `pytest 2>&1 | tail`) is a strong item against the work all the same (`unattributed`),
+until a later verification passes. Strong is kept for commands that
 really checked something: a run that only asks the runner about itself or lists what it would do (`--version`,
 `--help`, `--collect-only`, `--no-run`, `make -n`), a linter told to fix (`--fix`, `lint:fix`), the tasks a gradle run
 leaves out (`-x test`), a command sent to the background (its hook comes when it starts, so its status is not known),
 anything after a `#` comment, and a test run whose output says no test ran (`Ran 0 tests`, `collected 0 items`, `[no
 test files]`, `running 0 tests`, `No tests found`, `0 passing`) are not strong. A longer word is another command:
-`pytest-watch` is not pytest and `make test-clean` is not `make test`. One narrow pipe counts: a verification piped
-only into `tail`, `head` or `tee` (plain options and file names) owns the success when the command itself turns
-pipefail on first, joined by `&&` (`set -o pipefail && pytest -q | tail -5`), and the pipeline is the last thing that
-runs or only `&&` follows it; then the pipeline succeeds only if the verification did. The hook does not say how the
-shell was started, so without that `set` a pipe stays weak, and a failure is never taken for a success. The
+`pytest-watch` is not pytest and `make test-clean` is not `make test`. The hook does not say how the
+shell was started, so without that `set` (or a runner summary) a pipe stays weak, and a failure is never taken for a
+success.
+
+**Commits are watched, not read.** Before every shell command in a repository the PreToolUse hook keeps HEAD and its
+branch, read from the git folder's files (no git process; git is asked only for a ref storage the files do not show);
+after the command (PostToolUse or PostToolUseFailure) the same read says whether HEAD moved, and only when it did one
+`git log` lists the commits between. Measured on this machine: about 0.04 ms at each end when HEAD did not move, with
+no git process; nothing at all outside a repository. A forward move records the commits made during the command; one
+that only arrived (a fast-forward pull or merge, a checkout of another branch) is not the task's; an amend is one
+commit; a move back on the same branch is a `revert`, a move sideways a `rewrite`, never a commit; a new branch
+with a commit on it records that commit; a repository with no commit yet records its first one. A subagent's own
+commands are left out, and a commit made while a subagent was working is kept weak. The command's words no longer
+decide anything about commits.
+
+**What stays invisible.** A verification inside a script the model wrote or a project script that is not one of the
+names above (`./scripts/check.sh`, `node scripts/validate.mjs`), inside `sh -c '…'`, `eval`, a heredoc fed to a shell
+(`bash <<EOF`), a `make` target other than `test`/`check`/`build`/`all`, or the condition of an `if`/`while`; a
+verification run in another repository than the session's folder (`cd ../other && git commit`); a commit made outside
+the agent's shell (in your own terminal while the command ran it would be taken for the agent's); and commands of
+agents whose hooks give no exit status or no PreToolUse stamp. The
 autonomous guide asks the model to run each verification command once on its own before finishing. Up to 60 weak
 items are kept per task; strong ones are never dropped. Claude Code runs PostToolUse after a command
 that exited 0 and PostToolUseFailure after one that did not; agents whose tool hooks give no exit status (Codex, Muse
-Code and OpenCode unless the event carries an exit code) only produce weak items. Subagents' commands and Athos's own
-are left out, and in a repository marked public the command itself is not kept, only what kind it was. With
+Code and OpenCode unless the event carries an exit code) only produce weak items. Subagents' commands are left out, Athos's own verify nothing, and in a repository marked public the command itself is not kept, only what kind it was. With
 autonomous learning on (below), and always on an apply model, an edit of yours is only evidence: the agent is no longer
 told about it and asked to propose a rule.
 
