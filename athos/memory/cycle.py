@@ -780,7 +780,8 @@ def rebuild() -> dict:
 
 # ------------------------------------------------------------------------------------------------ phase 2: abstraction
 def findings() -> dict:
-    """What counting finds, over the whole history (the rollups and the live log, never the archive): pieces used
+    """What counting finds, over the whole history (the rollups, the ledger's counts and the live log, never the
+    archive itself): pieces used
     together, requests that found no piece (counted per project, never quoted), near-duplicate pieces, steps the
     person corrected by hand again and again, pieces whose own Checks keep failing. Ids only for pieces that exist."""
     from athos import store, wiki
@@ -790,7 +791,8 @@ def findings() -> dict:
     pairs = sorted(((k.split("|"), n) for k, n in total["pairs"].items() if n >= PAIR_MIN),
                    key=lambda kv: (-kv[1], kv[0]))
     together = [{"pieces": ab, "tasks": n} for ab, n in pairs if all(p in pieces for p in ab)]
-    route: dict = json.loads(json.dumps((v.rollups or {}).get("route") or {}))
+    led = memory.ledger_counts()              # what only the cycle reads is in the ledger, never in the rollups
+    route: dict = json.loads(json.dumps(led.get("route") or {}))
     for e in v.of_type("route"):
         if e.get("request_kind") != "person":
             continue
@@ -817,7 +819,7 @@ def findings() -> dict:
             if len(pair) == 2 and pair not in seen:
                 seen.add(pair)
                 overlaps.append({"pieces": list(pair), "steps": ref})
-    edits = dict((v.rollups or {}).get("step_edits") or {})
+    edits = dict(led.get("step_edits") or {})
     for e in v.of_type("learned_from_edit"):
         if e.get("piece") and e.get("basis"):
             key = f"{e['piece']}#{e.get('statement') or ''}"
@@ -826,8 +828,8 @@ def findings() -> dict:
                  for k, n in sorted(edits.items()) if n >= STEP_EDITS_MIN and k.split("#", 1)[0] in pieces]
     failing = []
     for pid in pieces:
-        fails = sum(1 for e in v.grade_events(pid) if e.get("type") == "reuse" and "check_failed" in (e.get("basis")
-                                                                                                    or []))
+        fails = int((led.get("check_failed") or {}).get(pid) or 0) + sum(
+            1 for e in v.of_type("reuse") if e.get("piece") == pid and "check_failed" in (e.get("basis") or []))
         if fails >= CHECK_FAILS_MIN:
             failing.append({"piece": pid, "check_failed": fails})
     return {"together": together, "no_piece": no_piece, "overlaps": overlaps, "corrected_steps": corrected,
@@ -856,7 +858,7 @@ def _project_public(project: str, v: memory.View) -> bool:
     routes = [e for e in v.of_type("route") if e.get("project") == project]
     if routes:
         return bool(routes[-1].get("public"))
-    return bool(((v.rollups or {}).get("route") or {}).get(project, {}).get("public"))
+    return bool((memory.ledger_counts().get("route") or {}).get(project, {}).get("public"))
 
 
 def _play(project: str, total: dict) -> bool:

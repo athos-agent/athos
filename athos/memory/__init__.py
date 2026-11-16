@@ -33,7 +33,7 @@ from typing import Iterable
 
 from athos import paths
 
-V = 1
+V = 2                        # 2: bounded grading history, shadows and stars; cycle-only counts out of the rollups
 DEFAULTS = {
     "auto": True,            # the hooks start the no-model cycle on their own when the live log passes the threshold
     "keep_days": 30,         # the live log keeps at least this many days...
@@ -291,21 +291,103 @@ def live_and_segments() -> tuple[bytes, list, bool]:
 # ------------------------------------------------------------------------------------------------ the ledger
 GRADE_TYPES = ("verify", "reuse", "grade", "learn")
 _GRADE_KEEP = ("type", "at", "piece", "version", "outcome", "tier", "basis", "from", "to", "decision", "body_sha",
-               "paths_only", "bundle_clean", "model", "task_id", "status", "reason")
+               "paths_only", "bundle_clean", "model", "task_id", "status")
 _SHADOW_KEEP = ("piece", "model", "equivalent", "platform", "case", "version", "at")
 _RATING_KEEP = ("id", "stars", "piece", "step", "label", "version", "task_id", "did", "at")
 NOISE = re.compile(r"^\s*(<(task-notification|system-reminder|agent-message)[\s>]|Athos · )")
+# What the derived files keep of a long history is bounded by the pieces, never by how long the history is:
+GRADE_PER_CLASS = 4        # per piece and version, the latest reuses of each (tier, outcome, strong) kind: the rules
+                           # compare counts with thresholds of 1 to 3 (athos/grade.py), so a count past 4 changes nothing
+GRADE_VERSIONS = 2         # ...for the two newest versions seen (a change, a revert, a status move: a new version)
+GRADE_PASSES = 8           # the verifier's latest pass for each of the last 8 texts of the piece
+SHADOW_KEEP = 10           # the shadow runs per piece and model: the suggestion reads the last 10, and needs 5
+RATINGS_KEEP = 50          # stars per page and step
+TAIL_MAX = 2000            # archived uses kept one by one near the cut (see `aggregate`)
+BLOOM_BITS = 1 << 19       # a fixed-size filter of the archived task ids (64 KB at most, less compressed)
+
+
+def _strong(e: dict) -> bool:
+    from athos import grade
+    return bool(set(e.get("basis") or []) & grade.STRONG_NEGATIVE)
+
+
+def _since_mark(e: dict) -> bool:
+    return (e.get("type") == "grade" and e.get("to") == "candidate" and e.get("from") != "candidate") or \
+        (e.get("type") == "learn" and e.get("decision") == "saved")
+
+
+def keep_grade(evs: list) -> list:
+    """Of a piece's grading history, what the rules (athos/grade.py `standing`) can still use, in order: the latest
+    move to candidate, the verifier's latest pass per text, and per version (the two newest) the last RETIRE_WINDOW
+    judged reuses and the latest GRADE_PER_CLASS of each kind. The rules decide the same on it as on the whole."""
+    from athos import grade
+    keep: set = set()
+    marks = [i for i, e in enumerate(evs) if _since_mark(e)]
+    if marks:
+        keep.add(max(marks, key=lambda i: (evs[i].get("at") or "", i)))
+    shas: set = set()
+    for i in range(len(evs) - 1, -1, -1):
+        e = evs[i]
+        if e.get("type") == "verify" and e.get("outcome") == "pass" and len(shas) < GRADE_PASSES and \
+                e.get("body_sha") not in shas and e.get("paths_only") is not False and \
+                e.get("bundle_clean") is not False:
+            shas.add(e.get("body_sha"))
+            keep.add(i)
+    reuses = [i for i, e in enumerate(evs) if e.get("type") == "reuse"]
+    versions = sorted({evs[i].get("version") or 0 for i in reuses}, reverse=True)[:GRADE_VERSIONS]
+    for v in versions:
+        mine = [i for i in reuses if (evs[i].get("version") or 0) == v]
+        keep.update([i for i in mine if evs[i].get("outcome") != "unverified"][-grade.RETIRE_WINDOW:])
+        kinds: dict = {}
+        for i in reversed(mine):
+            k = (evs[i].get("tier"), evs[i].get("outcome"), _strong(evs[i]))
+            if kinds.get(k, 0) < GRADE_PER_CLASS:
+                kinds[k] = kinds.get(k, 0) + 1
+                keep.add(i)
+    return [e for i, e in enumerate(evs) if i in keep]
+
+
+def _scrub(r: dict, request: str | None) -> dict:
+    """A star's free text without any run of four words of the request it was given on (the agent's own account of
+    the step may quote it)."""
+    did = r.get("did")
+    words = re.findall(r"\w+", (request or "").lower())
+    if did and len(words) >= 4:
+        low = " ".join(re.findall(r"\w+", did.lower()))
+        if any(" ".join(words[i:i + 4]) in low for i in range(len(words) - 3)):
+            r = {k: v for k, v in r.items() if k != "did"}
+    return r
 
 
 def empty_ledger() -> dict:
     return {"v": V, "folded": [], "lines": 0, "rows": {}, "wrong": [], "grade": {}, "verify_done": [],
-            "shadows": [], "told": [], "ratings": [], "route": {}, "misfires": {}, "step_edits": {},
-            "lfe_wrong": [], "first_at": None, "last_at": None}
+            "shadows": {}, "shadow_done": [], "told": [], "ratings": {}, "route": {}, "misfires": {},
+            "step_edits": {}, "check_failed": {}, "lfe_wrong": [], "first_at": None, "last_at": None}
 
 
 def load_ledger() -> dict:
     data = _read_json(ledger_file())
     return data if data.get("v") == V else empty_ledger()
+
+
+_LEDGER_CACHE: dict = {}
+
+
+def ledger_counts() -> dict:
+    """The ledger as the cycle's counting reads it (never changed by the caller): cached per state of the file; an
+    unreadable one reads as empty here (the next cycle folds it again)."""
+    try:
+        st = ledger_file().stat()
+        key = (st.st_ino, st.st_size, st.st_mtime_ns)
+    except OSError:
+        return empty_ledger()
+    if _LEDGER_CACHE.get("key") != key:
+        try:
+            data = load_ledger()
+        except paths.StateUnreadable:
+            data = empty_ledger()
+        _LEDGER_CACHE.update(key=key, data=data)
+    return _LEDGER_CACHE["data"]
 
 
 def _compact_row(row: dict) -> dict:
@@ -333,6 +415,8 @@ def fold(ledger: dict, events: Iterable[dict]) -> dict:
     done = {tuple(x) for x in ledger["verify_done"]}
     told = {tuple(x) for x in ledger["told"]}
     lfe_wrong = {tuple(x) for x in ledger["lfe_wrong"]}
+    shadow_done = {tuple(x) for x in ledger["shadow_done"]}
+    touched: set = set()
     seq = int(ledger.get("lines") or 0)
     for e in events:
         seq += 1
@@ -366,14 +450,23 @@ def fold(ledger: dict, events: Iterable[dict]) -> dict:
                     row["opened"].append(pid)
         if kind in GRADE_TYPES and pid:
             ledger["grade"].setdefault(pid, []).append({k: e[k] for k in _GRADE_KEEP if k in e})
+            touched.add(pid)
+            if kind == "reuse" and "check_failed" in (e.get("basis") or []):
+                ledger["check_failed"][pid] = ledger["check_failed"].get(pid, 0) + 1
         if kind == "verify" and e.get("outcome") in ("pass", "fail") and pid:
             done.add((pid, e.get("version")))
         elif kind == "shadow":
-            ledger["shadows"].append({k: e[k] for k in _SHADOW_KEEP if k in e})
+            key = f"{pid}|{e.get('model')}"
+            ledger["shadows"][key] = (ledger["shadows"].get(key, []) +
+                                      [{k: e[k] for k in _SHADOW_KEEP if k in e}])[-SHADOW_KEEP:]
+            shadow_done.add((e.get("case"), pid, e.get("version"), e.get("model")))
         elif kind == "handoff_told":
             told.add((pid, e.get("model")))
         elif kind == "rating" and pid:
-            ledger["ratings"].append({k: e[k] for k in _RATING_KEEP if k in e})
+            key = f"{pid}#{e.get('step') or ''}"
+            ledger["ratings"][key] = (ledger["ratings"].get(key, []) +
+                                      [_scrub({k: e[k] for k in _RATING_KEEP if k in e}, e.get("request"))])[
+                -RATINGS_KEEP:]
         elif kind == "route" and e.get("request_kind") == "person":
             r = ledger["route"].setdefault(e.get("project") or "-", {"requests": 0, "nothing": 0, "chosen": {},
                                                                     "offered": {}, "named_how": {}, "repeats": {}})
@@ -401,6 +494,13 @@ def fold(ledger: dict, events: Iterable[dict]) -> dict:
             key = f"{pid}#{e.get('statement') or ''}"
             ledger["step_edits"][key] = ledger["step_edits"].get(key, 0) + 1
     ledger["lines"] = seq
+    for pid in touched:
+        ledger["grade"][pid] = keep_grade(ledger["grade"][pid])
+    newest: dict = {}                        # cases replayed on a piece's older versions are never asked again
+    for case, pid, version, model in shadow_done:
+        newest.setdefault((pid, model), set()).add(version or 0)
+    newest = {k: set(sorted(v, reverse=True)[:GRADE_VERSIONS]) for k, v in newest.items()}
+    ledger["shadow_done"] = sorted([list(x) for x in shadow_done if (x[2] or 0) in newest[(x[1], x[3])]], key=str)
     ledger["wrong"] = sorted([list(x) for x in wrong], key=str)
     ledger["verify_done"] = sorted([list(x) for x in done], key=str)
     ledger["told"] = sorted([list(x) for x in told], key=str)
@@ -450,6 +550,7 @@ def sums(tasks: list[dict]) -> dict:
     used; the platforms seen; and how often two pieces were used in the same task."""
     from athos import tiers
     out: dict = {"tasks": 0, "pieces": {}, "projects": {}, "platforms": {}, "pairs": {}}
+    tier_of: dict = {}                        # once per model: tiers.tier_of reads the configuration each time
     for t in tasks:
         out["tasks"] += 1
         plat, proj, res = t.get("platform"), t.get("project"), t.get("result")
@@ -464,7 +565,10 @@ def sums(tasks: list[dict]) -> dict:
             p["ok"] += res == "ok"
             p["marked"] += res != "unevaluated"
             _add(p["by_platform"], plat or "")
-            _add(p["by_tier"], tiers.tier_of(t.get("model")) if t.get("model") else "unknown")
+            model = t.get("model")
+            if model and model not in tier_of:
+                tier_of[model] = tiers.tier_of(model)
+            _add(p["by_tier"], tier_of[model] if model else "unknown")
             _add(p["by_project"], proj or "-")
             _add(p["outcomes"], res)
             p["last_used"] = max(p["last_used"], (t.get("ended") or "")[:10])
@@ -489,7 +593,10 @@ def sums(tasks: list[dict]) -> dict:
                              "tokens": _tok(t)}
         if proj:
             pr = out["projects"].setdefault(proj, {"tasks": 0, "journal": 0, "journal_pieces": {}, "last": None,
-                                                   "scratch": 0, "ok": 0, "marked": 0})
+                                                   "scratch": 0, "ok": 0, "marked": 0, "last_task": None})
+            if pr["last_task"] is None or (t.get("seq") or 0) > pr["last_task"]["seq"]:
+                pr["last_task"] = {"seq": t.get("seq") or 0, "platform": t.get("platform"), "model": t.get("model"),
+                                   "result": t.get("result"), "ended": t.get("ended")}
             pr["tasks"] += 1
             pr["scratch"] += bool(t.get("scratch"))
             pr["ok"] += res == "ok"
@@ -509,15 +616,45 @@ def sums(tasks: list[dict]) -> dict:
     for t in tasks:
         for pid in t.get("pieces") or []:
             p = out["pieces"][pid]
-            base = p.get("base")
-            bar = p["bars"].setdefault(f"{t.get('project') or ''}|{t.get('platform') or ''}",
-                                       {"all": [0, 0, 0, 0, 0], "after": [0, 0, 0, 0, 0]})
-            row = [1, int(t.get("result") == "ok"), int(t.get("result") != "unevaluated"),
-                   t.get("request_chars") or 0, int(t.get("request_chars") is not None)]
+            bar = p["bars"].setdefault(bar_key(t), {"all": [0, 0, 0, 0, 0], "after": [0, 0, 0, 0, 0]})
+            row = bar_row(t)
             bar["all"] = [a + b for a, b in zip(bar["all"], row)]
-            if base is None or (t.get("started") or "") >= (base.get("started") or ""):
+            if after_base(t.get("started"), p.get("base")):
                 bar["after"] = [a + b for a, b in zip(bar["after"], row)]
     return out
+
+
+def bar_key(t: dict) -> str:
+    return f"{t.get('project') or ''}|{t.get('platform') or ''}"
+
+
+def bar_row(t: dict) -> list:
+    return [1, int(t.get("result") == "ok"), int(t.get("result") != "unevaluated"), t.get("request_chars") or 0,
+            int(t.get("request_chars") is not None)]
+
+
+def after_base(started, base: dict | None) -> bool:
+    """A use counts in the bars when it began at or after the run that taught the piece (or there is none)."""
+    return base is None or (started or "") >= (base.get("started") or "")
+
+
+def _bloom_bits(tid: str) -> list:
+    d = hashlib.blake2b(str(tid).encode(), digest_size=16).digest()
+    return [int.from_bytes(d[i:i + 4], "big") % BLOOM_BITS for i in range(0, 16, 4)]
+
+
+def bloom(ids) -> str:
+    """A fixed-size filter of task ids (no false negatives; false positives grow with the archive)."""
+    import base64
+    bits = bytearray(BLOOM_BITS // 8)
+    for tid in ids:
+        for b in _bloom_bits(tid):
+            bits[b >> 3] |= 1 << (b & 7)
+    return base64.b64encode(zlib.compress(bytes(bits), 6)).decode()
+
+
+def bloom_has(data: bytes, tid: str) -> bool:
+    return all(data[b >> 3] >> (b & 7) & 1 for b in _bloom_bits(tid))
 
 
 def merge_counts(a: dict, b: dict) -> dict:
@@ -545,19 +682,12 @@ def merge(a: dict, b: dict) -> dict:
         bases = [s for s in (x.get("base"), y.get("base")) if s]
         if bases:
             m["base"] = min(bases, key=lambda s: s["seq"])
-        # The bars count uses after the baseline. With the baseline among the earlier tasks, every later use is
-        # after it; with it among the later tasks only, the earlier uses came before it (they started earlier).
+        # The bars' "after" depends on the whole history's baseline: the view decides it (View.sums).
         m["bars"] = {}
         for key in x["bars"].keys() | y["bars"].keys():
             bx = x["bars"].get(key, {"all": [0] * 5, "after": [0] * 5})
             by = y["bars"].get(key, {"all": [0] * 5, "after": [0] * 5})
-            if x.get("base"):
-                after = [i + j for i, j in zip(bx["after"], by["all"])]
-            elif y.get("base"):
-                after = list(by["after"])
-            else:
-                after = [i + j for i, j in zip(bx["all"], by["all"])]
-            m["bars"][key] = {"all": [i + j for i, j in zip(bx["all"], by["all"])], "after": after}
+            m["bars"][key] = {"all": [i + j for i, j in zip(bx["all"], by["all"])], "after": list(bx["after"])}
         out["pieces"][pid] = m
     for name in a["projects"].keys() | b["projects"].keys():
         x, y = a["projects"].get(name), b["projects"].get(name)
@@ -565,9 +695,11 @@ def merge(a: dict, b: dict) -> dict:
             out["projects"][name] = json.loads(json.dumps(x or y))
             continue
         last = max([v for v in (x["last"], y["last"]) if v], key=lambda v: v[0], default=None)
+        last_task = max([v for v in (x.get("last_task"), y.get("last_task")) if v], key=lambda v: v["seq"],
+                        default=None)
         out["projects"][name] = {**{k: x[k] + y[k] for k in ("tasks", "journal", "scratch", "ok", "marked")},
                                  "journal_pieces": merge_counts(x["journal_pieces"], y["journal_pieces"]),
-                                 "last": last}
+                                 "last": last, "last_task": last_task}
     return out
 
 
@@ -587,24 +719,48 @@ def _task_ids(events: Iterable) -> set:
 
 
 def aggregate(ledger: dict, live: list, live_bytes: int = 0, live_head: str = "") -> dict:
-    """The rollups: `sums` over the archived tasks that no live event mentions (the others, the boundary, are kept
-    whole in `boundary` so a hot reader folds their live lines on top of them), and the archived history of the
-    events the hot paths read besides tasks. `live_bytes` and `live_head`: how much of the live log was looked at, so
-    a reader can tell a live line written later (an `athos mark` of an archived task, say) from one already known."""
-    boundary_ids = _task_ids(live) & ledger["rows"].keys()
+    """The rollups the hooks read, bounded by the window and the number of pieces and projects: `sums` over the
+    archived tasks that no live event mentions (the others, the boundary, are kept whole in `boundary` so a hot reader
+    folds their live lines on top of them); the archived uses that began after the earliest boundary task one by one
+    (`tail_uses`, so the bars decide per use whether it came after the run that taught the piece, wherever that run
+    is); a filter of the archived task ids (`ids`: a late line about a task it does not know is a new task); and of
+    the events the hot paths read besides tasks, what they can still use (the grading history as `keep_grade` keeps
+    it, the latest shadow runs and stars). What only the cycle reads (route counts, step edits, dismissals) stays in
+    the ledger. `live_bytes` and `live_head`: how much of the live log was looked at, so a reader can tell a live line
+    written later (an `athos mark` of an archived task, say) from one already known."""
+    rows = ledger["rows"]
+    boundary_ids = _task_ids(live) & rows.keys()
     wrong = {tuple(x) for x in ledger["wrong"]}
-    archived = finished((r for tid, r in ledger["rows"].items() if tid not in boundary_ids), wrong)
+    archived = finished((r for tid, r in rows.items() if tid not in boundary_ids), wrong)
+    total = sums(archived)
+    t0 = min((rows[t].get("started") or "" for t in boundary_ids), default=None)
+    tail: list = []
+    if t0 is not None:
+        late = [t for t in archived if (t.get("started") or "") >= t0][-TAIL_MAX:]
+        late_ids = {t["task_id"] for t in late}
+        for p in total["pieces"].values():
+            for bar in p["bars"].values():
+                bar["after"] = [0] * 5
+        for t in archived:
+            for pid in t.get("pieces") or []:
+                if t["task_id"] in late_ids:
+                    tail.append([pid, bar_key(t), t.get("started") or "", bar_row(t)])
+                elif after_base(t.get("started"), total["pieces"][pid].get("base")):
+                    bar = total["pieces"][pid]["bars"][bar_key(t)]
+                    bar["after"] = [a + b for a, b in zip(bar["after"], bar_row(t))]
+    ratings = [r for rs in ledger["ratings"].values() for r in rs]
     return {"v": V, "through": ledger["folded"][-1] if ledger["folded"] else None, "lines": ledger["lines"],
             "first_at": ledger.get("first_at"), "last_at": ledger.get("last_at"),
-            "archived_tasks": sum(1 for r in ledger["rows"].values() if "ended" in r),
-            "sums": sums(archived),
-            "boundary": {tid: ledger["rows"][tid] for tid in sorted(boundary_ids)},
-            "wrong": ledger["wrong"], "grade": ledger["grade"], "verify_done": ledger["verify_done"],
-            "shadows": ledger["shadows"], "told": ledger["told"], "ratings": ledger["ratings"],
-            "rated_results": {r["task_id"]: ledger["rows"][r["task_id"]].get("result")
-                              for r in ledger["ratings"] if r.get("task_id") in ledger["rows"]},
-            "walked": _walked(r for tid, r in ledger["rows"].items() if tid not in boundary_ids),
-            "route": ledger["route"], "misfires": ledger["misfires"], "step_edits": ledger["step_edits"],
+            "archived_tasks": sum(1 for r in rows.values() if "ended" in r),
+            "sums": total, "tail_uses": tail,
+            "boundary": {tid: rows[tid] for tid in sorted(boundary_ids)},
+            "ids": bloom(rows.keys()),
+            "wrong": [w for w in ledger["wrong"] if w[0] in boundary_ids], "grade": ledger["grade"],
+            "verify_done": ledger["verify_done"], "shadows": ledger["shadows"], "shadow_done": ledger["shadow_done"],
+            "told": ledger["told"], "ratings": ledger["ratings"],
+            "rated_results": {r["task_id"]: rows[r["task_id"]].get("result")
+                              for r in ratings if r.get("task_id") in rows},
+            "walked": _walked(r for tid, r in rows.items() if tid not in boundary_ids),
             "live_mark": {"bytes": live_bytes, "head": live_head}}
 
 
@@ -676,17 +832,32 @@ class View:
         if self.rollups is not None:
             started = {e.get("task_id") for e in self.events if isinstance(e, dict) and e.get("type") == "task_start"}
             boundary = self.rollups.get("boundary") or {}
+            ids = None
             for e, n in zip(self.events, numbers):
                 if n < cut or not isinstance(e, dict):
                     continue
                 tid = e.get("task_id")
-                if tid and tid not in started and tid not in boundary and e.get("type") in (
+                if tid and tid not in started and tid not in boundary and tid not in self._late and e.get("type") in (
                         "task_end", "mark", "correction"):
-                    self._late.add(tid)
+                    if ids is None:
+                        ids = self._ids()
+                    # A task the archive may hold waits for a cycle; one it surely does not is a new task.
+                    if ids is None or bloom_has(ids, tid):
+                        self._late.add(tid)
             self.stale = bool(self._late)
         self._tasks = None
         self._rows: dict = {}
         self._sums = None
+
+    def _ids(self) -> bytes | None:
+        import base64
+        raw = (self.rollups or {}).get("ids")
+        if not raw:
+            return None
+        try:
+            return zlib.decompress(base64.b64decode(raw))
+        except (ValueError, zlib.error):
+            return None
 
     # -- tasks
     def tasks(self) -> list[dict]:
@@ -771,7 +942,28 @@ class View:
         if self._sums is None:
             recent = sums(self.tasks())
             arch = (self.rollups or {}).get("sums")
-            self._sums = merge(arch, recent) if arch else recent
+            if not arch:
+                self._sums = recent
+                return recent
+            m = merge(arch, recent)
+            # The bars' uses after the run that taught each piece, against the whole history's baseline: the archived
+            # sums' own count when that run is archived (no use counted there began after a later baseline, and the
+            # uses near the cut are decided one by one below), nothing of them when it is in the recent window.
+            for pid, p in m["pieces"].items():
+                base, old = p.get("base"), (arch["pieces"].get(pid) or {})
+                from_archive = base is None or (old.get("base") or {}).get("seq") == base.get("seq")
+                for key, bar in p["bars"].items():
+                    kept = ((old.get("bars") or {}).get(key) or {}).get("after") if from_archive else None
+                    bar["after"] = list(kept or [0] * 5)
+            uses = [(pid, key, started, row) for pid, key, started, row in self.rollups.get("tail_uses") or []]
+            uses += [(pid, bar_key(t), t.get("started") or "", bar_row(t)) for t in self.tasks()
+                     for pid in t.get("pieces") or []]
+            for pid, key, started, row in uses:
+                p = m["pieces"].get(pid)
+                if p is not None and after_base(started, p.get("base")):
+                    bar = p["bars"].setdefault(key, {"all": [0] * 5, "after": [0] * 5})
+                    bar["after"] = [a + b for a, b in zip(bar["after"], row)]
+            self._sums = m
         return self._sums
 
     # -- what the hot paths ask
@@ -800,14 +992,22 @@ class View:
         return done
 
     def shadows(self) -> list[dict]:
-        return list((self.rollups or {}).get("shadows") or []) + self.of_type("shadow")
+        """The latest archived shadow runs per piece and model, then the live ones."""
+        return [e for rs in ((self.rollups or {}).get("shadows") or {}).values() for e in rs] + \
+            self.of_type("shadow")
+
+    def shadow_done(self) -> set:
+        """Every (case, piece, version, model) a shadow run already replayed, archived or live."""
+        return {tuple(x) for x in (self.rollups or {}).get("shadow_done") or []} | \
+            {(e.get("case"), e.get("piece"), e.get("version"), e.get("model")) for e in self.of_type("shadow")}
 
     def told(self) -> set:
         return {tuple(x) for x in (self.rollups or {}).get("told") or []} | \
             {(e.get("piece"), e.get("model")) for e in self.of_type("handoff_told")}
 
     def ratings(self) -> list[dict]:
-        return list((self.rollups or {}).get("ratings") or []) + self.of_type("rating")
+        return [r for rs in ((self.rollups or {}).get("ratings") or {}).values() for r in rs] + \
+            self.of_type("rating")
 
     def results(self) -> dict:
         """The verdict of every task a rating points at, and of every recent task: what the star review needs."""

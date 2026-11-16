@@ -336,7 +336,7 @@ layers:
 | layer | where | what |
 |---|---|---|
 | short-term | `events.jsonl` | the raw events of a recent window: the hooks append here |
-| consolidated | `memory/archive/events-NNNNN.jsonl.gz`, `archive/manifest.json`, `memory/ledger.json`, `memory/rollups.json` | the events outside the window, compressed and never deleted (the manifest keeps each segment's lines, bytes and sha256); the ledger, those events folded per task without a word of any request; the rollups, small sums the hooks read: per piece (uses, outcomes, by platform, model tier and project, last use, means, the run that taught it), per project (tasks, the pieces they used, requests that found no piece, counted, never quoted), pieces used in the same task, the grading history of learned pieces, the verifier's and the shadow runs' outcomes, the stars |
+| consolidated | `memory/archive/events-NNNNN.jsonl.gz`, `archive/manifest.json`, `memory/ledger.json`, `memory/rollups.json` | the events outside the window, compressed and never deleted (the manifest keeps each segment's lines, bytes and sha256); the ledger, those events folded per task without a word of any request, with what only the cycle reads (requests that found no piece, counted, never quoted; steps you corrected; dismissals); the rollups, small sums the hooks read, bounded by the window and the number of pieces and projects, never by how long the history is: per piece (uses, outcomes, by platform, model tier and project, last use, means, the run that taught it), per project (tasks, the pieces they used, its last task), pieces used in the same task, what the grading rules of a learned piece can still use, the verifier's outcomes, the latest shadow runs and stars, the archived uses near the cut one by one, and a fixed-size filter of the archived task ids |
 | long-term | `know-how/`, `projects/<name>.md` | the wiki: your pieces, and a page per project saying what is known about working in it |
 
 The ledger and the rollups are derived: delete them and `athos memory rebuild` folds the archive again into the same
@@ -352,10 +352,20 @@ history of a learned piece, which candidates wait for the verifier, the shadow r
 commands read the whole history, the archive decompressed and then the live log: `athos report`, `audit`, `curate`,
 `repair`, `bench route --from-store`, the importers of Codex and Muse Code sessions; `report`, `audit` and `repair`
 say so on stderr (`history: N archived event(s) in K segment(s) read with the live log`) when there is an archive.
-A task begun before the cut and continued after it is kept whole in the rollups and folded with its live lines. A
-line written about an archived task (an `athos repair` correction, a late `athos mark`) is left out of the hooks'
-numbers until the rollups take it, which `athos repair --apply` and `athos mark` do at once, and the next cycle does
-in any case; offline commands count it immediately.
+A task begun before the cut and continued after it is kept whole in the rollups and folded with its live lines, and
+the bars decide for each use near the cut whether it began after the run that taught the piece, wherever that run
+is. A line written about an archived task (an `athos repair` correction, a late `athos mark`) is left out of the
+hooks' numbers until the rollups take it, which `athos repair --apply` and `athos mark` do at once, and the next cycle
+does in any case; offline commands count it immediately. A line about a task the archive surely does not hold (its id
+is not in the rollups' filter of archived ids: a stop with no start anywhere, say) counts at once as a new task.
+
+What the rollups keep of a long history: of a learned piece's grading history, the latest move to candidate, the
+verifier's latest pass for each of its last 8 texts, and for its two newest versions the last 5 judged reuses and the
+latest 4 of each kind (the rules compare counts with thresholds of 1 to 3, so they decide the same as on the whole
+history); the last 10 shadow runs per piece and model; the last 50 stars per page and step (a star's account of what
+was done there is dropped when it repeats four words of the request it was given on). The filter of archived task
+ids is 64 KB at most: past a few hundred thousand tasks it says "maybe archived" more often, and such a line then
+waits for a cycle, as before.
 
 **The dream cycle**, in three phases (after the slow-wave replay, REM abstraction and consolidation of sleep):
 

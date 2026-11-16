@@ -157,7 +157,8 @@ def shadow_events() -> list[dict]:
 
 def pending(model: str, limit: int | None = None) -> list[dict]:
     """The good cases not yet replayed on this model with the piece as it is now, newest first."""
-    done = {(e.get("case"), e.get("piece"), e.get("version"), e.get("model")) for e in shadow_events()}
+    from athos import memory
+    done = memory.view().shadow_done()
     out = []
     for c in reversed(cases.references()):
         p = store.get(c["piece"])
