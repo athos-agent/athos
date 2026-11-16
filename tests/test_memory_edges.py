@@ -132,3 +132,50 @@ class OldBackupTest(MemoryCase):
             cycle.run()
         archived = self.archived()
         self.assertEqual(len(archived) - len(set(archived)), twins)
+
+
+class BareMarkTest(MemoryCase):
+    def mark_in(self, folder, key="g"):
+        import contextlib
+        import io
+        from athos import cli
+        out = io.StringIO()
+        with contextlib.chdir(folder), contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            try:
+                code = cli.main(["mark", key])
+            except SystemExit as stop:
+                code = stop.code
+        return code, out.getvalue()
+
+    def marks(self):
+        return [(e["task_id"], e["result"]) for e in ev.live_events() if e.get("type") == "mark"
+                and e.get("at", "") >= stamp(0.01)]
+
+    def test_a_bare_mark_where_every_task_of_the_project_is_archived(self):
+        cycle.run()
+        code, out = self.mark_in(self.beta)                 # beta's only task is archived; alpha has recent ones
+        self.assertEqual(self.marks()[-1:], [("old-beta", "ok")], out)
+
+    def test_never_another_projects_task_when_all_are_archived(self):
+        with later(40):
+            cycle.run()
+        self.mark_in(self.beta)
+        self.mark_in(self.alpha, "c")
+        got = dict(self.marks())
+        self.assertEqual(got.get("old-beta"), "ok")
+        self.assertEqual(got.get("new9"), "corrected")
+        self.assertNotEqual(got.get("old-beta"), "corrected")
+
+    def test_a_project_with_no_task_says_so(self):
+        import tempfile
+        empty = tempfile.mkdtemp(dir=self.home)
+        with mock.patch.object(paths, "project_of", return_value="gamma"):
+            code, out = self.mark_in(empty)
+        self.assertEqual(self.marks(), [])
+        self.assertIn("nothing to mark", out)
+
+    def test_watch_g_marks_this_projects_task(self):
+        from athos import watch
+        cycle.run()
+        tid, _res = ev.mark(watch.KEYS["g"], None, None, "beta")
+        self.assertEqual(tid, "old-beta")

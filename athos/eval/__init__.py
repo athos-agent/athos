@@ -612,18 +612,26 @@ def note_saved(session_id: str, piece_id: PieceId) -> None:
 
 # ================================================================================================ verdicts
 def last_task_id(session_id: str | None = None, project: str | None = None) -> TaskId | None:
-    """Which task a bare `athos mark` means. Candidates are this session's task and every task of this project
-    (so a Codex run in the same folder after a Claude Code session wins if it ended later); with no candidate,
-    the task that ended last anywhere."""
+    """Which task a bare `athos mark` means. Candidates are this session's task and every task of this project,
+    recent or archived (so a Codex run in the same folder after a Claude Code session wins if it ended later); in a
+    project with none, None (nothing to mark here). Only with no project: the task that ended last anywhere."""
     from athos import memory
     v = memory.view()                         # the recent window and the rollups: never the archive
     known = v.tasks()
     sessions_task = session.load(session_id).get("task_id") if session_id and known else None
     candidates = [t for t in known if t["task_id"] == sessions_task or (project and t.get("project") == project)]
+    if project:
+        # This project's own last task, recent or archived (whichever ended later), or this session's: never another
+        # project's, even when this project's tasks are all archived and another one has recent ones.
+        last = v.last_task(project)
+        pool = candidates + ([last] if last else [])
+        if not pool:
+            return None
+        return max(pool, key=lambda t: t.get("ended") or "")["task_id"]
     pool = candidates or known
     if pool:
         return max(pool, key=lambda t: t.get("ended") or "")["task_id"]
-    last = (v.last_task(project) if project else None) or v.last_task()   # nothing recent: the last archived one
+    last = v.last_task()                      # nothing recent: the last archived one
     return last.get("task_id") if last else None
 
 
@@ -636,7 +644,7 @@ def mark(result: str, task_id: TaskId | None = None, session_id: str | None = No
         raise ValueError("unknown result: use g (ok), c (corrected) or f (failed)")
     target = task_id or last_task_id(session_id, project)
     if target is None or target == "":
-        raise LookupError("nothing to mark: no task has ended yet")
+        raise LookupError("nothing to mark: no task has ended yet" + (f" in {project}" if project else ""))
     append({"type": "mark", "task_id": target, "result": verdict, "at": _iso(now())})
     _keep_case(target, verdict, session_id)
     return target, verdict
