@@ -537,5 +537,6 @@ def stop_decision(event: dict, cmd: str = "athos", offer: bool = False) -> dict 
     # With the guide given at session start (out of the user's sight, and again after a compaction), one line is
     # enough; otherwise the request carries the whole format.
     followed = grounds == "checklist"
-    text = _short_ask(cmd, followed) if state.get("guide") else _full_ask(cmd, followed, state.get("loaded", []))
+    text = _short_ask(cmd, followed) if state.get("guide") in (True, "auto") else \
+        _full_ask(cmd, followed, state.get("loaded", []))
     return dict(decision="block", reason=text)

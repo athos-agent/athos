@@ -35,7 +35,7 @@ import hashlib
 import json
 import re
 
-from athos import eval as ev, evidence, paths, store
+from athos import eval as ev, evidence, paths, session, store
 
 VERIFIER_PASS = 0.2
 VERIFIER_FAIL = -0.1
@@ -326,8 +326,9 @@ def finish_task(sid: str | None, task_id: str | None, state: dict) -> list[dict]
         return []
     model = state.get("model")
     mode = autolearn.mode_for(model)
-    if mode == autolearn.UNKNOWN:
-        return []
+    if mode == autolearn.UNKNOWN or not session.observed(state):
+        return []                                # a reuse is credited to a tier only when the model was seen
+
     tier = "frontier" if mode == autolearn.LEARN else "apply"
     items = evidence.of_task(task_id)
     out = []

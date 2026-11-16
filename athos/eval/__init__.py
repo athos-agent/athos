@@ -365,10 +365,6 @@ def _sent_model(event: Event) -> str | None:
     return model if isinstance(model, str) and model else None
 
 
-def _transcript_model(event: Event) -> str:
-    return session.model_from_transcript(event.get("transcript_path"))
-
-
 def _is_scratch(cwd) -> bool:
     return str(cwd or "").startswith(SCRATCH_PREFIXES)
 
@@ -386,95 +382,145 @@ def _newer(a: str | None, b: str | None) -> bool:
         return ta.replace(tzinfo=None) > tb.replace(tzinfo=None)
 
 
-def resolve_model(event: Event, state: dict) -> tuple[str, str, dict]:
+def resolve_model(event: Event, state: dict, platform: str = "claude-code") -> tuple[str, str, dict]:
     """The model that will answer this request, where it was read, and what the transcript's tail said.
 
-    1. The hook event's own field (Codex sends it on every event): `event`.
-    2. The transcript, which at prompt time does not hold this request's reply yet: a `/model` switch newer than the
-       latest reply means the switched-to model answers (`transcript_switch`); else the latest reply's model keeps
-       answering (`transcript_reply`). The model the session reported at its start wins over either when it was
-       reported later (a resumed session on another model): `session`.
-    3. The session's last known model, then `unknown`. A switch whose name can't be read to an id leaves the model
-       `unknown` until the task's replies settle it."""
+    1. The hook event's own field (Codex on every event, Claude Code's interactive SessionStart): `event`.
+    2. The main conversation in the transcript, which at prompt time does not hold this request's reply yet, and on a
+       session's first prompt does not exist at all: of a `/model` switch (`transcript_switch`), the latest request
+       sent (`transcript_request`, its `api-request` row) and the latest reply (`transcript_reply`), the newest one.
+       Never the advisor model, never a subagent's. The model the session reported at its start wins over them when
+       it was reported later (a resumed session on another model): `session`.
+    3. The session's last observed model (`session`).
+    4. A guess (session.configured_model): the `--model` Claude Code was launched with (`launch_flag`),
+       ANTHROPIC_MODEL (`env`), or the person's default model in Claude Code's settings (`settings`); only on Claude
+       Code, whose settings these are. A guess picks
+       the delivery and the guide; it never lets a model save, and the first observation replaces it (refresh_model).
+    5. `unknown`. A switch whose name can't be read to an id leaves the model `unknown` until an observation settles
+       it."""
     sent = _sent_model(event)
     tail = session.models_in_tail(event.get("transcript_path"))
     if sent:
         return sent, "event", tail
     reported, reported_at = state.get("model_reported"), state.get("model_reported_at")
-    if tail["newest"] == "switch":
-        candidate, at, source = tail["switch"], tail["switch_at"], "transcript_switch"
-    elif tail["newest"] == "reply":
-        candidate, at, source = tail["reply"], tail["reply_at"], "transcript_reply"
-    else:
-        candidate = at = source = None
+    candidate, at, source = session.newest_in_tail(tail)
     if source and reported and _newer(reported_at, at):
         return reported, "session", tail
     if source == "transcript_switch" and not candidate:
         return session.UNKNOWN_MODEL, source, tail
     if candidate:
         return candidate, source, tail
-    if state.get("model") and state["model"] != session.UNKNOWN_MODEL:
+    if state.get("model") and state["model"] != session.UNKNOWN_MODEL and session.observed(state):
         return state["model"], "session", tail
+    guess, how, where = session.configured_model(event.get("cwd")) if platform == "claude-code" else (None,) * 3
+    if guess:
+        return guess, how, {**tail, "guessed_from": where}
     return session.UNKNOWN_MODEL, "unknown", tail
+
+
+def _is_observed(model: str | None, source: str) -> bool:
+    """Whether a resolved model was seen rather than guessed (or not known at all)."""
+    return bool(model) and model != session.UNKNOWN_MODEL and source not in (*session.GUESS_SOURCES, "unknown")
 
 
 def task_start(event: Event, platform: str = "claude-code") -> TaskId:
     """Open a task for a new request: reset the session's per-task state and log a task_start, with the model resolved
     for this request (`resolve_model`). Returns its id."""
     sid, state = _hook_session(event)
-    model, source, tail = resolve_model(event, state)
+    model, source, tail = resolve_model(event, state, platform)
     new_id, opened_at = _new_id(), _iso(now())
     prompt = str(event.get("prompt") or "")
     project = paths.project_of(event.get("cwd"))
     public = paths.is_public(event.get("cwd"))
     before = state.get("model")
+    observed = _is_observed(model, source)
     session.save(sid, {**state, "platform": platform, **_fresh_task_state(new_id, opened_at, "" if public else prompt),
-                       "model": model, "model_source": source, "public": public})
+                       "model": model, "model_source": source, "model_observed": observed, "task_model": model,
+                       "public": public})
     opened = _start_event(new_id, sid, platform, model, project, opened_at, event.get("prompt"), public)
     if _is_scratch(event.get("cwd")):
         opened["scratch"] = True                 # a test or rehearsal: curating ignores it
     append(opened)
     extra = {"switch_name": tail["switch_name"]} if source == "transcript_switch" and model == session.UNKNOWN_MODEL \
         else {}
-    note_model(sid, new_id, model, source, tail["reply"], project, changed=before != model, stage="prompt", **extra)
+    if tail.get("guessed_from"):
+        extra["guessed_from"] = tail["guessed_from"]
+    note_model(sid, new_id, model, source, tail["reply"], project, changed=before != model, stage="prompt",
+               observed=observed, **extra)
     return new_id
 
 
 def note_model(sid: str, task_id: TaskId | None, model: str | None, source: str, seen: str | None,
-               project: str | None, changed: bool = True, stage: str = "prompt", **more) -> None:
+               project: str | None, changed: bool = True, stage: str = "prompt", observed: bool | None = None,
+               **more) -> None:
     """The `model` audit event: the model Athos records, where it read it (`event`: the hook said so;
-    `transcript_switch` / `transcript_reply`: the transcript's latest `/model` switch or reply; `session`: what the
-    session reported or last knew; `replies`: the replies that answered the task; `unknown`), the model of the
-    transcript's latest reply when it could be read, the model's tier and mode, and the moment (`stage`:
-    session_start, prompt, end). The log.md line is written only when the model changes."""
+    `transcript_switch` / `transcript_request` / `transcript_reply`: the transcript's latest `/model` switch, request
+    or reply; `session`: what the session reported or last observed; `replies`: the replies that answered the task;
+    `launch_flag` / `env` / `settings`: a guess; `unknown`), whether it was `observed` (false for a guess or unknown),
+    the model of the transcript's latest reply when it could be read, the model's tier and mode, and the moment
+    (`stage`: session_start, prompt, tool_start, tool, save, stop, end). The log.md line is written only when the model
+    changes."""
     from athos import tiers
+    if observed is None:
+        observed = _is_observed(model, source)
     differs = bool(seen and model and seen != model)
     line = None
     if changed:
-        line = f"{model or 'unknown'} (from {source}, {stage})" + (
+        line = f"{model or 'unknown'} (from {source}{'' if observed else ', a guess'}, {stage})" + (
             f"; the transcript's last reply is {seen}" if differs and stage == "prompt" else "")
     audit({"type": "model", "session_id": sid, "task_id": task_id, "model": model, "source": source,
-           "seen_in_transcript": seen, "stage": stage, "changed": changed, **tiers.describe(model), **more},
-          line=line, project=project)
+           "observed": observed, "seen_in_transcript": seen, "stage": stage, "changed": changed,
+           **tiers.describe(model), **more}, line=line, project=project)
 
 
-def _settle_model(sid: str, state: dict, event: Event, answered: list[str]) -> str:
-    """The model to record for the task that ends: the last of the models whose replies answered it, when the
-    transcript says; else the hook's field; else the one resolved at the start (filled from the transcript when that
-    was unknown). The session keeps it for the next request."""
-    model = (answered[-1] if answered else None) or _sent_model(event) or state.get("model")
-    if model in (None, "", session.UNKNOWN_MODEL):
-        model = _transcript_model(event)
-    if model != state.get("model"):
-        state["model"] = model
+def refresh_model(sid: str | None, transcript_path: str | None, stage: str) -> dict | None:
+    """Replace a guessed or unknown model with the first observation, at a tool hook, at a save and at the end of a
+    turn: the newest trace of the main conversation in the transcript (its request row, there before any reply; a
+    reply; a `/model` switch). Nothing to do when the session's model was already observed or the transcript names
+    none. On a change of the session's model, a `model` event (`corrects`: the value replaced, `corrects_source`).
+    Returns {model, before, before_source, before_observed, tier, before_tier} when it settled one, else None."""
+    from athos import tiers
+    if not sid:
+        return None
+    state = session.load(sid)
+    if not state or session.observed(state):
+        return None
+    path = transcript_path or state.get("transcript_path")
+    model, _at, source = session.newest_in_tail(session.models_in_tail(path))
+    if not model:
+        return None
+    before, before_source = state.get("model") or session.UNKNOWN_MODEL, state.get("model_source") or "unknown"
+    session.update(sid, model=model, model_source=source, model_observed=True)
+    note_model(sid, state.get("task_id"), model, source, None, state.get("project"), changed=model != before,
+               stage=stage, observed=True, corrects=before, corrects_source=before_source)
+    return {"model": model, "before": before, "before_source": before_source, "tier": tiers.tier_of(model),
+            "before_tier": tiers.tier_of(before) if before != session.UNKNOWN_MODEL else None}
+
+
+def _settle_model(sid: str, state: dict, event: Event, answered: list[str]) -> tuple[str, str]:
+    """The model to record for the task that ends, and where it was read: the last of the models whose replies
+    answered it, when the transcript says (`replies`); else the hook's field (`event`); else the session's, which
+    refresh_model has just replaced with the transcript's request row when it was a guess. The session keeps it for
+    the next request."""
+    model, source = (answered[-1], "replies") if answered else (_sent_model(event), "event")
+    if not model:
+        model, source = state.get("model") or session.UNKNOWN_MODEL, state.get("model_source") or "unknown"
+        if not session.observed(state) and model != session.UNKNOWN_MODEL:
+            return model, source                 # still a guess: kept as one
+    if model != state.get("model") or not session.observed(state):
+        state.update(model=model, model_source=source, model_observed=_is_observed(model, source))
         session.save(sid, state)
-    return model
+    return model, source
 
 
 def task_end(event: Event) -> Event | None:
     """Close the session's open task: log a task_end with its duration, tokens, pieces and the model that answered
     (and the model recorded at its start, `model_at_start`, when they differ), and return it. None when the session
     has no task open."""
+    sid = event.get("session_id", "default")
+    guessed = session.load(sid)
+    # A turn without tools has no reply row yet at Stop, but its request row is there: a guess ends here.
+    fixed = refresh_model(sid, event.get("transcript_path"), "stop") if guessed.get("task_id") else None
     sid, state = _hook_session(event)
     open_id = state.get("task_id")
     if not open_id:
@@ -487,16 +533,23 @@ def task_end(event: Event) -> Event | None:
     else:
         used, answered = _tokens(state.get("platform", "claude-code"), event.get("transcript_path"),
                                  opened_at, _iso(finished), sid)
-    at_start = state.get("model", session.UNKNOWN_MODEL)
-    model = _settle_model(sid, state, event, answered)
+    # The model the request was decided on: the one recorded at its start, whatever a tool hook corrected since.
+    at_start = guessed.get("task_model") or guessed.get("model") or session.UNKNOWN_MODEL
+    held = state.get("model")
+    model, source = _settle_model(sid, state, event, answered)
     closed = _end_event(open_id, _iso(finished), (finished - began).total_seconds(), used,
                         model, state.get("task_loaded", []), state.get("task_saved", []), sid=sid)
     if model != at_start:
         closed["model_at_start"] = at_start
+    if not session.observed(state):
+        closed["model_observed"] = False         # a guess or unknown to the end: the audit counts it
     append(closed)
     if answered:
-        note_model(sid, open_id, model, "replies", None, state.get("project"), changed=model != at_start,
+        note_model(sid, open_id, model, "replies", None, state.get("project"), changed=model != held,
                    stage="end", answered=answered, at_start=at_start)
+    elif fixed is None and model != held:
+        note_model(sid, open_id, model, source, None, state.get("project"), changed=True, stage="end",
+                   at_start=at_start)
     return closed
 
 

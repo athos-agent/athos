@@ -318,7 +318,7 @@ def _on_session_start(event: dict, platform: str) -> None:
     the overnight review runs if it is due; its proposals are offered once, never applied without the person's yes."""
     from athos import grade
     _quietly(grade.age_all)                  # verified pieces unused and unverified for too long: back to candidate
-    intro = load.on_session_start(event, _cmd())
+    intro = load.on_session_start(event, _cmd(), platform)
     from athos import consolidate, start
     dream = _quietly(consolidate.run) if consolidate.due() else None
     offer = ""
@@ -409,10 +409,10 @@ def _on_prompt(event: dict, platform: str) -> None:
             sharing = share.SHARE_CONTEXT.format(cmd=_cmd(since=share.SINCE))
             added["share"] = len(sharing)
             context = (sharing + "\n\n" + context) if context else sharing
-        # A frontier session whose start gave the person's-save guide instead of the autonomous one (the model was
-        # not known yet, or it changed since): the autonomous guide comes once now, out of sight, since under
-        # `ask: guide` the Stop hook says nothing.
-        late = _quietly(_late_guide, sid)
+        # A frontier session whose start gave the person's-save guide or none instead of the autonomous one (the model
+        # was not known yet, guessed wrong, or it changed since): the autonomous guide comes once now, out of sight,
+        # since under `ask: guide` the Stop hook says nothing. Usually a tool hook of the first task gave it already.
+        late = _quietly(_guide_after_correction, sid)
         if late:
             added["guide"] = len(late)
             context = (context + "\n\n" + late) if context else late
@@ -446,14 +446,38 @@ def _person_asked(sid: str, which: str, event: dict) -> dict:
             "at": time.time()}
 
 
-def _late_guide(sid: str | None) -> str:
-    """The autonomous-learning guide for a session that learns on its own but whose start gave the person's-save
-    guide instead (`guide` is True: the model was not known yet, or it changed since); "" otherwise. Once given,
-    `guide` is "auto"."""
-    if not sid or session.load(sid).get("guide") is not True or not autolearn.autonomous(sid):
+WITHDRAW_TEXT = ("Athos: this session runs on {model}, which does not learn (an apply model). The guide on keeping "
+                 "what a task taught, given at the start of the session, does not apply here: do not save or change "
+                 "any piece of Athos in this session. Don't mention this.")
+
+
+def _guide_after_correction(sid: str | None) -> str:
+    """What the model is told once its model is known better than at the session's start, out of the person's sight
+    (the prompt hook's or a tool hook's hidden context): the autonomous-learning guide, for a session that learns on
+    its own but whose start gave the person's-save guide (`guide` True: the model was not known yet), none (`withheld`:
+    it was guessed an apply model) or had it withdrawn; or, for a session given that guide on a guessed frontier model
+    that turned out to be an apply one, that it does not apply (`withdrawn`). "" otherwise. Each is said once."""
+    if not sid:
         return ""
-    session.update(sid, guide="auto")
-    return capture.guide(_cmd(), auto=True, ask=autolearn.ask_mode())
+    state = session.load(sid)
+    guide = state.get("guide")
+    if guide in (True, "withheld", "withdrawn") and autolearn.autonomous_state(state):
+        session.update(sid, guide="auto")
+        return capture.guide(_cmd(), auto=True, ask=autolearn.ask_mode())
+    if guide == "auto" and session.observed(state) and autolearn.mode_for(state.get("model")) == autolearn.APPLY:
+        session.update(sid, guide="withdrawn")
+        return WITHDRAW_TEXT.format(model=state.get("model"))
+    return ""
+
+
+def _correct_model(event: dict, sid: str | None, stage: str) -> str:
+    """At a tool hook of the main conversation: a guessed or unknown model is replaced with the first observation in
+    the transcript (eval.refresh_model), and what that changes for the model is returned (`_guide_after_correction`;
+    "" at tool-start, which says nothing, and for a subagent, whose context is not the session's)."""
+    if event.get("agent_id") or not sid:
+        return ""
+    _quietly(ev.refresh_model, sid, event.get("transcript_path"), stage)
+    return "" if stage == "tool_start" else (_quietly(_guide_after_correction, sid) or "")
 
 
 _SAVE_COMMAND = re.compile(r"(?:^|[\s/;&|(])athos\s+save\b")
@@ -466,6 +490,7 @@ def _on_tool_start(event: dict, platform: str) -> None:
     sid = event.get("session_id", "default")
     if not session.load(sid).get("task_id"):
         sid = _folder_session_id(event, sid)
+    _correct_model(event, sid, "tool_start")     # reads the transcript only while the model is a guess or unknown
     extra = {}
     if edits.is_shell(event):
         cmd = (event.get("tool_input") or {}).get("command")
@@ -497,16 +522,22 @@ def _on_tool(event: dict, platform: str) -> None:
     capture.count_tool(event)
     trail.on_tool(event)
     sid = _tool_ended(event, platform, False)
-    if not event.get("agent_id") and (told := _quietly(_verify_trigger, event, sid, "tool")):
-        _add_context("PostToolUse", told)
+    said = [_correct_model(event, sid, "tool")]
+    if not event.get("agent_id"):
+        said.append(_quietly(_verify_trigger, event, sid, "tool") or "")
+    if any(said):
+        _add_context("PostToolUse", "\n\n".join(t for t in said if t))
 
 
 def _on_tool_failed(event: dict, platform: str) -> None:
     """A tool call failed (Claude Code's PostToolUseFailure): it may still have changed files, so the edit detector
     looks, as after any other call. Nothing is counted or drawn."""
     sid = _tool_ended(event, platform, True)
-    if not event.get("agent_id") and (told := _quietly(_verify_trigger, event, sid, "tool")):
-        _add_context("PostToolUseFailure", told)
+    said = [_correct_model(event, sid, "tool")]
+    if not event.get("agent_id"):
+        said.append(_quietly(_verify_trigger, event, sid, "tool") or "")
+    if any(said):
+        _add_context("PostToolUseFailure", "\n\n".join(t for t in said if t))
 
 
 def _on_stop(event: dict, platform: str) -> None:
@@ -1542,7 +1573,8 @@ def _model_summary(state: dict) -> dict | None:
     from athos import tiers
     if not state.get("model"):
         return None
-    out = {"id": state["model"], "source": state.get("model_source"), **tiers.describe(state["model"])}
+    out = {"id": state["model"], "source": state.get("model_source"), "observed": session.observed(state),
+           **tiers.describe(state["model"])}
     if "collaborates" in state:
         out["collaborates"] = state["collaborates"]
     return out

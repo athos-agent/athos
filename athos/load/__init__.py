@@ -960,7 +960,8 @@ def note_route(sid: str, prompt: str, scope: dict, trace: dict, found: list[stor
         trace = {**trace, "candidates": [{**c, "projects": [q for q in c.get("projects") or [] if q == project]}
                                          for c in trace.get("candidates") or []]}
     ev.audit({"type": "route", "session_id": sid, "task_id": state.get("task_id"),
-              "model": state.get("model"), **tier, "mode": scope.get("mode"), "project": project,
+              "model": state.get("model"), "model_source": state.get("model_source"),
+              "model_observed": session.observed(state), **tier, "mode": scope.get("mode"), "project": project,
               "scope_reason": scope.get("reason"),
               "named_projects": scope.get("named", []), "marker": bool(scope.get("marker")),
               **({"named_count": scope["named_count"]} if "named_count" in scope else {}),
@@ -1039,17 +1040,26 @@ def _model_name(event: dict) -> str | None:
 SESSION_PARTS: dict[str, dict[str, int]] = {}     # what each part of the session-start text cost, by session
 
 
-def on_session_start(event: dict, cmd: str = "athos") -> str:
+def on_session_start(event: dict, cmd: str = "athos", platform: str = "claude-code") -> str:
     """SessionStart: remember the model, then give the catalogue, the project's recent tasks, the capture guide and
     any cheaper-model offer, in that order. The characters of each part are kept in SESSION_PARTS for the `context`
     audit event (`note_session_context`)."""
     sid = _session_of(event)
     model = _model_name(event)
+    source, more = ("event" if model else "unknown"), {}
     if model is not None:
         # What the host reports now beats an older reply in a resumed session's transcript (eval.resolve_model).
-        session.update(sid, model=model, model_reported=model, model_reported_at=ev._iso(ev.now()))
+        session.update(sid, model=model, model_reported=model, model_reported_at=ev._iso(ev.now()),
+                       model_source="event", model_observed=True)
+    elif platform == "claude-code" and not session.observed(session.load(sid)):
+        # Claude Code's headless SessionStart names no model, and its transcript does not exist yet: the person's
+        # configured default is a guess, enough to pick the guide, never to save (autolearn.save_mode).
+        guess, how, where = session.configured_model(event.get("cwd"))
+        if guess:
+            model, source, more = guess, how, {"guessed_from": where}
+            session.update(sid, model=guess, model_source=how, model_observed=False)
     project = paths.project_of(event["cwd"]) if event.get("cwd") else None
-    ev.note_model(sid, None, model, "event" if model else "unknown", None, project, stage="session_start")
+    ev.note_model(sid, None, model, source, None, project, stage="session_start", **more)
     from athos import capture, tiers
     here = usable(enabled(event.get("cwd")), tiers.tier_of(session.load(sid).get("model")), project)
     public = paths.is_public(event.get("cwd"))
@@ -1078,6 +1088,10 @@ def on_session_start(event: dict, cmd: str = "athos") -> str:
         text = (text + "\n\n" if text else "") + guide
         parts["guide"] = len(guide)
         session.update(sid, guide="auto" if auto else True)
+    elif (text or first_run) and capture.enabled():
+        # Held back only because the model is (or is guessed) an apply one: should it turn out to be a frontier model,
+        # the guide comes later, once, out of the person's sight (cli._guide_after_correction).
+        session.update(sid, guide="withheld")
     from athos import replay
     # A cheaper model proven on a piece in reach here: told once, at the session's start (never another project's).
     # The model says it in its reply, so the person reads it: only in the classic interface.

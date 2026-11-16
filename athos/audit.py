@@ -241,25 +241,49 @@ def _transcript_models(path: str) -> list[tuple[str, str]]:
 def _model_per_request(c: _Ctx, models: list[dict]) -> dict:
     """Since 0.1.113 the model is resolved for every request (`model` events with a `stage`). A switch in the middle of
     a session, recorded on the requests after it, is not an anomaly. A request recorded under a model other than the
-    one whose replies answered it is; so is a task_start whose model no prompt event explains."""
+    one whose replies answered it is; so is a task_start whose model no prompt event explains.
+
+    Since 0.1.165 a request may be decided on a guess (the person's configured default model, `observed` false) or on
+    `unknown`, until a tool hook or the end of the turn observes the model (a `model` event with `corrects`). A guess
+    corrected that way is judged by the observation, not flagged for itself; a guess never corrected is judged as it
+    was recorded. `decided_on_guess` counts the requests decided on a guess or on unknown, `guess_wrong_tier` those
+    whose observed model turned out to be of another tier."""
+    from athos import session, tiers
     found = []
     at_prompt = {m.get("task_id"): m for m in models if m.get("stage") == "prompt"}
     at_end = {m.get("task_id"): m for m in models if m.get("stage") == "end"}
-    checked = 0
+    fixes = {}
+    for m in models:
+        if m.get("corrects") is not None and m.get("stage") != "prompt":
+            fixes[m.get("task_id")] = m          # the last observation that replaced a guess, per task
+    checked = guesses = wrong_tier = 0
     for s in c.starts:
         tid, recorded = s.get("task_id"), s.get("model")
         told = at_prompt.get(tid)
         if told is not None and told.get("model") != recorded:
             found.append({"task_id": tid, "recorded": recorded, "model_event": told.get("model")})
+        guessed = told is not None and (told.get("observed") is False
+                                        or told.get("source") in (*session.GUESS_SOURCES, "unknown"))
+        effective = recorded
+        if guessed:
+            guesses += 1
+            fix = fixes.get(tid)
+            if fix and fix.get("model"):
+                effective = fix["model"]
+                if tiers.tier_of(fix["model"]) != tiers.tier_of(recorded):
+                    wrong_tier += 1
         answered = (at_end.get(tid) or {}).get("answered") or []
         if answered:
             checked += 1
-            if recorded not in answered:
+            if effective not in answered:
                 found.append({"task_id": tid, "recorded": recorded, "answered": answered,
-                              "source": (told or {}).get("source")})
-    basis = (f"model events per request: the model recorded at each request against the replies that answered it "
-             f"({checked} of {len(c.starts)} tasks had their replies read)")
-    return _result("model_inconsistent", _status(found, False), found, basis)
+                              "source": (told or {}).get("source"), **({"guessed": True} if guessed else {})})
+    basis = (f"model events per request: the model recorded at each request (or, for one decided on a guess, the "
+             f"model observed later in the task) against the replies that answered it ({checked} of {len(c.starts)} "
+             f"tasks had their replies read; {guesses} decided on a guess or on unknown)")
+    out = _result("model_inconsistent", _status(found, False), found, basis)
+    out.update(decided_on_guess=guesses, guess_wrong_tier=wrong_tier)
+    return out
 
 
 def _model_inconsistent(c: _Ctx, transcripts: bool) -> dict:

@@ -10,11 +10,14 @@ _SANDBOXED_ENV = {
     "XDG_DATA_HOME": "xdg-data",                # Muse Code sessions
     "ATHOS_SKILLS_DIR": "agents-skills",        # exported skills
     "XDG_CONFIG_HOME": "xdg-config",            # OpenCode plugins
+    "CLAUDE_CONFIG_DIR": "claude-config",       # Claude Code's settings (the default model a session guesses from)
 }
 
 
 _OUTER_SESSION = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "ATHOS_SESSION_ID",
-                  "CODEX_THREAD_ID", "CODEX_SANDBOX", "MUSE_PLUGIN_ID", "OPENCODE")
+                  "CODEX_THREAD_ID", "CODEX_SANDBOX", "MUSE_PLUGIN_ID", "OPENCODE",
+                  # the outer Claude Code process and model: a guessed model must come from the test, not from them
+                  "CLAUDE_PID", "ANTHROPIC_MODEL", "CLAUDE_PROJECT_DIR")
 
 
 class TempHome(unittest.TestCase):

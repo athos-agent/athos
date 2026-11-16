@@ -2,7 +2,8 @@
 
 A model is `frontier` (it may learn new ways of working) or `apply` (it uses what is already known). The tiers are
 lists of patterns (`fnmatch`, case-insensitive) kept in `<home>/config.json` under `"tiers"`; with none saved the
-defaults below hold. A model no pattern matches counts as `apply`: an unknown model never learns.
+defaults below hold. A model no pattern matches counts as `apply`: an unknown model never learns. A bare alias such
+as `opus` (a guess from Claude Code's settings) has the tier of the family it names.
 
 Two modes follow from the tier, for the phases that act on them: `learn` (frontier) and `collaborate` (apply). A
 frontier session also collaborates when a relevant piece is in reach. The router delivers by tier (load.deliver): a
@@ -52,8 +53,13 @@ def tier_of(model: str | None) -> str:
     for tier in TIERS:
         if any(not re.search(r"[*?\[]", p) and _bare(p) == name for p in tiers[tier]):
             return tier
+    # A bare alias (`opus`, `haiku`: a guess read from Claude Code's settings or its `--model`) is matched as the
+    # family it names, `claude-opus-`, against the patterns with a wildcard; `default` and unknown words stay apply.
+    alias = f"claude-{name}-" if re.fullmatch(r"[a-z]+", name) and name != "default" else None
     for tier in TIERS:
-        if any(fnmatch.fnmatchcase(name, p.lower()) for p in tiers[tier]):
+        if any(fnmatch.fnmatchcase(name, p.lower()) or (alias and re.search(r"[*?]", p)
+                                                        and fnmatch.fnmatchcase(alias, p.lower()))
+               for p in tiers[tier]):
             return tier
     return APPLY
 

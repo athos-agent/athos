@@ -72,6 +72,28 @@ def mode_for(model: str | None) -> str:
     return LEARN if tiers.tier_of(model) == tiers.FRONTIER else APPLY
 
 
+GUESSED = "guessed"
+_REFUSAL = {APPLY: "apply_model", GUESSED: "model_guessed", UNKNOWN: "model_unknown"}
+
+
+def save_mode(state: dict) -> str:
+    """How a session's model may save: `mode_for` its model, except that a frontier model only guessed (from Claude
+    Code's settings or its launch flag, session.configured_model) is `guessed` until the model has been observed. A
+    guess may choose the delivery and the guide; a save needs the model seen."""
+    mode = mode_for(state.get("model"))
+    return GUESSED if mode == LEARN and not session.observed(state) else mode
+
+
+def _refusal_text(state: dict, mode: str) -> str:
+    model = state.get("model") or "unknown"
+    if mode == GUESSED:
+        return (f"this session's model ({model}) is only a guess so far (from {state.get('model_source')}); a model "
+                f"saves only once Athos has seen which model answers, at its next tool call or the end of the turn")
+    return (f"autonomous learning runs only on a frontier model, and this session's model ({model}) is "
+            f"{'an apply model' if mode == APPLY else 'not known'}. Apply models never create or change a piece; "
+            f"`athos tiers` lists which models learn.")
+
+
 def session_mode(sid: str | None) -> str:
     return mode_for(session.load(sid).get("model")) if sid else UNKNOWN
 
@@ -263,7 +285,7 @@ def save_auto(text: str, sid: str, cwd: str | None, transcript_path: str | None 
     is a `learn` event."""
     from athos import capture, evidence, paths, store
     state = session.load(sid)
-    mode = mode_for(state.get("model"))
+    mode = save_mode(state)
     project = paths.project_of(cwd) if cwd else None
     task_id = state.get("task_id")
     items = evidence.of_task(task_id)
@@ -275,11 +297,7 @@ def save_auto(text: str, sid: str, cwd: str | None, transcript_path: str | None 
         return None, f"not saved: {message}", True
 
     if mode != LEARN:
-        model = state.get("model") or "unknown"
-        return refuse("apply_model" if mode == APPLY else "model_unknown",
-                      f"autonomous learning runs only on a frontier model, and this session's model ({model}) is "
-                      f"{'an apply model' if mode == APPLY else 'not known'}. Apply models never create or change a "
-                      f"piece; `athos tiers` lists which models learn.")
+        return refuse(_REFUSAL[mode], _refusal_text(state, mode))
     if settings().get("on") is False:
         return refuse("off", "autonomous learning is off (`autolearn.on` in config.json)")
     if not project:
@@ -320,13 +338,21 @@ def save_auto(text: str, sid: str, cwd: str | None, transcript_path: str | None 
 
 def refuse_model_save(sid: str | None, what: str = "save") -> str | None:
     """A save or change the model started, on a model that may not make one: an apply model, or one Athos could not
-    resolve. Refused with a `learn` event. None when it may go on (a frontier model)."""
+    resolve, or a frontier model only guessed so far. Refused with a `learn` event. None when it may go on (a frontier
+    model, observed)."""
+    if sid:
+        # A model only guessed so far is looked for in the transcript now: the save's own tool call has a request row.
+        from athos import eval as ev
+        ev.refresh_model(sid, None, "save")
     state = session.load(sid) if sid else {}
-    mode = mode_for(state.get("model"))
+    mode = save_mode(state)
     if mode == LEARN:
         return None
-    note(sid, state, "skipped", "apply_model" if mode == APPLY else "model_unknown", action=what)
+    note(sid, state, "skipped", _REFUSAL[mode], action=what)
     model = state.get("model") or "unknown"
+    if mode == GUESSED:
+        return (f"not saved: {_refusal_text(state, mode)}. The person can save it with their [Save] button or an "
+                f"`Athos · save:` request.")
     kind = "an apply model" if mode == APPLY else "a model that is not known"
     return (f"not saved: this session runs on {model}, {kind}. Apply models and models Athos could not resolve never "
             f"create or change a piece (`athos tiers` lists which models learn); the person can save it with "
@@ -350,7 +376,7 @@ def improve_auto(text: str, sid: str, cwd: str | None, transcript_path: str | No
     and verifier run; the person's own pieces (no status) and retired ones are never changed by a model."""
     from athos import capture, evidence, paths, store
     state = session.load(sid)
-    mode = mode_for(state.get("model"))
+    mode = save_mode(state)
     project = paths.project_of(cwd) if cwd else None
     items = evidence.of_task(state.get("task_id"))
 
@@ -359,7 +385,8 @@ def improve_auto(text: str, sid: str, cwd: str | None, transcript_path: str | No
         return None, f"not saved: {message}", True
 
     if mode != LEARN:
-        return refuse("apply_model" if mode == APPLY else "model_unknown", "only a frontier model improves a piece")
+        return refuse(_REFUSAL[mode], _refusal_text(state, mode) if mode == GUESSED
+                      else "only a frontier model improves a piece")
     if settings().get("on") is False:
         return refuse("off", "autonomous learning is off (`autolearn.on` in config.json)")
     if store.legacy(existing):
