@@ -278,3 +278,19 @@ class StressTest(MemoryCase):
         self.assertEqual(out["archive_failures"], [])
         self.assertEqual(out["rebuild"], {"ledger_equal": True, "rollups_equal": True, "rollups_present": True})
         self.assertEqual(out["errors"], [])
+
+
+class OlderVersionTest(MemoryCase):
+    def test_an_older_athos_writing_after_the_archive_is_reported_with_what_it_costs(self):
+        from athos import audit
+        cycle.run()
+        self.assertTrue(memory.manifest().get("oldest_reader"))
+        evs = [{"type": "route", "session_id": "s", "task_id": "t1", "project": "alpha", "at": stamp(0),
+                "v": "0.1.109"}]
+        r = audit._version_mismatch(audit._Ctx("s", evs, [], False), None)
+        self.assertEqual(r["status"], "flagged")
+        self.assertIn("live window", r["found"][0]["risk"])
+        r = audit._version_mismatch(audit._Ctx("s", evs, [], False), {"agents": {"claude-code": "0.1.109"}})
+        self.assertTrue(any("live window" in f["risk"] for f in r["found"]))
+        same = [{**evs[0], "v": "0.1.178"}]
+        self.assertEqual(audit._version_mismatch(audit._Ctx("s", same, [], False), None)["status"], "clean")

@@ -26,7 +26,7 @@ import os
 import re
 from pathlib import Path
 
-from athos import control, eval as ev, store
+from athos import control, eval as ev, paths, store
 
 RULES = (
     ("other_project_load", "a piece of another project loaded without the request naming that project"),
@@ -358,12 +358,38 @@ OLDER_REWRITES = ("an older Athos that rewrites a piece drops the frontmatter li
                   "its status. Update every agent's Athos (`athos doctor`) before saving")
 
 
+OLDER_READS_WINDOW = ("an Athos older than {oldest} reads only the live window of a log the dream cycle archived "
+                      "(the last weeks): its report, export and benches leave the archived history out without saying "
+                      "so, and its importers can import again a Codex or Muse session whose tasks were archived "
+                      "(the same task ids: offline commands count them once, the hooks may count them twice until the "
+                      "next cycle). Update every agent's Athos (`athos doctor`)")
+
+
+def _older(version: str | None, than: str) -> bool:
+    try:
+        return tuple(int(x) for x in str(version).split(".")) < tuple(int(x) for x in than.split("."))
+    except ValueError:
+        return False
+
+
 def _version_mismatch(c: _Ctx, versions: dict | None) -> dict:
+    from athos import memory
     found = []
     written = sorted({e.get("v") for e in c.evs if e.get("type") in AUDIT_TYPES and e.get("v")})
     if len(written) > 1:
         found.append({"what": "the session's events were written by more than one version", "versions": written,
                       "risk": OLDER_REWRITES})
+    if memory.has_archive():
+        try:
+            oldest = memory.manifest().get("oldest_reader") or memory.OLDEST_READER
+        except paths.StateUnreadable:
+            oldest = memory.OLDEST_READER
+        old = sorted({v for v in written if _older(v, oldest)})
+        old_agents = {a: v for a, v in ((versions or {}).get("agents") or {}).items() if _older(v, oldest)}
+        if old or old_agents:
+            found.append({"what": "an Athos older than the archived log's format is at work here",
+                          **({"versions": old} if old else {}), **({"installed": old_agents} if old_agents else {}),
+                          "risk": OLDER_READS_WINDOW.format(oldest=oldest)})
     agents = (versions or {}).get("agents") or {}
     hooks, cli = agents.get("claude-code"), agents.get("path")
     if hooks and cli and hooks != cli:

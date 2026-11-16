@@ -45,6 +45,7 @@ DEFAULTS = {
     "associations_line": False,   # a frontier index line "often used with": off, since it did not help (REFERENCE)
 }
 PAIR_MIN = 3                       # two pieces used in at least this many of the same tasks are "often used together"
+OLDEST_READER = "0.1.166"          # an Athos older than this reads the live log as the whole history (`audit`)
 
 
 def partner(pid: str, pool_ids: set, skip: set) -> tuple[str, int] | None:
@@ -115,6 +116,7 @@ def manifest() -> dict:
     data = _read_json(manifest_file())
     data.setdefault("v", V)
     data.setdefault("segments", [])
+    data.setdefault("oldest_reader", OLDEST_READER)   # the marker an older Athos cannot honour, said by the audit
     return data
 
 
