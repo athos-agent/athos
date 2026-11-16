@@ -461,7 +461,7 @@ of it keeps a request's words: only its length and a 12-character fingerprint (`
 | `context` | a session starts | `hook` (session_start), `project`, `injected_total` (everything the hook handed the model), `injected_parts` (`index`, `journal`, `guide`, `offer`, `audit_hint`, `review`), `index_cap` |
 | `piece_opened` | the tool hook sees the agent run `athos show <id>` | `task_id`, `piece`, `projects` (in a public repository only this project, never another's name), `via` (show), `offered` (the frontier index of this request listed it), `again` (it was already in use for the task), `project` |
 | `hook_error` | a hook swallows an exception so your session carries on | `hook`, `where`, `error` (the exception's kind), `line` (file and line inside Athos), never its message; what the hook prints on stderr is the same kind and place, never the message either (it may quote a request or a path) |
-| `learn` | autonomous learning decides about a task: it asks the model to keep what it taught, saves, or skips (every decision, with its reason) | `task_id`, `decision` (asked, saved, skipped), `reason` (strong_evidence, no_strong_evidence, last_verification_failed, correction_after_success, apply_model, model_unknown, model_guessed (a frontier model only guessed so far, not seen), private_data, no_project, off, invalid, model_saved_nothing), `model`, `tier`, `work_mode`, `mode` (learn, apply, unknown), `project`, `strong`, `weak`, `positive`, `negative` (the task's evidence counted), `evidence` (its short summary), `grounds`, and for a save `piece`, `version`, `risk`, `checks` (runnable Check lines), `confidence`; for a private-data refusal `private` (the kinds found, never the text) |
+| `learn` | autonomous learning decides about a task: it asks the model to keep what it taught, saves, or skips (every decision, with its reason) | `task_id`, `decision` (asked, saved, skipped), `reason` (strong_evidence, no_strong_evidence, last_verification_failed, correction_after_success, apply_model, model_unknown, model_guessed (a frontier model only guessed so far, not seen), private_data, set_aside, no_project, off, invalid, model_saved_nothing), `model`, `tier`, `work_mode`, `mode` (learn, apply, unknown), `project`, `strong`, `weak`, `positive`, `negative` (the task's evidence counted), `evidence` (its short summary), `grounds`, and for a save `piece`, `version`, `risk`, `checks` (runnable Check lines), `confidence`; for a private-data refusal `private` (the kinds found, never the text) |
 | `ui` | reserved for the panel's state | not written yet |
 
 Every one of them also carries `at`, `session_id` and `v`, the version of Athos that wrote it. `candidates.reason`
@@ -518,6 +518,7 @@ with no such session, this project's latest, else the last one anywhere:
 | `save_in_apply_mode` | a piece saved on an apply model: an autonomous save on a model that is not frontier, or, in sessions written by 0.1.124 or later, a task answered by an apply model that saved a piece (older sessions: only autonomous saves are judged, partial) |
 | `promotion_without_verifier` | a piece of the session's project moved to verified with no earlier passing verdict of the independent verifier whose prompt carried paths only |
 | `verifier_saw_summary` | a verifier run of the session's project whose recorded `paths_only` or `bundle_clean` is false, whose inputs were not exactly the fixed set (the seven inputs below; or the six of a run recorded before 0.1.167, or the four files of one recorded before 0.1.166), whose bundle holds any other entry, or whose kept `prompt.txt` is not the fixed text with the bundle's own input paths |
+| `candidate_set_aside` | a candidate of this project the verifier rejected 3 versions in a row, still a candidate and still marked: the model no longer rewrites it, and only you can fix, keep or retire it |
 | `verifier_over_cap` | a UTC day whose model runs (verifier and replay, every project) went over the runs or the cost cap they recorded (a run with no reported cost counts its estimate) |
 | `marker_name_ignored` | the repository the audit runs in has a `.athos.toml` whose `name` is not the folder's own and was never accepted on this machine (`athos public name`), so Athos uses the folder's name |
 | `public_not_declared` | the repository the audit runs in (when it is the session's project) is pushed to a code-hosting site, read from its local git configuration, and its `.athos.toml` does not say whether it is public; `athos public` or `athos public off` answers it |
@@ -787,7 +788,39 @@ one; a learned piece of this project it may improve, under the same checks, and 
 own verifier run (a verified piece improved this way is verified again from scratch). A candidate does not
 reach an apply model until it is verified. Every decision is a `learn` event: qualified (`ask: guide`), asked (`ask:
 stop`), saved, or skipped with its reason (no strong evidence, a failed last verification, private data, an apply
-model, or the model stopping without saving).
+model, the model stopping without saving, or `set_aside` below).
+
+**A rejected candidate comes back as something to fix.** When the verifier's latest verdict on a candidate's current
+text is a fail, and the candidate is one Athos learned (it has a `status` and `learned_by`), a frontier session of
+that piece's own project is told so, out of your sight, in two places: its index line says `candidate, not accepted by
+the verifier: open it with `athos show <id>` and improve it if this task shows how`, and `athos show <id>`, when an
+agent's shell runs it (Claude Code's, Codex's, Muse Code's or OpenCode's own variables) in a folder of the piece's
+project during a session that learns on its own, prints after the piece:
+
+```
+Athos (for you, not the person): this piece, `<id>`, was not accepted. An independent verifier rejected its current
+text (attempt <n> of 3), for these reasons:
+- <criterion>: <the verifier's one-line reason>
+If this task shows how to fix that, save an improved version of this same piece before your final answer: run
+`athos save --auto` with the whole piece rewritten (title, when, every step with its **Check:**), adding `id: <id>`
+and a `note:` that says what changed to its frontmatter. It stays a candidate and is checked again; nothing you write
+about your work reaches the verifier. If this task does not show how, leave the piece as it is. Don't mention this to
+the person.
+```
+
+Only the failing criteria are listed. Nothing of it is said to you at your own terminal, in another project, in a
+repository marked public for a piece that is not that project's, or to an apply model (which never gets a candidate).
+The one path to improve a candidate is the automatic save with the piece's `id:` (`athos save --auto`, or a plain
+`athos save` the model runs, which goes the same way): same id, a new version with a history line, status still
+`candidate` (a verified piece returns to candidate), a new verifier bundle, and the verifier started under the same
+daily caps; it refuses your own pieces (no `status`), retired ones, another project's, and a task without strong
+evidence. **The loop is bounded**: when the verifier has rejected 3 texts of a piece in a row (each text counted once,
+the count starting again after a pass), the piece is **set aside**: the model is no longer told about it (its index
+line says `set aside for the person: don't rewrite it`), the automatic save refuses to change it (`learn` reason
+`set_aside`), a `grade` event records why (`set_aside: the verifier rejected 3 versions in a row (last: …)`), and a
+review mark puts it in `athos report` (under the piece's `review`) and in `athos audit` (rule `candidate_set_aside`)
+until a text passes or you edit or retire it. A reuse made while the verdict on that text was a fail never counts
+towards promotion, even if the same text passes later (the `reuse` event keeps `verdict`).
 
 **Who may save.** Every save or change of a piece is either yours or the model's, and in doubt it is the model's:
 
@@ -945,7 +978,9 @@ names is still there: files in backticks relative to the repository, the command
 PATH), its `npm run` scripts (in package.json) and its `make` targets (in the Makefile). Flags of other commands cannot be
 checked this way and are not. What is missing goes in the index line (`may be stale: 1 named file(s) not found here`), a
 `reverify` event, and, for a learned piece, a lower confidence. A frontier model's index also says `candidate, not
-verified yet` for a candidate and `needs review: it failed on an apply model` after such a failure.
+verified yet` for a candidate (or, for one of its project the verifier rejected, `candidate, not accepted by the
+verifier: …`, above), `needs review: it failed on an apply model` after such a failure, and `set aside for the
+person: don't rewrite it` for a piece set aside.
 
 **On an apply model.** Only verified and legacy pieces load, and never a retired one;
 `"autolearn": {"apply_candidates": true}` also lets its own project's candidates load. A learned piece comes as a short
@@ -965,7 +1000,7 @@ piece. Both runs count against the same daily cap.
 | event | written when | fields |
 |---|---|---|
 | `grade` | a piece moves, or a verifier outcome or a rule leaves it where it is | `piece`, `version`, `from`, `to` (candidate, verified, retired, legacy), `basis`, and for a move `trigger`, `verifier_pass`, `verifier_model`, `frontier_clean`, `apply_pass`, `risk`, `checks` |
-| `reuse` | the next request after a task that used a piece, or a replay | `piece`, `version`, `task_id`, `tier` (frontier, apply), `model`, `outcome` (clean, corrected, failed, unverified, replay_pass, replay_fail), `basis` (strong_positive, no_correction, check_passed, check_failed, person_edit, person_edit_not_this_piece, revert, last_verification_failed, reaction_corrected, no_check_ran, nothing_proved_the_work, replay, score), `status` |
+| `reuse` | the next request after a task that used a piece, or a replay | `piece`, `version`, `task_id`, `tier` (frontier, apply), `model`, `outcome` (clean, corrected, failed, unverified, replay_pass, replay_fail), `basis` (strong_positive, no_correction, check_passed, check_failed, person_edit, person_edit_not_this_piece, revert, last_verification_failed, reaction_corrected, no_check_ran, nothing_proved_the_work, replay, score), `status`, `verdict` (the verifier's latest verdict on that text at the time, for a candidate: a reuse under `fail` never counts towards promotion) |
 | `reverify` | an old piece is checked against the environment | `piece`, `version`, `age_days`, `checked`, `missing` (files, commands, scripts, targets: counts), `stale` |
 
 **Repairing polluted statistics.** Sessions recorded before 0.1.111 counted pieces of other projects as used (a

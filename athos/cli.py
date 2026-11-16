@@ -771,10 +771,35 @@ def cmd_show(args: argparse.Namespace) -> int | None:
     piece = store.get(args.id)
     if piece is None:
         return _fail(f"no piece {args.id}")
-    sid = _here()[1].get("session_id") if args.use else None
+    folder, noted = _here()
+    sid = noted.get("session_id") if args.use else None
     if sid:
         load.mark_loaded(sid, [piece.id])
     sys.stdout.write(store.render(piece))
+    told = _quietly(_rejection_for_agent, piece, folder, noted)
+    if told:
+        sys.stdout.write("\n\n" + told + "\n")
+
+
+def _rejection_for_agent(piece: store.Piece, folder: str, noted: dict) -> str:
+    """What the agent reading a piece is told after it when the verifier rejected it (grade.feedback_text): only when
+    an agent's shell runs `athos show` (never the person's terminal), in a session Athos knows that learns on its own
+    (a frontier model: an apply model is never given a candidate), from a folder of the piece's own project (never
+    another project's, so never a public repository's foreign piece). "" otherwise. It comes after the piece, so the
+    collapsed tool output the person may glance at shows the piece's first lines, not this."""
+    from athos import grade
+    sid = noted.get("session_id")
+    if not _agent_env() or not sid or not session._file(sid).exists():
+        return ""
+    state = session.peek(sid)
+    if not autolearn.autonomous_state(state):
+        return ""
+    project = paths.project_of(folder)
+    if not project or project not in piece.projects:
+        return ""
+    if paths.is_public(folder) and not control.here(folder).may_name(piece.id):
+        return ""
+    return grade.feedback_text(piece, _cmd())
 
 
 def _unwritable_store_hint() -> str:

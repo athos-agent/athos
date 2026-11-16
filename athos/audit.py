@@ -44,6 +44,8 @@ RULES = (
     ("verifier_saw_summary", "a verifier given anything but the paths of its fixed input files (the worker's "
                              "summary, the conversation, other text), or a bundle with any other entry"),
     ("verifier_over_cap", "model runs Athos started in one day above the daily cap of runs or of cost"),
+    ("candidate_set_aside", "a candidate the verifier rejected version after version, set aside for the person: the "
+                            "model no longer rewrites it and only the person can fix, keep or retire it"),
     ("public_not_declared", "the repository the audit runs in is pushed to a code-hosting site and its .athos.toml "
                             "does not say whether it is public"),
     ("marker_name_ignored", "the repository the audit runs in has a .athos.toml whose name is not the folder's and "
@@ -545,6 +547,27 @@ def _verifier_saw_summary(c: _Ctx, everything: list[dict]) -> dict:
                    "verify events, and the prompt each run kept, checked against the fixed text and the input paths")
 
 
+def _candidate_set_aside(c: _Ctx, everything: list[dict]) -> dict:
+    """Pieces of this project set aside after repeated rejections (grade._maybe_set_aside) that are still candidates
+    and still marked: the person's attention is needed."""
+    from athos import grade
+    marks = {pid: m for pid, m in grade.reviews().items() if (m or {}).get("kind") == "set_aside"}
+    asides = [e for e in _project_events(c, everything, {"grade"}) if str(e.get("basis") or "").startswith("set_aside")]
+    if not asides:
+        return _result("candidate_set_aside", "not_evaluated", [], "no piece of this project was set aside")
+    found, seen = [], set()
+    for e in reversed(asides):
+        pid = e.get("piece") or ""
+        p = store.get(pid)
+        if pid in seen or pid not in marks or p is None or p.status != "candidate":
+            continue
+        seen.add(pid)
+        found.append({"piece": c.name(pid), "at": e.get("at"), "attempts": e.get("attempts"),
+                      "failed": ",".join(e.get("failed") or []), "fix": f"athos show {pid}; edit it, or retire it"})
+    return _result("candidate_set_aside", _status(found, False), found,
+                   "grade events that set a piece aside, against the review marks and the piece's status now")
+
+
 def _verifier_over_cap(everything: list[dict]) -> dict:
     """Per UTC day, each model run Athos started against the caps it recorded (a cap raised during the day applies to
     the runs after it)."""
@@ -665,7 +688,7 @@ def check(sid: str, evs: list[dict], pieces: list[store.Piece] | None = None, ve
              _model_inconsistent(c, transcripts), _injected_over_cap(c), _trigger_not_from_person(c),
              _version_mismatch(c, versions), _private_piece_named(c), _weak_evidence_learning(c),
              _public_not_declared(c, cwd), _marker_name_ignored(cwd), _save_in_apply_mode(c), _promotion_without_verifier(c, everything),
-             _verifier_saw_summary(c, everything), _verifier_over_cap(everything)]
+             _verifier_saw_summary(c, everything), _verifier_over_cap(everything), _candidate_set_aside(c, everything)]
     return {"summary": _summary(c), "rules": rules,
             "anomalies": sum(r["count"] for r in rules if r["status"] == "flagged")}
 

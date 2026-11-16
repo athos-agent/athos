@@ -810,6 +810,11 @@ def report(today: _dt.date | None = None) -> dict:
     known = {p.id: p for p in store.all_pieces()}
     mentioned = {pid for t in ts for pid in t["pieces"] + t["saved"]}
     rows = [_piece_row(pid, known.get(pid), ts, today) for pid in sorted(known.keys() | mentioned)]
+    from athos import grade
+    aside = {pid: m for pid, m in grade.reviews().items() if (m or {}).get("kind") == "set_aside"}
+    for row in rows:                           # the verifier kept rejecting it: only the person can decide now
+        if row["piece"] in aside:
+            row["review"] = [*row["review"], aside[row["piece"]].get("why") or "set aside"]
     return {"generated": _iso(now()), "tasks": len(ts),
             "evaluated": sum(1 for t in ts if t["result"] != UNMARKED),
             "pieces": rows, "models": _model_rows(ts),

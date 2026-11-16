@@ -858,11 +858,13 @@ def deliver(found: list[store.Piece], trace: dict, pool: list[store.Piece], tier
 
 def index_notes(found: list[store.Piece], trace: dict, pool: list[store.Piece], sid: str, cwd: str | None,
                 cmd: str = "athos") -> dict[str, str]:
-    """A few words after a piece in a frontier model's index: a candidate not verified yet, a piece that failed on an
-    apply model and needs review, or one whose files or commands are no longer found here (`grade.reverify`)."""
+    """A few words after a piece in a frontier model's index: a candidate not verified yet, or one of this project the
+    verifier rejected (to open and improve), a piece that failed on an apply model and needs review, one set aside for
+    the person, or one whose files or commands are no longer found here (`grade.reverify`)."""
     from athos import grade
     _text, offered = pull_index(found, trace, pool, cmd)
     byid = {p.id: p for p in [*pool, *found]}
+    project = (session.load(sid).get("project") if sid else None) or (paths.project_of(cwd) if cwd else None)
     review = grade.reviews()
     out = {}
     for pid in offered:
@@ -870,9 +872,16 @@ def index_notes(found: list[store.Piece], trace: dict, pool: list[store.Piece], 
         if p is None:
             continue
         words = []
-        if p.status == "candidate":
+        rejected = grade.rejection(p) if p.status == "candidate" and project and project in p.projects else None
+        if rejected and not rejected["set_aside"]:
+            # One short marker; the verifier's reasons come with `athos show`, in this project only.
+            words.append(f"candidate, not accepted by the verifier: open it with `{cmd} show {pid}` and improve it "
+                         f"if this task shows how")
+        elif p.status == "candidate":
             words.append("candidate, not verified yet")
-        if pid in review:
+        if (review.get(pid) or {}).get("kind") == "set_aside":
+            words.append("set aside for the person: don't rewrite it")
+        elif pid in review:
             words.append("needs review: it failed on an apply model")
         stale = grade.reverify_cached(p, sid, cwd)
         if stale:

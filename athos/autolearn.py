@@ -372,8 +372,11 @@ def save_model(text: str, sid: str, cwd: str | None, transcript_path: str | None
 
 def improve_auto(text: str, sid: str, cwd: str | None, transcript_path: str | None, existing):
     """The model improves a piece it may improve: a learned one (candidate or verified) of this project, on this
-    task's strong evidence, after the private-data check. The new version is a candidate, so it gets its own bundle
-    and verifier run; the person's own pieces (no status) and retired ones are never changed by a model."""
+    task's strong evidence, after the private-data check. The new version is a candidate (a verified piece returns to
+    candidate), with the same id and its history, so it gets its own bundle and verifier run; the person's own pieces
+    (no status) and retired ones are never changed by a model, nor a candidate the verifier rejected
+    grade.MAX_FAILED_VERSIONS times in a row (set aside for the person). This is the one path for improving a
+    candidate: `athos save --auto` (or a model's plain `athos save`) with the piece's `id:`."""
     from athos import capture, evidence, paths, store
     state = session.load(sid)
     mode = save_mode(state)
@@ -396,6 +399,11 @@ def improve_auto(text: str, sid: str, cwd: str | None, transcript_path: str | No
         return refuse("retired", "this piece was retired; `athos revert` brings it back first")
     if not project or project not in existing.projects:
         return refuse("other_project", "a learned piece is improved only from its own project")
+    from athos import grade
+    rejected = grade.rejection(existing)
+    if rejected and rejected["set_aside"]:
+        return refuse("set_aside", f"the verifier rejected {rejected['attempts']} versions of this piece in a row, so "
+                                   f"it was set aside for the person to decide; a model no longer rewrites it")
     ok, reason = evidence.qualifies(items)
     if not ok:
         return refuse(reason, "this task has no objective evidence that the work was right (a verification that "

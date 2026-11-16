@@ -5,6 +5,9 @@
                             frontier model or one pass on an apply model (a replay, or a real use whose Checks the
                             hooks saw pass). A `risk: high` piece needs the verifier and at least one clean reuse:
                             a replay alone is not enough for it.
+                            A reuse made while the verifier's verdict on that text was a fail never counts.
+    candidate (set aside)   the verifier rejected MAX_FAILED_VERSIONS texts in a row: the model is no longer asked to
+                            rewrite it, the automatic save refuses to, and a review mark puts it before the person.
     verified → candidate    a reuse that was corrected or failed: strong evidence tied to that piece. A legacy
                             piece (no status) never moves; grading records an event and a review mark instead.
     → retired               RETIRE_NEGATIVES corrected or failed reuses among its last RETIRE_WINDOW, counted from
@@ -49,6 +52,7 @@ HIGH_RISK_REUSES = 1       # ...and a high-risk one (the verifier is required fo
 RETIRE_NEGATIVES = 3       # corrected or failed reuses...
 RETIRE_WINDOW = 5          # ...among this many latest ones retire a piece
 STRONG_NEGATIVE = {"person_edit", "revert", "check_failed"}
+MAX_FAILED_VERSIONS = 3    # versions of a learned candidate the verifier may reject in a row before it is set aside
 
 
 def body_sha(p: store.Piece) -> str:
@@ -109,6 +113,10 @@ def on_verdict(piece_id: str, out: dict) -> None:
         basis = "verifier_passed" if outcome == "pass" else "verifier_failed: " + ", ".join(failed)
     else:
         basis = f"verifier_{outcome}: {out.get('error')}"
+    if outcome == "fail":
+        _maybe_set_aside(piece_id)
+    elif outcome == "pass" and (reviews().get(piece_id) or {}).get("kind") == "set_aside":
+        clear_review(piece_id)                 # a text passed: the run of failures is over
     moved = evaluate(piece_id, trigger=basis)
     if not moved:
         note(piece_id, was, store.status(store.get(piece_id)), basis + (_waiting(piece_id) if outcome == "pass" else ""),
@@ -169,6 +177,85 @@ def verifier_passed(p: store.Piece, evs: list[dict] | None = None) -> dict | Non
     return None
 
 
+def latest_verdict(p: store.Piece, evs: list[dict] | None = None) -> dict | None:
+    """The verifier's latest verdict (pass or fail) on the piece's text as it is now, or None."""
+    evs = _events(p.id) if evs is None else evs
+    mine = body_sha(p)
+    verdicts = [e for e in evs if e.get("type") == "verify" and e.get("outcome") in ("pass", "fail")
+                and e.get("body_sha") == mine]
+    return verdicts[-1] if verdicts else None
+
+
+def failed_versions(p: store.Piece, evs: list[dict] | None = None) -> int:
+    """How many texts of the piece the verifier rejected since it last passed one: each text counted once, by its
+    latest verdict."""
+    evs = _events(p.id) if evs is None else evs
+    verdicts = [e for e in evs if e.get("type") == "verify" and e.get("outcome") in ("pass", "fail")]
+    passes = [n for n, e in enumerate(verdicts) if e.get("outcome") == "pass"]
+    after = verdicts[passes[-1] + 1:] if passes else verdicts
+    last: dict[str, str] = {}
+    for e in after:
+        last[e.get("body_sha") or f"v{e.get('version')}"] = e.get("outcome")
+    return sum(1 for o in last.values() if o == "fail")
+
+
+def rejection(p: store.Piece | None, evs: list[dict] | None = None) -> dict | None:
+    """A candidate Athos itself learned (it has a status and a learning model) whose latest verdict on its current text
+    is a fail: {"why": the verifier's reason per criterion, "failed": the criteria that failed, "version", "attempts":
+    texts rejected in a row (`failed_versions`), "set_aside": attempts reached MAX_FAILED_VERSIONS}. None otherwise
+    (a pass, no verdict yet, a verdict about an older text, a piece the person owns, a verified or retired one)."""
+    if p is None or p.status != "candidate" or not p.learned_by:
+        return None
+    evs = _events(p.id) if evs is None else evs
+    last = latest_verdict(p, evs)
+    if not last or last.get("outcome") != "fail":
+        return None
+    verdict = last.get("verdict") or {}
+    failed = [c for c, ok in verdict.items() if not ok] or sorted(last.get("why") or {})
+    attempts = failed_versions(p, evs)
+    return {"why": {c: str((last.get("why") or {}).get(c) or "") for c in failed}, "failed": failed,
+            "version": last.get("version"), "attempts": attempts, "set_aside": attempts >= MAX_FAILED_VERSIONS}
+
+
+FEEDBACK = """Athos (for you, not the person): this piece, `{id}`, was not accepted. An independent verifier rejected its \
+current text (attempt {attempts} of {limit}), for these reasons:
+{reasons}
+If this task shows how to fix that, save an improved version of this same piece before your final answer: run \
+`{cmd} save --auto` with the whole piece rewritten (title, when, every step with its **Check:**), adding `id: {id}` \
+and a `note:` that says what changed to its frontmatter. It stays a candidate and is checked again; nothing you \
+write about your work reaches the verifier. If this task does not show how, leave the piece as it is. Don't mention \
+this to the person."""
+
+
+def feedback_text(p: store.Piece | None, cmd: str = "athos") -> str:
+    """What a frontier model is told, out of the person's sight, about a candidate the verifier rejected (`rejection`):
+    the failing criteria with the verifier's reasons, and the one way to improve it. "" when there is nothing to say,
+    or the piece was set aside for the person (the loop stops asking)."""
+    found = rejection(p)
+    if not found or found["set_aside"]:
+        return ""
+    reasons = "\n".join(f"- {c}: {' '.join(found['why'].get(c, '').split()) or 'no reason given'}"
+                        for c in found["failed"])
+    return FEEDBACK.format(id=p.id, attempts=found["attempts"], limit=MAX_FAILED_VERSIONS, reasons=reasons, cmd=cmd)
+
+
+def _maybe_set_aside(piece_id: str) -> None:
+    """A learned candidate rejected for the MAX_FAILED_VERSIONS-th text in a row: the model is no longer asked to
+    rewrite it, the automatic save refuses to, and a review mark puts it before the person (`athos report`, `athos
+    audit`), with a `grade` event saying why. Once per run of failures."""
+    p = store.get(piece_id)
+    found = rejection(p)
+    if not found or not found["set_aside"]:
+        return
+    if (reviews().get(piece_id) or {}).get("kind") == "set_aside":
+        return
+    why = (f"set aside: the verifier rejected {found['attempts']} versions in a row (last: "
+           f"{', '.join(found['failed'])}); the model no longer rewrites it")
+    mark_review(piece_id, why, kind="set_aside")
+    note(piece_id, "candidate", "candidate", why.replace("set aside:", "set_aside:", 1), attempts=found["attempts"],
+         failed=found["failed"])
+
+
 def _reuses(evs: list[dict], since: str = "", version: int | None = None) -> list[dict]:
     """The reuse events at or after `since`, and of `version` only when one is given: a status change, a revert and an
     improvement each make a new version, so outcomes counted by version start again from the piece's last change."""
@@ -182,7 +269,9 @@ def standing(p: store.Piece) -> dict:
     its risk."""
     evs = _events(p.id)
     since = _since(evs)
-    recent = _reuses(evs, since, p.version)
+    # A reuse made while the verifier's verdict on that text stood as a fail never counts towards promotion, even if
+    # the same text passes later.
+    recent = [e for e in _reuses(evs, since, p.version) if e.get("verdict") != "fail"]
     current = _reuses(evs, version=p.version)
     return {"verifier": verifier_passed(p, evs), "checks": len(evidence.checks_of(p)), "risk": risk(p),
             "frontier_clean": sum(1 for e in recent if e.get("outcome") == "clean" and e.get("tier") == "frontier"),
@@ -342,7 +431,9 @@ def finish_task(sid: str | None, task_id: str | None, state: dict) -> list[dict]
         if p is None:
             continue
         outcome, basis = _outcome(pid, tier, items)
+        verdict = latest_verdict(p) if p.status == "candidate" else None
         event = {"type": "reuse", "piece": pid, "version": p.version, "task_id": task_id,
+                 "verdict": (verdict or {}).get("outcome"),
                  "session_id": sid, "tier": tier, "model": model, "outcome": outcome,
                  "basis": basis, "status": store.status(p), "project": p.projects[0] if p.projects else None}
         ev.audit(event)
@@ -380,11 +471,12 @@ def reviews(strict: bool = False) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def mark_review(piece_id: str, why: str) -> None:
-    """A piece failed on an apply model: the next frontier session's index says so."""
+def mark_review(piece_id: str, why: str, kind: str = "") -> None:
+    """A piece needs a look: it failed on an apply model (the next frontier session's index says so), or, with
+    `kind="set_aside"`, the verifier kept rejecting it and only the person can decide (`athos report`, `athos audit`)."""
     with paths.locked(_review_file()):
         data = reviews(strict=True)
-        data[piece_id] = {"why": why, "at": ev._iso(ev.now())}
+        data[piece_id] = {"why": why, "at": ev._iso(ev.now()), **({"kind": kind} if kind else {})}
         paths.write_atomic(_review_file(), json.dumps(data, indent=1))
 
 
