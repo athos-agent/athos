@@ -201,7 +201,42 @@ Each page says which projects it belongs to (`projects:` in its frontmatter). A 
 you saved it in. By default (`auto`), a session in a project's folder loads that project's pages and your **profile**;
 another project's pages load only when the request names that project ("…like we did in heat-v2"; "heat v2" counts
 too). The longest name wins: "heat-v2" names heat-v2, not a project called heat; and a name of four letters or fewer
-counts only as a word of its own ("api" is named by "the api", not by "api.js"). A project with no
+counts only as a word of its own ("api" is named by "the api", not by "api.js").
+
+**A project named like a common word needs a cue** (since 0.1.180). A name that is also a common word in your store
+(every word of it is in at least 10% of the other projects' pages, and in two of them: the same word rarity the router
+weighs words by, with the project's own pages left out) or a one-word name of three letters or fewer ("api", "web") is
+ambiguous: "the api returns 500" may not mean the project at all. Such a name counts only with a reference cue (since
+0.1.180 in both directions):
+
+- a preposition with the name alone at the end of a phrase ("from api", "en api.", "the conventions of api"), but not
+  before another word ("the timeout in api calls", "errors from billing data", "en billing hay un error");
+- a phrase of reference ("like we did in the api", "como hicimos en el api", "igual que en billing", "mirá cómo lo
+  hace billing", "as in api");
+- a repository or project noun anywhere ("the api repo", "el proyecto de billing", "repo api", "api's repo"), and a
+  folder, directory, service, app, package or module only after a preposition or with "of" ("in the api directory",
+  "en el directorio api", "from the api service", "la carpeta de billing"), so "the billing app crashes" and "the docs
+  folder is stale" are not;
+- a path (`~/api`, `api/`, `/api/`).
+
+The name in backticks or quotes alone is no longer a cue ("the `api` key", 'the "billing" column'); before a project
+noun it is ('the "api" folder'). A distinctive name ("heat-v2") keeps working without one. On a small store almost
+every name is distinctive (a word must be in 10% of the other projects' pages, and in two of them, to be common: with
+nine of a hundred other pages saying "billing" it is still distinctive), so there "billing" still brings its project's
+pages in by the word alone, as before 0.1.180; only a one-word name of three letters or fewer needs a cue whatever the
+store. Without a cue, on a frontier model, the request's index gets one
+line instead (the request may also mean the project `api`, with how many pages it has, and `athos list --project api`
+to list them), so the model decides; nothing of that project is loaded or listed by id. On an apply model the mention is
+dropped: nothing of that project is brought in, and nothing is offered either (an apply model is given pages, not an
+index to choose from), so a request that did mean the project needs a cue there. In a repository marked public nothing is offered. The `route` event records how each mentioned project was
+decided (`named_how`: cue, distinctive, offered, rejected; in a public repository only `named_how_count`) and the
+projects offered (`offered_projects`), never the words; `athos audit` does not flag a piece of an offered project the
+model opened itself. Measured on 2026-11-15 over one person's 1769 recorded request heads: 40 named another project
+before; with the cue rule 17 by a cue, 22 by a distinctive name, and 6 are ambiguous mentions that no longer bring that
+project's pages in. `bench route` (34/56 hit@1, 1 wrong, 24/24 none ok), `--from-store` and the private replay of one
+session (0 of 29 loaded, both tiers) are unchanged.
+
+A project with no
 pages of its own yet sees only the profile (until 0.1.110 it saw every page, and loaded other projects' pages on its
 first day). Claude Desktop's chat, which has no folder, still sees every page, and `athos load all` brings back one pool
 for everything (but a private page, below, stays in its projects).
@@ -306,7 +341,167 @@ Next to the ways of working (the long-term memory, which changes only when you s
 with its project's recent past: the last tasks with what they used or saved and how they went, what was corrected or
 failed in the last week, and the older tasks counted per way of working. `athos journal [--project <name>]` prints it.
 It is read from the task log Athos already keeps on your machine; nothing new is stored, and another project's past
-never shows up in this one.
+never shows up in this one. Since 0.1.180 the journal is short-term memory in the strict sense: its lines come from
+the live log's window (below); tasks the dream cycle archived are only counted in "Before that", never quoted.
+
+### Long-term memory: the live log, its archive, and the dream cycle
+
+Version numbers: long-term memory, the dream cycle and the cue for a project named like a common word reached the main
+line in 0.1.180. They were built on a line of work of their own, numbered 0.1.165 to 0.1.179 there, while the main
+line went from 0.1.165 to 0.1.172 without them; this reference gives the main line's numbers, and an event stamped
+0.1.165 to 0.1.179 may come from either line.
+
+The task log (`~/.athos/events.jsonl`) used to grow without bound, and the hooks read all of it. It now has three
+layers:
+
+| layer | where | what |
+|---|---|---|
+| short-term | `events.jsonl` | the raw events of a recent window: the hooks append here |
+| consolidated | `memory/archive/events-NNNNN.jsonl.gz`, `archive/manifest.json`, `memory/ledger.json`, `memory/rollups.json` | the events outside the window, compressed and never deleted (the manifest keeps each segment's lines, bytes and sha256); the ledger, those events folded per task without a word of any request, with what only the cycle reads (requests that found no piece, counted, never quoted; steps you corrected; dismissals); the rollups, small sums the hooks read, bounded by the window and the number of pieces and projects, never by how long the history is: per piece (uses, outcomes, by platform, model tier and project, last use, means, the run that taught it), per project (tasks, the pieces they used, its last task), pieces used in the same task, what the grading rules of a learned piece can still use, the verifier's outcomes, the latest shadow runs and stars, the archived uses near the cut one by one, and a fixed-size filter of the archived task ids |
+| long-term | `know-how/`, `projects/<name>.md` | the wiki: your pieces, and a page per project saying what is known about working in it |
+
+The ledger and the rollups are derived: delete them and `athos memory rebuild` folds the archive again into the same
+files (`athos memory check` compares them with a rebuild and checks every segment against its manifest).
+
+**The window.** The live log keeps at least `keep_days` (30) and at most `keep_bytes` (4 MB), cutting older days
+when it is over, but never the last `min_keep_days` (8), so the journal and the marks that look a week back always
+read the live log. All of these are `"memory"` keys in `~/.athos/config.json`.
+
+**What reads what.** The hooks (session start, prompt, tool, stop) and `athos status` read only the rollups and the
+live log, so what they cost does not grow with the archive: a piece's record and the bars, the journal, the grading
+history of a learned piece, which candidates wait for the verifier, the shadow runs and the star review; so do
+`athos watch`, which redraws every two seconds, and the choice of the task a bare `athos mark` marks (the importers of
+other agents' sessions it runs first still read the whole history, which they need to never import a session
+twice). Offline
+commands read the whole history, the archive decompressed and then the live log: `athos report`, `audit`, `curate`,
+`repair`, `bench route --from-store`, the importers of Codex and Muse Code sessions; `report`, `audit` and `repair`
+say so on stderr (`history: N archived event(s) in K segment(s) read with the live log`) when there is an archive.
+A task begun before the cut and continued after it is kept whole in the rollups and folded with its live lines, and
+the bars decide for each use near the cut whether it began after the run that taught the piece, wherever that run
+is. A line written about an archived task (an `athos repair` correction, a late `athos mark`) is left out of the
+hooks' numbers until the rollups take it, which `athos repair --apply` and `athos mark` do at once, and the next cycle
+does in any case; offline commands count it immediately. A line about a task the archive surely does not hold (its id
+is not in the rollups' filter of archived ids: a stop with no start anywhere, say) counts at once as a new task.
+
+What the rollups keep of a long history: of a learned piece's grading history, the latest move to candidate, the
+verifier's latest pass for each of its last 8 texts, and for its two newest versions the last 5 judged reuses and the
+latest 4 of each kind (the rules compare counts with thresholds of 1 to 3, so they decide the same as on the whole
+history); the last 10 shadow runs per piece and model; the last 20 stars per page and step (a star's account of what
+was done there is dropped when it repeats four words of the request it was given on). The filter of archived task
+ids is 64 KB at most: past a few hundred thousand tasks it says "maybe archived" more often, and such a line then
+waits for a cycle, as before.
+
+**The dream cycle**, in three phases (after the slow-wave replay, REM abstraction and consolidation of sleep):
+
+1. **Replay and prune.** The events outside the window, a prefix of the live log, are written to a new compressed
+   segment, folded into the ledger and the rollups, and only then trimmed from the live log. Nothing is deleted.
+2. **Abstraction**, by counting, no model: pieces used in the same task (three or more), requests that found no
+   piece and the ones that came back more than once still without one (by fingerprint, never their words), pieces
+   that look like the same way of working (the test `athos curate` uses, and statements for the same moment), steps
+   you corrected by hand at least twice, pieces whose own Check failed in at least two reuses; and the star review
+   `athos dream` has always made. They are kept in `memory/findings.json` (`athos memory findings`).
+3. **Consolidation.** One page per project, `projects/<name>.md`: its ways of working with their uses, outcomes and
+   status, the pieces used together, how often a request found nothing, and what to look at. It names only pieces
+   that may be named in that project's own sessions (another project's are counted, and in a project whose
+   repository is marked public, only what may load there); no request is quoted. A page without the line
+   `written_by: athos` in its frontmatter is yours and is never touched; a page Athos wrote and rewrites is kept in
+   `projects/.history/` first. Whether a project's repository is public is kept with its counts, so it holds after
+   its route events are archived. `athos memory project [<name>]` prints it; in a repository marked public only that
+   project's own page, and never the stored page as it is: one Athos wrote is made again as that repository may see
+   it, and any line naming a piece that may not be named there is left out. `athos memory findings` there keeps only
+   this project's rows and pieces that may be named in it. The no-model cycle writes no piece file: associations stay in the rollups and the project
+   pages.
+
+Every step can be interrupted and run again: a segment is written atomically before anything refers to it (synced,
+with its folder, and so are the manifest, the ledger and the rollups, so a power cut leaves the old file or the new
+one), the ledger lists the segments it folded, and the live log is trimmed only while it still starts with the
+segments' exact bytes, under the lock every append takes, held only for the copy of what stays. A first cycle on a
+long log reads it as a stream and writes segments of 8 MB at most.
+
+Nothing is lost or counted twice whoever else writes the log:
+
+- *A writer without the lock* (an older Athos, another tool) that opened the log before a trim and writes after it
+  writes into the old file: it stays reachable under a hidden name (`.events.jsonl.trim-…`) and what reaches it is
+  carried over at the end of the cycle and again at the next one (the Stop hook asks for a cycle when something waits
+  there), until nobody has written into it for 30 seconds.
+- *A log put back* after a trim (a backup restore, a sync tool, two machines sharing the home) starts with segments
+  already archived: every reader skips them by their bytes, whatever their state, and the next cycle trims them
+  again; bytes the archive already holds are never written as a new segment. A log that repeats archived lines
+  without starting at a segment's boundary is neither archived nor trimmed, and a log replaced between archiving and
+  trimming is left as it is (its segment is marked `kept`); either way the cycle's `replay` event says why
+  (`refused`).
+- *Readers during a cycle* read the live log first and then the manifest and the rollups (a full-history read takes
+  the append lock for those two reads), so a cycle that archives and trims meanwhile can neither hide a segment from
+  them nor make them count one twice.
+
+Tidying never deletes a segment: a temporary segment left by a power cut is promoted when it decompresses (dropped
+only when the same bytes are already in place, set aside in `memory/archive/damaged/` otherwise); one the manifest
+does not list is listed again; one that cannot be read is moved to `damaged/`; a manifest that cannot be read is
+moved there too and rebuilt from the segments on disk; and a ledger or rollups that are lost or unreadable are made
+again by the next cycle, which the hooks start as soon as they notice. One cycle runs at a time: an exclusive `flock`
+on `memory/.cycle.lock` held for the whole run, so it is never taken from a live process and goes with a process that
+died. The
+Stop hook starts it detached and at low priority, the way it starts the verifier, when the live log passes
+`trigger_bytes` (6 MB) or its oldest event is older than `trigger_days` (37), or a segment was left half done, or a
+late line waits; `"memory": {"auto": false}` turns that off. `trigger_bytes` and `trigger_days` always act past
+what the window keeps (above `keep_bytes` and `keep_days`), and a line stamped more than a day in the future (a wrong
+clock) counts as having no time. A cycle the hooks started that can make no progress (a log larger than
+`trigger_bytes` all of it inside the last `min_keep_days`, say) skips the counting and the pages, leaves one
+`memory_cycle` event with `phase` stuck and `why`, and the hooks wait an hour before starting another, twice as long
+each time it still cannot, up to a day (`memory/cycle-state.json`); a cycle that raises leaves a `failed` event (the
+error's kind and where) and the hooks back off from it the same way. Each phase is a `memory_cycle` event (`run_id`, `phase`
+(replay, abstraction, consolidation, model, done; stuck, failed), its counts, `duration_ms`, for replay `archived_lines`,
+`archived_bytes`, `compressed_bytes`, `live_before`, `live_after`, `rollup_bytes`, and `spend_usd` at the end).
+
+```
+athos memory [status]                  the layers' sizes and dates, and whether a cycle is due or running
+athos memory cycle [--model] [--json]  run it now, in the foreground
+athos memory check                     every segment against its manifest; ledger and rollups against a rebuild
+athos memory rebuild                   make the ledger and the rollups again from the archive
+athos memory findings                  what the last counting found
+athos memory project [<name>]          a project's page
+```
+
+**The model pass**, opt-in and off by default (`"memory": {"model": {"on": true, "model": "<id or alias>"}}`, or
+`athos memory cycle --model` once): on a frontier model, only when no session has moved in `idle_minutes` (30) (a
+cycle the Stop hook started does not count the session whose turn just ended, so with the pass turned on it can run
+from there), and under the daily cap it shares with the independent verifier (`autolearn.budget`: the run's cap,
+`max_usd_per_run` (US$0.50) or the verifier's per-run cap if smaller, is reserved first, a `model_run` event with
+`purpose` dream). One project per pass, the one with the most to look at. The model gets, as
+files in a folder and nothing else, the project's counted summary (no request words) and the text of that project's
+own pieces that are not private (title, when, body: never another project's, never a private piece, never
+frontmatter or history), and runs as the verifier does:
+headless, read-only tools confined to that folder, no plugins, hooks or MCP, a throwaway Athos home. What it proposes
+is always a candidate:
+
+- a short paragraph of what is known about working in the project goes to `projects/<name>.candidate.md`
+  (`status: candidate`), beside the page the counting writes; it is not injected anywhere;
+- two or more of the project's pieces that are the same way of working become a **new** candidate piece (the sources
+  stay as they are), only if `bench route --from-store` with it is no worse than without it (no fewer first hits, no
+  more loads of a piece the task didn't use, of a piece where nothing was needed, or of another project's; a load of
+  the merge where the task used one of its sources counts as a hit), and then it goes to the independent verifier
+  like any candidate. With no task marked good that used a piece, nothing is measured and nothing is saved;
+- an avoid or keep rule for a step is a new candidate version of a learned piece of the project, through the same
+  versioned update path and the verifier (a verified piece is verified again from scratch); for a piece you own (no
+  `status`) it is only a proposal in `memory/findings.json`, never written into its file.
+
+Every write is listed in the cycle's `model` event (`wrote`, each with the piece's status before).
+
+**Pieces used together, at load time.** `"memory": {"associations_line": true}` adds at most one line to a frontier
+model's index: the piece most often used in the same task as the router's first choice (three tasks or more, from the
+rollups and the live log), when it is in reach and not listed yet; an apply model gets nothing more. It is off: on one
+person's 343 good tasks (2026-11-15, each task's own pairs left out of the counts), the router chose a piece for 91
+of them per project and 56 of those used another piece too; the line was added to 16 indexes and named a piece the
+task used in none, and the tasks whose other piece reached the index stayed 18 (with one pool: 25 lines, none used,
+20 and 20). The router's choice, and so `bench route`, `--from-store` and the private replay, do not change either
+way.
+
+**`athos dream`** is the star review, unchanged: `athos dream` lists its proposals and `athos dream --apply N` turns
+one into the request your agent carries out. It is now one part of the cycle's abstraction phase, which refreshes it;
+`athos dream --cycle` runs the whole cycle.
+
+What you see does not change: the cycle shows nothing in the interface, and the only new output is that of the
+commands above when you run them, and the `history:` line of the offline commands once there is an archive.
 
 ### Curating: tidy the memory as it grows
 
@@ -454,7 +649,7 @@ of it keeps a request's words: only its length and a 12-character fingerprint (`
 
 | event | written when | fields |
 |---|---|---|
-| `route` | every request the prompt hook sees, loaded or not | `task_id`, `model`, `model_source` and `model_observed` (the request was decided on a guess when false; see "Which model answered"), `tier`, `work_mode`, `collaborates` (an apply model always; a frontier one when a piece loaded), `mode` (the loading mode), `project`, `scope_reason`, `named_projects` (empty in a public repository), `named_count` (in a public repository: how many other projects the request named), `marker` (a `.athos.toml` applied), `public`, `private_held` (private pieces kept out, counted), `store_pieces`, `in_scope`, `request_chars`, `request_sha` (not in a public repository), `request_kind` (person, harness, empty), `wrapper`, `candidates` (up to 5: `piece`, `score`, `shared` (how many words it shares with the request, never which), `head_share`, `request_share`, `projects` (in a public repository only this project, never another's name), `kept`, `reason`), `scored`, `chosen`, `handed_over` (pages a chosen page's `**Calls:**` or `**If:**` brought along; only pages in this request's scope, the same ones the router could choose), `meaning`, `thresholds`, `cut` (pages cut to fit), `left_out` (pages with no room), `steps_only` (pages given as their steps' When, Do and Check only, whole), `delivery` (piece: the pages themselves, to an apply model; index: a list of the pieces in reach, to a frontier model; null when nothing was chosen), `offered` (the ids the index listed), `piece_chars` and `index_chars` (what each delivery costs, measured either way), `injected_chars` (the router's own text), `injected_total` (everything the prompt hook handed the model: the router's text plus an edit notice, a share request or a rating added after it), `injected_parts` (the characters of each: `pieces`, `connectors`, `offer`, `edit`, `share`, `rating`), `ms` |
+| `route` | every request the prompt hook sees, loaded or not | `task_id`, `model`, `model_source` and `model_observed` (the request was decided on a guess when false; see "Which model answered"), `tier`, `work_mode`, `collaborates` (an apply model always; a frontier one when a piece loaded), `mode` (the loading mode), `project`, `scope_reason`, `named_projects` (empty in a public repository), `named_count` (in a public repository: how many other projects the request named), `named_how` (how each mentioned project was decided: cue, distinctive, offered, rejected; not in a public repository, where `named_how_count` counts them), `offered_projects` (projects with a common-word name offered in one index line to a frontier model), `marker` (a `.athos.toml` applied), `public`, `private_held` (private pieces kept out, counted), `store_pieces`, `in_scope`, `request_chars`, `request_sha` (not in a public repository), `request_kind` (person, harness, empty), `wrapper`, `candidates` (up to 5: `piece`, `score`, `shared` (how many words it shares with the request, never which), `head_share`, `request_share`, `projects` (in a public repository only this project, never another's name), `kept`, `reason`), `scored`, `chosen`, `handed_over` (pages a chosen page's `**Calls:**` or `**If:**` brought along; only pages in this request's scope, the same ones the router could choose), `meaning`, `thresholds`, `cut` (pages cut to fit), `left_out` (pages with no room), `steps_only` (pages given as their steps' When, Do and Check only, whole), `delivery` (piece: the pages themselves, to an apply model; index: a list of the pieces in reach, to a frontier model; null when nothing was chosen), `offered` (the ids the index listed), `piece_chars` and `index_chars` (what each delivery costs, measured either way), `injected_chars` (the router's own text), `injected_total` (everything the prompt hook handed the model: the router's text plus an edit notice, a share request or a rating added after it), `injected_parts` (the characters of each: `pieces`, `connectors`, `offer`, `edit`, `share`, `rating`), `ms` |
 | `edit_seen` | the edit detector keeps a file the agent wrote, sees the agent change it again, or finds a change on the next request | `task_id`, `file_sha` (a hash of the path), `decision` (snapshot, rebased (the agent changed it: the copy moves on), pending (the person changed it between two tool calls; told on the next request), attributed, unattributed (a change with no evidence: given to nobody)), `source` (agent_tool, agent_shell, outside, unexplained), `basis` (the evidence for the decision: `changed_during:<tool>`, `no_timing:<tool>`, `tool_failed`, `changed_between_tool_calls`, `changed_after_turn_end`, `no_tool_call_since`, or why there is none: `no_turn_end`, `changed_before_turn_end`, `tool_after_turn_end`, `background_task_running`), `attributed_to` (agent, person, or null), and for a change given to the person `detector` (between_tool_calls, after_turn_end), `piece` (not in a public repository), `piece_basis` (current_step, route_best, none) |
 | `model` | a session starts, every request, the first tool hook or save or end of a turn that observes a model only guessed or unknown until then, and the end of a task whose replies could be read | `task_id`, `model`, `source` (event: the hook said so; transcript_switch: a `/model` switch newer than the latest request or reply; transcript_request: the latest request the main conversation sent, its `api-request` row, written before any reply; transcript_reply: the latest reply; session: what the session reported, when reported later than these, or last observed; replies: the replies that answered the task; a guess: launch_flag, env or settings; unknown), `observed` (false for a guess or unknown), `guessed_from` (for a guess: `--model`, `ANTHROPIC_MODEL`, `user`, `project` or `project_local`), `seen_in_transcript` (the model of the transcript's latest reply), `stage` (session_start, prompt, tool_start, tool, save, stop, end), `changed`, `tier` (frontier, apply), `work_mode` (learn, collaborate), for an observation that replaced a guess `corrects` and `corrects_source`, and at the end `answered` (the models whose replies answered the task) and `at_start` |
 | `trigger` | a special path matches: save, adjust, gallery, share | `task_id`, `trigger`, `from_person` (true; false for a harness wrapper such as a subagent's message, anywhere in the text and in any case, also one that opens with another wrapper, or when the transcript says the harness sent it; a save or adjust whose text opens with its own words ("Athos · save:") is the person's even when it mentions a wrapper tag, unless a whole wrapped element (the tag and its closing tag) came with it; null when the text opens with another tag or the transcript has no entry for it yet), `acted` (it acts only when `from_person` is true), `wrapper`, `origin_signal` (which signal decided: `heuristic`, `both`, `disagree`, `missing:verify` (acted on the text, checked later), `missing` (`origin_check` strict: held back), `missing:heuristic`), `transcript_origin` (person, harness, or null), `verified` (null while a check is pending); the check itself is another `trigger` event with `stage` verify, `verified` (true, false, or null when the turn ended with no entry), `hook` (tool, stop), `undone` (offer_restored, edit_offer_restored, model_told) and `saved_meanwhile`, `project`, `request_chars`, `request_sha`, `injected_total` (what the path handed the model: save, adjust and gallery; a share request is counted in its route event) |
@@ -463,6 +658,7 @@ of it keeps a request's words: only its length and a 12-character fingerprint (`
 | `hook_error` | a hook swallows an exception so your session carries on | `hook`, `where`, `error` (the exception's kind), `line` (file and line inside Athos), never its message; what the hook prints on stderr is the same kind and place, never the message either (it may quote a request or a path) |
 | `learn` | autonomous learning decides about a task: it asks the model to keep what it taught, saves, or skips (every decision, with its reason) | `task_id`, `decision` (asked, saved, skipped), `reason` (strong_evidence, no_strong_evidence, last_verification_failed, correction_after_success, apply_model, model_unknown, model_guessed (a frontier model only guessed so far, not seen), private_data, set_aside, duplicate, no_project, off, invalid, model_saved_nothing), `model`, `tier`, `work_mode`, `mode` (learn, apply, unknown), `project`, `strong`, `weak`, `positive`, `negative` (the task's evidence counted), `evidence` (its short summary), `grounds`, and for a save `piece`, `version`, `risk`, `checks` (runnable Check lines), `confidence`; for a private-data refusal `private` (the kinds found, never the text); for a `duplicate` refusal, or a save next to a piece of yours, `overlaps` (the ids) and `score`; `caught_up` when a later session start recorded it |
 | `ui` | reserved for the panel's state | not written yet |
+| `memory_cycle` | each phase of a dream cycle (see "Long-term memory") | `run_id`, `phase`, `duration_ms`, the phase's counts, for the model pass `wrote` |
 
 Every one of them also carries `at`, `session_id` and `v`, the version of Athos that wrote it. `candidates.reason`
 says why a piece did or didn't load: `chosen`, `runner_up_too_weak`, `over_budget`, `beyond_top_k`, `below_min_score`,
@@ -512,7 +708,7 @@ with no such session, this project's latest, else the last one anywhere:
 | `model_inconsistent` | a request recorded under a model other than the one whose replies answered it (a `/model` switch recorded on the requests after it is not flagged; a request decided on a guess or on unknown is judged by the model observed later in the same task, and flagged only when that one, or the guess never corrected, differs from the replies); for sessions before 0.1.113, the session's models disagree with themselves or with Claude Code's transcript. It also reports `decided_on_guess` (requests decided on a guess or on unknown) and `guess_wrong_tier` (those whose observed model was of the other tier) |
 | `injected_over_cap` | more characters handed the model with one request than the router's cap: since 0.1.114 everything the prompt hook adds (`injected_total`), not only the router's text, so an edit notice, a share request or a rating on top of a page counts; older route events are judged on `injected_chars` and the rule says partial |
 | `trigger_not_from_person` | save, adjust, gallery or share fired on text the person didn't write (a path that held back, `acted` false, is not flagged), or acted on text that read as the person's and the transcript then gave to the harness (flagged even when undone) |
-| `version_mismatch` | the session's events written by two versions, or Claude Code's plugin and the `athos` on your PATH differ now. Each finding says what it costs: an older Athos that rewrites a piece drops the frontmatter lines it does not know (`visibility`, `status`, `risk`, `confidence`, `evidence`), so a private piece becomes visible again; nothing on the older side can prevent it. |
+| `version_mismatch` | the session's events written by two versions, or Claude Code's plugin and the `athos` on your PATH differ now. Each finding says what it costs: an older Athos that rewrites a piece drops the frontmatter lines it does not know (`visibility`, `status`, `risk`, `confidence`, `evidence`), so a private piece becomes visible again; nothing on the older side can prevent it. Once the dream cycle has archived the log, an event or an installed agent older than the archive's `oldest_reader` (0.1.180, in `memory/archive/manifest.json`; a manifest that says 0.1.166 is read as 0.1.180) is flagged too: such an Athos reads only the live window, so its report, export and benches leave the archived history out without saying so, and its importers can import again a Codex or Muse session whose tasks were archived (same task ids: offline commands count them once, the hooks may count them twice until the next cycle). It never rewrites or deletes the log or the archive. |
 | `private_piece_named` | a private page (today's `visibility`; in a repository marked public, every page that may not load there) chosen, handed over to, offered or ranked in a route event of a session outside its projects, or named, as a whole id, in this project's `log.md` lines written while the session ran; with no route events for the session it says `not_evaluated` (nothing was checked), and a clean result covers only what Athos wrote, not the agent's replies |
 | `weak_evidence_learning` | a piece saved by autonomous learning with no strong item of evidence (an exit status or an artifact the hooks saw): only the model's opinion |
 | `save_in_apply_mode` | a piece saved on an apply model: an autonomous save on a model that is not frontier, or, in sessions written by 0.1.124 or later, a task answered by an apply model that saved a piece (older sessions: only autonomous saves are judged, partial) |
@@ -523,6 +719,10 @@ with no such session, this project's latest, else the last one anywhere:
 | `verifier_over_cap` | a UTC day whose model runs (verifier and replay, every project) went over the runs or the cost cap they recorded (a run with no reported cost counts its estimate) |
 | `marker_name_ignored` | the repository the audit runs in has a `.athos.toml` whose `name` is not the folder's own and was never accepted on this machine (`athos public name`), so Athos uses the folder's name |
 | `public_not_declared` | the repository the audit runs in (when it is the session's project) is pushed to a code-hosting site, read from its local git configuration, and its `.athos.toml` does not say whether it is public; `athos public` or `athos public off` answers it |
+| `memory_rollup_mismatch` | the ledger or the rollups the hooks read differ from a fold of the whole archive and the live log (`athos memory rebuild` makes them again) |
+| `memory_archive_integrity` | an archived segment is missing, unreadable, or not the bytes and sha256 its manifest recorded (an offline command still reads it as it is, and says so) |
+| `memory_wrote_legacy` | the dream cycle reported writing into a piece with no status, or such a piece has a version written by the dream (`athos-dream` in its history) |
+| `memory_model_over_cap` | a model pass of the dream cycle settled without a reservation before it, or on a day over the cap shared with the verifier |
 
 Each rule says how it was judged: flagged, clean, partial (checked with older data, which is not a proof) or not
 evaluated (with what is missing). Sessions recorded before these events are checked as far as their task lines allow:

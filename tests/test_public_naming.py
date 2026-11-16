@@ -23,7 +23,8 @@ CHECKED = [
     ["report"], ["report", "--json"], ["wiki"], ["wiki", "--json"], ["wiki", "agents"],
     ["status"], ["status", "--json"], ["status", "--ui"], ["privacy"], ["privacy", "--json"],
     ["journal"], ["load"], ["dream", "--dry-run"], ["dream", "--dry-run", "--json"], ["curate"],
-    ["export", "--guild", "{out}"], ["export", "{out}"],
+    ["export", "--guild", "{out}"], ["export", "{out}"], ["memory"], ["memory", "--json"], ["memory", "findings"],
+    ["memory", "project"],
 ]
 # Commands that take a piece id, run with each piece that may not be named here: the answer is the one an id that does
 # not exist gets ({id} stands for it), and no title, step or other id of the store comes out.
@@ -31,7 +32,8 @@ BY_ID = [["show", "{id}"], ["verify", "{id}"], ["route", "{id}"], ["route", "{id
          ["revert", "{id}"], ["test", "{id}"], ["share", "{id}"], ["delegate", "{id}", "do the thing"],
          ["merge", "{id}", "{out}"], ["export", "--guild", "{out}", "--piece", "{id}"]]
 # Refused outright in the public repository, with the same answer for an id that exists elsewhere and one that doesn't.
-REFUSED = [["audit", "--show"], ["audit", "--project", "beta"], ["journal", "--project", "beta"]]
+REFUSED = [["audit", "--show"], ["audit", "--project", "beta"], ["journal", "--project", "beta"],
+           ["memory", "project", "beta"]]
 # Subcommands that print no piece of the store, or are not run here (with why).
 EXEMPT = {
     "add": "adds a page from the gallery by its own name",

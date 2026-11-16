@@ -796,9 +796,10 @@ def on_prompt(event: dict, cmd: str = "athos", defer: bool = False) -> str:
     pool, scope = control.select(everything, event.get("cwd"), prompt)
     pool = usable(pool, tier, scope.get("project"))          # an apply model: verified and legacy pieces only
     found, trace = decide(prompt, pool)
+    scope, offer = settle_ambiguous(scope, everything, tier, cmd)
     ms = (time.perf_counter() - started) * 1000
     notes = index_notes(found, trace, pool, sid, event.get("cwd"), cmd) if tier == tiers.FRONTIER and found else None
-    d = deliver(found, trace, pool, tier, cmd, notes=notes)
+    d = deliver(found, trace, pool, tier, cmd, notes=notes, offer=offer)
     extra = ""
     parts: dict[str, int] = {}
     if d["delivery"] == "piece":
@@ -810,7 +811,7 @@ def on_prompt(event: dict, cmd: str = "athos", defer: bool = False) -> str:
         extra += "\n" + offer + "\n" if offer else ""
         parts["offer"] = len(offer or "")
         if extra:
-            d = deliver(found, trace, pool, tier, cmd, INJECT_CAP - len(extra), notes=notes)
+            d = deliver(found, trace, pool, tier, cmd, INJECT_CAP - len(extra), notes=notes, offer=offer)
     body, cut, left = d["text"], d["cut"], d["left_out"]
     shown = [p for p in found if p.id not in left] if d["delivery"] == "piece" else []
     if shown:
@@ -836,19 +837,58 @@ def on_prompt(event: dict, cmd: str = "athos", defer: bool = False) -> str:
     return text
 
 
+def settle_ambiguous(scope: dict, everything: list[store.Piece], tier: str,
+                     cmd: str = "athos") -> tuple[dict, str]:
+    """An ambiguous mention of another project (its name is a common word and the request gave no cue, see
+    control.decide_named) brings none of its pieces into scope. On a frontier model, outside a public repository, it
+    becomes one index line saying the request may mean that project and how many pieces it has, so the model decides
+    (`offered`); otherwise it is `rejected`. Returns the scope with `named_how` settled and `offered_projects`, and
+    the line ("" when nothing is offered)."""
+    from athos import tiers
+    how = dict(scope.get("named_how") or {})
+    here, public = scope.get("project"), bool(scope.get("public"))
+    offered: list[tuple[str, int]] = []
+    for q in scope.get("ambiguous") or []:
+        n = sum(1 for p in everything if q in p.projects and control.may_see(p, here, public)
+                and store.status(p) != "retired")
+        if tier == tiers.FRONTIER and not public and n:
+            offered.append((q, n))
+            how[q] = "offered"
+        else:
+            how[q] = "rejected"
+    out = {**scope, "offered_projects": [q for q, _n in offered]}
+    if "named_how" in scope:
+        out["named_how"] = how
+    if not offered:
+        return out, ""
+    names = " or ".join(f"`{q}` ({n} way{'s' if n != 1 else ''} of working)" for q, n in offered)
+    first = offered[0][0]
+    return out, (f"- The request may also mean the project {names}, not loaded since its name is a common word; if "
+                 f"it does, `{cmd} list --project {first}` lists them and `{cmd} show <id>` reads one.")
+
+
 def deliver(found: list[store.Piece], trace: dict, pool: list[store.Piece], tier: str, cmd: str = "athos",
-            cap: int | None = None, notes: dict[str, str] | None = None) -> dict:
+            cap: int | None = None, notes: dict[str, str] | None = None, offer: str = "") -> dict:
     """How the router's choice reaches the model. Nothing when nothing was chosen. To an apply model (and any model of
     unknown tier) the pieces themselves (`fit`): it follows better than it picks. To a frontier model an index of the
     pieces in reach (`pull_index`): it picks well, and opens the one it needs with `athos show`, so a wrong choice of
     the router costs a few lines instead of a page (a page of up to 26 KB came with every request, 2026-11-14). Both
-    sizes are measured either way (`piece_chars`, `index_chars`) for the route event and the bench."""
+    sizes are measured either way (`piece_chars`, `index_chars`) for the route event and the bench. `offer`: the one
+    line about another project the request may mean (`settle_ambiguous`), added to a frontier model's index, and its
+    whole index when nothing was chosen."""
     from athos import tiers
     if not found:
+        if offer and tier == tiers.FRONTIER:
+            text = PULL_HEAD.format(cmd=cmd) + offer + "\n"
+            return {"delivery": "index", "text": text, "cut": [], "left_out": [], "steps_only": [], "offered": [],
+                    "piece_chars": 0, "index_chars": len(text)}
         return {"delivery": None, "text": "", "cut": [], "left_out": [], "steps_only": [], "offered": [],
                 "piece_chars": 0, "index_chars": 0}
     body, cut, left, steps = _fit(found, cmd, cap, apply=tier != tiers.FRONTIER)
-    index, offered = pull_index(found, trace, pool, cmd, notes=notes)
+    room = len(offer) + 1 if offer and tier == tiers.FRONTIER else 0
+    index, offered = pull_index(found, trace, pool, cmd, notes=notes, cap=PULL_CAP - room)
+    if room and index:
+        index += offer + "\n"
     if tier == tiers.FRONTIER:
         return {"delivery": "index", "text": index, "cut": [], "left_out": [], "steps_only": [], "offered": offered,
                 "piece_chars": len(body), "index_chars": len(index)}
@@ -929,7 +969,28 @@ def pull_index(found: list[store.Piece], trace: dict, pool: list[store.Piece], c
         out.append(line)
         ids.append(p.id)
         used += len(line) + 1
+    extra = _often_with(found, byid, ids) if ids else None
+    if extra and used + len(extra[1]) + 1 <= cap:
+        out.append(extra[1])
+        ids.append(extra[0])
     return ("\n".join(out) + "\n", ids) if ids else ("", [])
+
+
+def _often_with(found: list[store.Piece], byid: dict, listed: list[str]) -> tuple[str, str] | None:
+    """At most one more index line, when `memory.associations_line` is on: the piece most often used in the same task
+    as the router's first choice, among the pieces in reach and not listed yet (memory.partner)."""
+    from athos import memory
+    if not found or not memory.settings().get("associations_line"):
+        return None
+    try:
+        hit = memory.partner(found[0].id, set(byid), set(listed))
+    except Exception:  # noqa: BLE001 — the index never fails for an extra line
+        return None
+    if not hit:
+        return None
+    p = byid[hit[0]]
+    return p.id, (f"- often used with `{found[0].id}` ({hit[1]} tasks): `{p.id}` — {_short(p.title, 100)}. When: "
+                  f"{_short(p.when, PULL_WHEN)}")
 
 
 def finish_route(sid: str, total: int, added: dict[str, int] | None = None) -> None:
@@ -974,6 +1035,11 @@ def note_route(sid: str, prompt: str, scope: dict, trace: dict, found: list[stor
               "scope_reason": scope.get("reason"),
               "named_projects": scope.get("named", []), "marker": bool(scope.get("marker")),
               **({"named_count": scope["named_count"]} if "named_count" in scope else {}),
+              # How each mentioned project was decided (cue, distinctive, offered, rejected), never the words that
+              # mentioned it; in a public repository only counted.
+              **({"named_how": scope["named_how"]} if "named_how" in scope else {}),
+              **({"named_how_count": scope["named_how_count"]} if "named_how_count" in scope else {}),
+              "offered_projects": scope.get("offered_projects", []),
               "public": bool(scope.get("public")), "private_held": scope.get("private_held", 0),
               "store_pieces": in_store, "in_scope": in_scope,
               **printed, "request_kind": kind, "wrapper": wrapper, **trace,
@@ -1004,7 +1070,9 @@ def _offer_line(scope: dict, offered: list[str], injected: int, total: int | Non
     listed = loggable([byid[i] for i in offered if i in byid], scope.get("project"), bool(scope.get("public")))
     more = f" · {total} chars in all" if total is not None and total != injected else ""
     marker = " · public repository" if scope.get("public") else ""
-    return f"index of {len(offered)} ({listed}) · {injected} chars{more} · scope {scope.get('reason')}{marker}"
+    projects = scope.get("offered_projects") or []
+    also = f" · may mean project {', '.join(projects)}" if projects else ""
+    return f"index of {len(offered)} ({listed}){also} · {injected} chars{more} · scope {scope.get('reason')}{marker}"
 
 
 def nameable(piece: store.Piece, project: str | None, public: bool = False) -> bool:

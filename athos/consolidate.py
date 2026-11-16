@@ -32,7 +32,9 @@ EVERY = 20 * 3600            # at most one review this often, at session start
 class Review:
     """Athos's own consolidator: counted evidence, no model, nothing written."""
 
-    def review(self, events: Iterable[dict], pieces: list) -> dict:
+    def review(self, events: Iterable[dict], pieces: list, walked: dict | None = None) -> dict:
+        """`walked`: in how many tasks each page was walked, when the caller counted it already (the rollups and the
+        live log, memory.View.walked); else counted from the `trail` events."""
         events = list(events)
         by_id = {p.id: p for p in pieces}
         ratings = [e for e in events if e.get("type") == "rating" and e.get("piece") and e.get("step")]
@@ -59,7 +61,7 @@ class Review:
             elif len(high) >= 2:
                 proposals.append(_proposal("keep", piece, step, label, page.title, high))
 
-        return {"proposals": proposals, "trajectories": _trajectories(events, ratings)}
+        return {"proposals": proposals, "trajectories": _trajectories(events, ratings, walked)}
 
 
 def _proposal(kind: str, piece: str, step: str, label: str, title: str, rs: list[dict]) -> dict:
@@ -69,17 +71,19 @@ def _proposal(kind: str, piece: str, step: str, label: str, title: str, rs: list
             "evidence": evidence}
 
 
-def _trajectories(events: list[dict], ratings: list[dict]) -> list[dict]:
+def _trajectories(events: list[dict], ratings: list[dict], walked: dict | None = None) -> list[dict]:
     """For each page a task walked (a branch included): how many tasks went through it, and the stars it got."""
-    tasks_of: dict[str, set[str]] = defaultdict(set)
-    for e in events:
-        if e.get("type") == "trail" and e.get("kind") == "step" and e.get("piece") and e.get("task_id"):
-            tasks_of[e["piece"]].add(e["task_id"])
+    if walked is None:
+        tasks_of: dict[str, set[str]] = defaultdict(set)
+        for e in events:
+            if e.get("type") == "trail" and e.get("kind") == "step" and e.get("piece") and e.get("task_id"):
+                tasks_of[e["piece"]].add(e["task_id"])
+        walked = {page: len(ts) for page, ts in tasks_of.items()}
     stars: dict[str, list[int]] = defaultdict(list)
     for r in ratings:
         stars[r["piece"]].append(r["stars"])
-    return [{"page": page, "tasks": len(ts), "stars": round(sum(stars[page]) / len(stars[page]), 2) if stars[page] else None}
-            for page, ts in sorted(tasks_of.items(), key=lambda kv: -len(kv[1]))]
+    return [{"page": page, "tasks": n, "stars": round(sum(stars[page]) / len(stars[page]), 2) if stars[page] else None}
+            for page, n in sorted(walked.items(), key=lambda kv: (-kv[1], kv[0])) if n]     # ties by page: stable
 
 
 # ------------------------------------------------------------------------------------------------ the stored review
@@ -97,8 +101,21 @@ def last() -> dict:
 def run(events: Iterable[dict] | None = None, write: bool = True) -> dict:
     """Review the log with the consolidator in use; keep the result unless it is a dry run (a replay)."""
     from athos import services
-    rec, st = services.get("recorder"), services.get("store")
-    out = services.get("consolidator").review(rec.events() if events is None else events, st.all_pieces())
+    rec, st, con = services.get("recorder"), services.get("store"), services.get("consolidator")
+    if events is None and getattr(rec, "_path", None) == "athos.eval":
+        # Athos's own log: what the review needs of the whole history, from the rollups and the live log (memory.View),
+        # so the session-start review never reads the archive: the stars, the verdicts of the rated tasks, and how
+        # often each page was walked.
+        from athos import memory
+        v = memory.view()
+        results = v.results()
+        ratings = v.ratings()
+        marks = [{"type": "mark", "task_id": t, "result": results[t]} for t in
+                 dict.fromkeys(r.get("task_id") for r in ratings) if t in results and results[t] != "unevaluated"]
+        out = con.review(ratings + marks, st.all_pieces(), walked=v.walked()) if isinstance(con, Review) else \
+            con.review(ratings + marks + v.of_type("trail"), st.all_pieces())
+    else:
+        out = con.review(rec.events() if events is None else events, st.all_pieces())
     done = set(last().get("applied") or [])
     out["proposals"] = [p for p in out["proposals"] if p["id"] not in done]
     out["at"] = time.time()
