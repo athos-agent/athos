@@ -371,8 +371,11 @@ in any case; offline commands count it immediately.
    that may be named in that project's own sessions (another project's are counted, and in a project whose
    repository is marked public, only what may load there); no request is quoted. A page without the line
    `written_by: athos` in its frontmatter is yours and is never touched; a page Athos wrote and rewrites is kept in
-   `projects/.history/` first. `athos memory project [<name>]` prints it; in a repository marked public only that
-   project's own page. The no-model cycle writes no piece file: associations stay in the rollups and the project
+   `projects/.history/` first. Whether a project's repository is public is kept with its counts, so it holds after
+   its route events are archived. `athos memory project [<name>]` prints it; in a repository marked public only that
+   project's own page, and never the stored page as it is: one Athos wrote is made again as that repository may see
+   it, and any line naming a piece that may not be named there is left out. `athos memory findings` there keeps only
+   this project's rows and pieces that may be named in it. The no-model cycle writes no piece file: associations stay in the rollups and the project
    pages.
 
 Every step can be interrupted and run again: a segment is written atomically before anything refers to it (synced,
@@ -424,7 +427,8 @@ athos memory project [<name>]          a project's page
 under the daily cap it shares with the independent verifier (`autolearn.budget`: the run's cap is reserved first, a
 `model_run` event with `purpose` dream). One project per pass, the one with the most to look at. The model gets, as
 files in a folder and nothing else, the project's counted summary (no request words) and the text of that project's
-own pieces (title, when, body: never another project's, never frontmatter or history), and runs as the verifier does:
+own pieces that are not private (title, when, body: never another project's, never a private piece, never
+frontmatter or history), and runs as the verifier does:
 headless, read-only tools confined to that folder, no plugins, hooks or MCP, a throwaway Athos home. What it proposes
 is always a candidate:
 

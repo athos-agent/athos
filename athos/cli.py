@@ -2049,8 +2049,10 @@ def cmd_memory(args) -> int:
     if action == "findings":
         found = cycle.findings()
         here = control.here()
-        if here.public:                           # only what may be named here
-            found = {k: [f for f in v if not here.mentions_hidden(json.dumps(f))] for k, v in found.items()}
+        if here.public:                           # only this project's rows, and only pieces that may be named here
+            found = {k: [f for f in v if (f.get("project") == here.project if "project" in f else
+                                          all(here.may_name(x) for x in (f.get("pieces") or [f.get("piece")])))]
+                     for k, v in found.items()}
         print(json.dumps(found, ensure_ascii=False, indent=1))
         return 0
     if action == "project":
@@ -2064,6 +2066,12 @@ def cmd_memory(args) -> int:
             text = target.read_text()
         except OSError:
             return _fail(f"no project page for {name} yet: the dream cycle writes one (`athos memory cycle`)")
+        if here.public and cycle._is_athos_page(text):
+            # The stored page is not trusted here (written before the repository was marked public, or from counts
+            # that no longer said so): made again now as a public repository may see it.
+            text = cycle.project_page(name, public=True)
+        if here.public:                           # and whatever page it is, no line naming what may not be named here
+            text = "".join(line for line in text.splitlines(keepends=True) if not here.mentions_hidden(line))
         print(text, end="")
         return 0
     st = cycle.status()

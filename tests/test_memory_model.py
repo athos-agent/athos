@@ -39,6 +39,9 @@ class ModelPassTest(MemoryCase):
                                  origin={"platform": "test", "model": "test"}))
         store.create("Tag the build", "tagging the build", "## #one\n**When:** done.\n**Do:** tag.\n",
                      projects=["alpha"], piece_id="learned", status="verified", learned_by="m", confidence="0.8")
+        store._write(store.Piece(id="alpha-private", title="A private way", when="shipping a release quietly",
+                                 body=p.body, projects=["alpha"], visibility="private", created="2026-11-01",
+                                 last_used="2026-11-01", origin={"platform": "test", "model": "test"}))
         self.idle()
 
     def idle(self):
@@ -70,6 +73,7 @@ class ModelPassTest(MemoryCase):
         self.assertIn("summary.json", files)
         self.assertIn("pieces/ship.md", files)
         self.assertNotIn("pieces/report.md", files)
+        self.assertNotIn("pieces/alpha-private.md", files)          # a private piece is never sent
         self.assertNotIn("please do the thing", stub.calls[0]["prompt"])
         self.assertEqual({pid: store.get(pid).path.read_bytes() for pid in legacy}, legacy)      # untouched
         merged = [p for p in store.all_pieces() if "dream:merge" in (p.evidence or [])]

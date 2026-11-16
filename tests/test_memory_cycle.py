@@ -442,16 +442,17 @@ class DamagedBytesTest(MemoryCase):
         import zlib
         seg = memory.segment_path(memory.manifest()["segments"][0])
         good = seg.read_bytes()
-        for at in range(len(good) // 2, len(good) - 10):
-            bad = bytearray(good)
-            bad[at] ^= 0x10
-            try:
-                gzip.decompress(bytes(bad))
-            except zlib.error:
-                seg.write_bytes(bytes(bad))
-                return
-            except Exception:  # noqa: BLE001
-                continue
+        for at in range(20, len(good) - 10):
+            for bit in (0x10, 0x01, 0x80, 0x04):
+                bad = bytearray(good)
+                bad[at] ^= bit
+                try:
+                    gzip.decompress(bytes(bad))
+                except zlib.error:
+                    seg.write_bytes(bytes(bad))
+                    return
+                except Exception:  # noqa: BLE001
+                    continue
         self.fail("no single-bit flip gave a zlib error")
 
     def test_a_bit_flip_in_the_compressed_bytes(self):

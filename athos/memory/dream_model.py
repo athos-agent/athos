@@ -74,7 +74,8 @@ def bundle(project: str, found: dict) -> Path:
     from athos import store, verify
     folder = memory.root() / "dream" / f"{project}-{uuid.uuid4().hex[:8]}"
     (folder / "pieces").mkdir(parents=True, exist_ok=True)
-    own = [p for p in store.all_pieces() if project in p.projects and store.status(p) != "retired"]
+    own = [p for p in store.all_pieces() if project in p.projects and store.status(p) != "retired"
+           and not store.private(p)]                    # a private piece is never sent to a model
     ids = {p.id for p in own}
     total = memory.view().sums()
     summary = {"project": project, "tasks": (total["projects"].get(project) or {}).get("tasks", 0),
@@ -118,7 +119,7 @@ def route_gate(candidate) -> dict:
 def _merge(project: str, m: dict, model: str, wrote: list) -> str:
     from athos import autolearn, store, verify
     sources = [store.get(s) for s in m.get("sources") or []]
-    if len(sources) < 2 or any(s is None or project not in s.projects for s in sources):
+    if len(sources) < 2 or any(s is None or project not in s.projects or store.private(s) for s in sources):
         return "skipped: sources not all of this project"
     title, when, body = str(m.get("title") or "").strip(), str(m.get("when") or "").strip(), str(m.get("body") or "")
     if not title or not when or not body.strip():
@@ -161,7 +162,8 @@ def _rule(project: str, r: dict, model: str, wrote: list, proposals: list) -> st
     from athos import store
     p = store.get(str(r.get("piece") or ""))
     text = " ".join(str(r.get("text") or "").split())
-    if p is None or project not in p.projects or not text or r.get("kind") not in ("avoid", "keep"):
+    if p is None or project not in p.projects or store.private(p) or not text or \
+            r.get("kind") not in ("avoid", "keep"):
         return "skipped"
     if store.legacy(p):
         proposals.append({"piece": p.id, "step": r.get("step"), "kind": r["kind"], "text": text})

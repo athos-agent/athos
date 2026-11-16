@@ -866,7 +866,7 @@ def _play(project: str, total: dict) -> bool:
         project in set(curate.state().get("ignore") or [])
 
 
-def project_page(project: str, found: dict | None = None) -> str:
+def project_page(project: str, found: dict | None = None, public: bool | None = None) -> str:
     """What is known about working in a project, counted from the log and the store, as the page says it: its ways of
     working with their uses and outcomes, the pieces used together, how often a request found nothing, and what to
     look at. It names only pieces that may be named in that project's own sessions (load.nameable); another
@@ -875,7 +875,7 @@ def project_page(project: str, found: dict | None = None) -> str:
     v = memory.view()
     total = v.sums()
     found = found if found is not None else findings()
-    public = _project_public(project, v)
+    public = _project_public(project, v) if public is None else public
     pieces = [p for p in store.all_pieces() if load.nameable(p, project, public)]
     named = {p.id for p in pieces}
     pr = total["projects"].get(project) or {}

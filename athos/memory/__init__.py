@@ -378,6 +378,7 @@ def fold(ledger: dict, events: Iterable[dict]) -> dict:
             r = ledger["route"].setdefault(e.get("project") or "-", {"requests": 0, "nothing": 0, "chosen": {},
                                                                     "offered": {}, "named_how": {}, "repeats": {}})
             r["requests"] += 1
+            r["public"] = bool(e.get("public"))         # the latest says: a page of a public project names less
             for c in e.get("chosen") or []:
                 r["chosen"][c] = r["chosen"].get(c, 0) + 1
             for c in e.get("offered") or []:
