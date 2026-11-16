@@ -16,6 +16,15 @@ Which interface the person gets (`mode`): `minimal`, the default, draws only tha
 with a few words) and keeps every other Athos line out of sight; `classic` brings back the old interface (status
 line, trail pane, band with buttons, toasts, and the hook lines the person used to read). It is read from the
 ATHOS_UI environment variable, then from `"ui"` in `<home>/config.json`.
+
+Claude Desktop's chat (`athos mcp`) has no hooks: its state comes from the session the MCP server keeps (`chat`), by
+the same rules in its own words, and is recorded the same way (`observe(..., chat=True)`):
+
+    collaborating   athos_find handed over a piece for the task, or a step of one is being reported (athos_step)
+    learning        no piece is in use and the model reports steps the know-how lacks (athos_step `new`): a new way
+                    of working is being drafted; or a save the person pressed in the panel is being written
+    idle            nothing matched and nothing is drafted, the task is done (athos_done), or it has not moved for
+                    STALE_S
 """
 
 from __future__ import annotations
@@ -128,16 +137,47 @@ def compute(sid: str | None, state: dict | None = None) -> tuple[str, str]:
     return IDLE, "nothing_in_use"
 
 
+def chat(state: dict, sid: str | None = None, allowed=None) -> tuple[str, str]:
+    """The state of Claude Desktop's chat, from the MCP server's session state: (state, why). `allowed`: the ids that
+    may be named there (what athos_find may hand over); a step reported on any other piece counts for nothing."""
+    if _off():
+        return IDLE, "off"
+    if state.get("chat_saving"):
+        return LEARNING, "saving"
+    task = state.get("task_id")
+    end = state.get("task_end")
+    trail = state.get("trail") or []
+    if not task and not trail:
+        return IDLE, "no_task"
+    if isinstance(end, dict) and end.get("task_id") == task:
+        return IDLE, "between_tasks"
+    if sid and not _fresh(sid):
+        return IDLE, "stale_task"
+    ok = (lambda q: True) if allowed is None else (lambda q: q in allowed)
+    if any(ok(q) for q in state.get("task_why") or {}):
+        return COLLABORATING, "piece_found"
+    if any(x.get("kind") == "step" and ok(x.get("piece")) for x in trail):
+        return COLLABORATING, "step_reported"
+    if any(x.get("kind") == "new" for x in trail):
+        return LEARNING, "drafting_steps"
+    return IDLE, "nothing_in_use"
+
+
 def _file(sid: str):
     """sessions/ui/<session>.json: the last state recorded, beside (not among) the session files."""
     own = session._file(sid)
     return own.parent / "ui" / own.name
 
 
-def observe(sid: str | None, state: dict | None = None, project: str | None = None) -> dict:
+def observe(sid: str | None, state: dict | None = None, project: str | None = None, chat_allowed=None,
+            chat_state: bool = False) -> dict:
     """Compute the state and, only when it differs from the last one recorded for the session, record it: the
-    session's `sessions/ui/<id>.json` and one `ui` audit event. Returns {state, why}."""
-    now, why = compute(sid, state)
+    session's `sessions/ui/<id>.json` and one `ui` audit event. Returns {state, why}. `chat_state`: Claude Desktop's
+    chat (`chat`, with `chat_allowed`), instead of a Claude Code session."""
+    if chat_state:
+        now, why = chat(session.peek(sid) if state is None and sid else state or {}, sid, chat_allowed)
+    else:
+        now, why = compute(sid, state)
     out = {"state": now, "why": why}
     if not sid:
         return out

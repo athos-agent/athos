@@ -94,6 +94,7 @@ class McpAppTest(TempHome):
 
 
     def test_stars_keep_the_moment_and_reach_the_model_once_without_asking(self):
+        self.classic()      # the stars are the classic panel's; the minimal one draws none
         from athos import eval as ev
         store.create("Release the greet package", "releasing greet with a new option",
                      BODY + "\n## #push-tag\n**Do:** push.\n", piece_id="release")

@@ -327,14 +327,14 @@ class SilentTest(_Session):
 
 class OffersTest(HookCase):
     """The offers the model would pass on to the person (a cheaper model, the overnight review, a rule from an edit)
-    stay out of the minimal interface; the MCP panel no longer opens on its own."""
+    stay out of the minimal interface; in Desktop's chat the panel opens only in its minimal form, from athos_find."""
 
-    def test_the_trail_panel_does_not_open_unasked_in_desktops_chat(self):
+    def test_the_trail_panel_opens_only_from_find_in_desktops_chat(self):
         from athos import mcp
         with mock.patch.object(mcp, "draws_apps", return_value=True):
             tools = {t["name"]: t for t in mcp.tools()}
-            self.assertNotIn("_meta", tools["athos_find"])
-            self.assertNotIn("_meta", tools["athos_done"])
+            self.assertEqual(tools["athos_find"]["_meta"]["ui"]["resourceUri"], mcp.UI_URI)
+            self.assertNotIn("_meta", tools["athos_done"])          # no second panel with a receipt
             self.assertEqual(tools["athos_library"]["_meta"]["ui"]["resourceUri"], mcp.LIBRARY_URI)
             self.classic()
             tools = {t["name"]: t for t in mcp.tools()}
