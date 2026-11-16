@@ -51,8 +51,11 @@ What you will see:
   while it follows one of your ways of working, or **Athos is learning** (red) while it learns a new one. Nothing else
   from Athos gets in your way.
 - To keep your checklist as a way of working, write *"Athos · save: keep this task as a way of working"* when the
-  task is done. It becomes a plain text file of yours, on your computer. In Claude Desktop's chat a small panel shows
-  the same square with the list of steps, and a **Save as a way of working** button.
+  task is done. It becomes a plain text file of yours, on your computer.
+- In Claude Desktop's chat (not the Code tab) you see only the same square, in one short line. There Athos saves on
+  its own: when a task of several steps is done, it keeps what it taught as a way of working of yours, without asking.
+  To see what it saved, ask *"what ways of working do I have?"* (or type `athos list` in a terminal). To turn it off,
+  put `{ "autolearn": { "chat": "off" } }` in `~/.athos/config.json`.
 
 Next time: *"Review this services agreement, I act for the supplier."*
 

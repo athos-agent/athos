@@ -52,8 +52,11 @@ Lo que vas a ver:
   mientras sigue una de tus formas de trabajar, o **Athos está aprendiendo** (rojo) mientras aprende una nueva. Nada
   más de Athos se interpone.
 - Para guardar tu checklist como forma de trabajar, escribí *«Athos · guardar: guardá esta tarea como forma de
-  trabajar»* al terminar. Queda como un archivo de texto tuyo, en tu computadora. En el chat de Claude Desktop un
-  panel chico muestra el mismo cuadrado con la lista de pasos y un botón **Guardar como forma de trabajar**.
+  trabajar»* al terminar. Queda como un archivo de texto tuyo, en tu computadora.
+- En el chat de Claude Desktop (no la pestaña Code) ves solo el mismo cuadradito, en una línea corta. Ahí Athos guarda
+  solo: cuando termina una tarea de varios pasos, guarda lo que enseñó como una forma de trabajar tuya, sin preguntar.
+  Para ver lo que guardó, preguntá *«¿qué formas de trabajar tengo?»* (o escribí `athos list` en una terminal). Para
+  apagarlo, poné `{ "autolearn": { "chat": "off" } }` en `~/.athos/config.json`.
 
 La segunda vez alcanza con: *«Revisá este contrato de servicios, represento al proveedor.»*
 

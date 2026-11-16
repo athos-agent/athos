@@ -1,4 +1,4 @@
-# Athos in Claude Desktop: your know-how in the chat, with its panel
+# Athos in Claude Desktop: your know-how in the chat
 
 *Español: [claude-desktop.md](claude-desktop.md)*
 
@@ -6,9 +6,10 @@ This tutorial is for people who use Claude Desktop's **chat** (not the Code tab)
 you're done, every time you ask Claude for something:
 
 1. Athos finds **your** way of doing that task and Claude follows it.
-2. A **panel** opens in the conversation showing, step by step, how Claude walks through your way of working, the way
-   it shows what it's thinking.
-3. From the panel you can **adjust a step** or **save the new steps**, and next time Claude already knows them.
+2. A small **square** in the conversation tells you whether Athos is collaborating (following one of your ways of
+   working) or learning (noting a new one). Nothing else is shown.
+3. When a task taught something new, Athos **saves it on its own**, as a way of working of yours, and next time
+   Claude already knows it.
 
 Everything stays on your computer, in the `~/.athos` folder, as text you can read and edit. Nothing is sent to any
 Athos server.
@@ -55,56 +56,53 @@ When it's done, ask:
 
 Claude saves it with Athos and tells you its name. From then on, a short request like *"review this lease"* is enough.
 
-## 4. Ask for something and watch the panel
+## 4. Ask for something and watch the square
 
 Write a request that matches one of your ways of working:
 
 > Review this lease: [text]
 
-Before starting, Claude asks Athos and a small **Athos panel** opens in the conversation. While Claude follows one
-of your ways of working, it shows:
+Before starting, Claude asks Athos, and one short line appears in the conversation:
 
 ```
 ■ Athos is collaborating                      (green)
-Review a lease agreement
- ✓ Check the parties and the term
- ▶ Check the rent adjustment clause   [ Change this step ]
- ○ Check termination
- ○ Build the risk table
 ```
 
-- **✓** step done, **▶** the step Claude is on now, **○** what's left. A step that leads to another of your ways of
-  working shows its steps indented under it, marked *taken* or *not needed*.
-- The panel updates by itself while Claude works.
-
-If none of your ways of working fits the request, Claude notes the steps it takes, and the panel shows them as a new
-way of working being drafted:
+That is all the chat shows: Claude follows your way of working, step by step, out of sight, and answers as always. If
+none of your ways of working fits and the task takes several steps, Athos notes them as a new way of working:
 
 ```
 ■ Athos is learning                           (red)
- ✓ Read the clauses
- ▶ Check the guarantee
-[ Save as a way of working ]
 ```
 
-When nothing fits and nothing is being drafted, the panel stays empty. When the task is done the square goes away.
-The panel speaks the language you write in, English or Spanish.
+When nothing fits and nothing is being noted, nothing is shown. When the task is done the square goes away. It speaks
+the language you write in, English or Spanish.
 
-## 5. Correct and improve without commands
+## 5. It learns on its own
 
-- **[Change this step]**: a field opens. Write how the step Claude is on should change (for example *"also compare
-  against the CPI"*) and press **Send**. Athos writes it into that step of your way of working (a new version is
-  kept), and it goes to the chat as your message, so Claude goes on with the change.
-- **[Save as a way of working]**: shows when there were new steps, also after the task is done. Athos saves them as a
-  way of working of yours: a new one named after your request, or new steps added to the one Claude followed.
+When a task of several steps followed none of your ways of working, Athos saves what it taught once it is done, as a
+way of working of **yours**: it doesn't announce it or ask. When the task followed one of yours and added steps, it
+improves that one instead of creating another (the old version is kept). Before saving, Athos refuses what looks
+private (emails, links, ID numbers, folders of your computer, the names of your projects) and anything that repeats a
+way of working you already have.
 
-Only these two buttons save in the chat: Claude itself never saves your ways of working there.
+To see what was saved, ask in the chat *"what ways of working do I have?"*, or type `athos list` in a terminal. To
+change one, ask Claude, or edit its file (see step 6).
 
-Want the old, larger panel (greeting, stars on each step, a receipt at the end, **Keep beside**)? Add
-`"ui": "classic"` to `~/.athos/config.json`.
+Don't want the chat to save on its own? Add this to `~/.athos/config.json` (create it if it isn't there):
 
-Claude Desktop may ask you to confirm before a panel message is sent to the chat, or before an Athos tool is used.
-That's normal.
+```json
+{ "autolearn": { "chat": "off" } }
+```
+
+With `"off"` the chat saves nothing, unless you remove that line again.
+
+Want the old, larger panel (each step, stars, a receipt at the end, **Keep beside**)? Add `"ui": "classic"` to the
+same file.
+
+**Permissions.** The first time each Athos tool runs, Claude Desktop asks for your permission. Choose **Always
+allow** there, or set it once in **Settings → Extensions** (or **Connectors**) → **Athos** → tool permissions. The
+names may differ slightly by version.
 
 ## 6. See and edit your know-how
 
@@ -121,14 +119,15 @@ You can also ask Claude in the chat:
 
 | What happens | What to do |
 |---|---|
-| No panel, but Claude follows your way of working | Your Claude Desktop doesn't draw extension panels yet. Athos still works, as text. Update Claude Desktop. |
+| No square, but Claude follows your way of working | Your Claude Desktop doesn't draw extension panels yet. Athos still works, as text. Update Claude Desktop. |
 | Claude doesn't ask Athos | Start a new chat, or ask: *"use my Athos know-how for this"*. In the chat, Claude decides when to use its tools. |
-| The panel doesn't move while Claude works | It updates each time Claude marks a step. If your Claude Desktop doesn't let the panel ask Athos by itself, you see it at the end of the step. |
+| The square doesn't change while Claude works | It changes each time Claude marks a step. If your Claude Desktop doesn't let the panel ask Athos by itself, you see it at the end of the step. |
+| Claude Desktop asks before each Athos tool | Choose **Always allow**, or set it in **Settings → Extensions** (or **Connectors**) → **Athos**. |
 | It picks a way of working that doesn't fit | Tell Claude (*"that one doesn't apply"*). To stop it happening, adjust that way of working's **When** in its file. |
 | The extension doesn't start | Check the Mac has Python 3 (the first time it may ask to install the command line tools). |
 
 ## Privacy
 
-- Your ways of working and the panel's history stay in `~/.athos`, on your computer.
+- Your ways of working and Athos's history stay in `~/.athos`, on your computer.
 - Athos sends nothing to any server. What you write in the chat is processed by Claude, as always.
 - Don't put client data or passwords in a way of working: keep **how** you work, not **what** data you work with.
