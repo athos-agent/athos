@@ -71,10 +71,31 @@ def _flock():
     return fcntl
 
 
+LOCK_FRESH_S = 60            # a lock file whose content cannot be read yet (just made) counts as held this long
+
+
+def _holder() -> int | None:
+    """The pid the lock file names (0: it names none, or cannot be read)."""
+    try:
+        data = json.loads(lock_file().read_text() or "{}")
+        return int(data.get("pid") or 0)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 0
+
+
 def running() -> bool:
-    """Whether a cycle holds the lock now (this process or another). The lock is an `flock` held for the whole run,
-    so it goes with the process that held it, however it ended: nothing about it is ever stale."""
+    """Whether a cycle holds the lock now (this process or another). Read from the pid the holder writes into the
+    lock file (and clears when it lets go), probed without touching the lock, so asking never makes a cycle that is
+    starting fail; only a file that names no live process is checked with a non-blocking `flock`, which goes with the
+    process that held it, however it ended."""
     if _HELD:
+        return True
+    pid = _holder()
+    if pid is None:
+        return False
+    if pid and pid != os.getpid() and _alive(pid):
         return True
     fcntl = _flock()
     try:
@@ -96,25 +117,30 @@ def running() -> bool:
         os.close(fd)
 
 
-def take_lock() -> bool:
-    """One cycle at a time: an exclusive `flock` on `memory/.cycle.lock`, taken without waiting and held until
+def take_lock(tries: int = 3) -> bool:
+    """One cycle at a time: an exclusive `flock` on `memory/.cycle.lock`, taken without waiting (tried again twice a
+    few milliseconds apart, so a process that only looked at it does not turn a cycle away) and held until
     `release_lock` (or the process ends), so it cannot be taken from a live process, and two processes can never both
-    hold it. Where the filesystem has no `flock`, a lock file made whole before it is linked into place, taken over
-    only when the process that made it is gone."""
+    hold it. Where the filesystem has no `flock`, a lock file made whole before it is linked into place (or, with no
+    hard links either, created exclusively), taken over only when the process that made it is gone."""
     memory.root().mkdir(parents=True, exist_ok=True)
     if _HELD:
         return False
     fcntl = _flock()
     if fcntl is not None:
         fd = os.open(lock_file(), os.O_RDWR | os.O_CREAT, 0o600)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            os.close(fd)
-            return False
-        except OSError:
-            os.close(fd)
-            return _take_by_link()
+        for attempt in range(tries):
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if attempt == tries - 1 or (_holder() or 0) not in (0, os.getpid()) and _alive(_holder() or 0):
+                    os.close(fd)
+                    return False
+                time.sleep(0.005 * (attempt + 1))
+            except OSError:
+                os.close(fd)
+                return _take_by_link()
         try:
             os.ftruncate(fd, 0)
             os.write(fd, json.dumps({"pid": os.getpid(), "at": time.time()}).encode())
@@ -125,29 +151,76 @@ def take_lock() -> bool:
     return _take_by_link()
 
 
-def _linked_holder_alive() -> bool:
+def _linked_holder_alive(f: Path | None = None) -> bool:
+    """Whether the process a lock file names is alive; a file being made (no content yet) counts as alive while it
+    is fresh. Raises FileNotFoundError when there is no such file (its holder let go meanwhile)."""
+    f = f or lock_file()
+    text = f.read_text()
     try:
-        data = json.loads(lock_file().read_text() or "{}")
-        return _alive(int(data.get("pid") or 0))
-    except (OSError, ValueError, TypeError):
-        return False
+        data = json.loads(text or "{}")
+        pid = int(data.get("pid") or 0)
+    except (ValueError, TypeError, AttributeError):
+        pid = 0
+    if not pid:
+        try:
+            return time.time() - f.stat().st_mtime < LOCK_FRESH_S
+        except OSError:
+            return False
+    return _alive(pid)
 
 
 def _take_by_link() -> bool:
-    """No `flock` here: the lock file is written whole under a unique name and linked into place (never seen empty);
-    one whose process is gone is taken over."""
+    """No `flock` here: the lock file is written whole under a unique name and linked into place (never seen empty),
+    or, where hard links fail too, created exclusively and written at once. One whose process is gone is moved aside
+    under a unique name and taken over; a holder that let go between our try and our look is never mistaken for a
+    dead one (we try again), and a lock taken meanwhile by a third process is never removed."""
+    me = json.dumps({"pid": os.getpid(), "at": time.time(), "n": uuid.uuid4().hex[:8]})
     mine = lock_file().with_name(f".cycle.lock.{os.getpid()}.{uuid.uuid4().hex[:6]}")
-    mine.write_text(json.dumps({"pid": os.getpid(), "at": time.time()}))
     try:
-        for _ in range(2):
+        mine.write_text(me)
+    except OSError:
+        return False
+    try:
+        for _ in range(6):
             try:
-                os.link(mine, lock_file())
-                _HELD["link"] = mine.read_text()
+                try:
+                    os.link(mine, lock_file())
+                except FileExistsError:
+                    raise
+                except OSError:                          # no hard links either: an exclusive create
+                    fd = os.open(lock_file(), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    try:
+                        os.write(fd, me.encode())
+                    finally:
+                        os.close(fd)
+                _HELD["link"] = me
                 return True
             except FileExistsError:
-                if _linked_holder_alive():
+                try:
+                    st = lock_file().stat()
+                    if _linked_holder_alive():
+                        return False
+                except FileNotFoundError:
+                    continue                             # its holder let go just now: try again
+                except OSError:
                     return False
-                lock_file().unlink(missing_ok=True)
+                aside = lock_file().with_name(f".cycle.lock.stale.{uuid.uuid4().hex[:8]}")
+                try:
+                    os.rename(lock_file(), aside)
+                except OSError:
+                    continue
+                try:
+                    moved = aside.stat()
+                    if (moved.st_ino, moved.st_mtime_ns) != (st.st_ino, st.st_mtime_ns) and \
+                            _linked_holder_alive(aside):
+                        # Not the dead holder's file: a third process took the lock meanwhile; it is put back.
+                        try:
+                            os.rename(aside, lock_file()) if not lock_file().exists() else None
+                        except OSError:
+                            pass
+                        return False
+                finally:
+                    aside.unlink(missing_ok=True)
             except OSError:
                 return False
         return False
@@ -159,6 +232,10 @@ def release_lock() -> None:
     fd = _HELD.pop("fd", None)
     if fd is not None:
         fcntl = _flock()
+        try:
+            os.ftruncate(fd, 0)                          # the pid goes: asking `running()` reads it, not the lock
+        except OSError:
+            pass
         try:
             if fcntl is not None:
                 fcntl.flock(fd, fcntl.LOCK_UN)
@@ -218,7 +295,8 @@ def backing_off(reason: str, now: float | None = None) -> bool:
     if not st.get("streak") or (st.get("reason") != reason and st.get("outcome") != "failed"):
         return False
     wait = min(BACKOFF_MAX_S, BACKOFF_S * 2 ** (int(st["streak"]) - 1))
-    return (now or time.time()) - float(st.get("at") or 0) < wait
+    elapsed = (now or time.time()) - float(st.get("at") or 0)
+    return 0 <= elapsed < wait                           # recorded "in the future" (a clock set back since): none
 
 
 def _record(reason: str, progress: bool, outcome: str) -> dict:
@@ -245,8 +323,8 @@ def due(now: _dt.datetime | None = None) -> str:
         return ""
     if memory.pending_segment() or memory.manifest_problem():
         return "resume"
-    if any(unswept(f) for f in sidecars()):
-        return "sweep"
+    if any(unswept(f) or _quiet(f) for f in sidecars()):
+        return "sweep"                                   # lines wait there, or an old file is quiet: let it go
     trigger_bytes, trigger_days = triggers(s)
     if size > trigger_bytes:
         return "size"
@@ -478,6 +556,15 @@ def unswept(f: Path) -> bool:
         return False
 
 
+def _quiet(f: Path, now: float | None = None) -> bool:
+    """Whether nobody wrote into a trimmed log's old file for SIDE_QUIET_S: it can be let go."""
+    try:
+        st = f.stat()
+    except OSError:
+        return False
+    return (now or time.time()) - max(st.st_mtime, st.st_ctime) > SIDE_QUIET_S
+
+
 def _sweep(f: Path, whole_lines: bool = True) -> tuple[int, Path | None]:
     """Carry over what was written into a trimmed log's old file after the point already carried over. Idempotent
     across a kill at any point: the append it is about to make (where the live log ends, how many bytes) is first
@@ -542,7 +629,7 @@ def sweep(let_go: bool = False) -> dict:
             except OSError:
                 continue
             # Kept while its segment is not marked trimmed: it is the proof that the trim happened.
-            quiet = let_go and time.time() - max(st.st_mtime, st.st_ctime) > SIDE_QUIET_S and \
+            quiet = let_go and _quiet(f) and \
                 states.get((_side_parts(f) or (None,))[0]) in ("pruned", "kept", None)
             added, now = _sweep(f, whole_lines=not quiet)
             out["swept_bytes"] += added
@@ -1209,6 +1296,8 @@ def run(now: _dt.datetime | None = None, model: bool | None = None, runner=None,
     says once why it could make no progress (a `stuck` event), after which the hooks back off. A cycle that raises
     leaves a `failed` event (its error's kind and where), and the hooks back off from it too."""
     if not take_lock():
+        if auto and not running():                       # the lock cannot be taken, yet nobody holds it: back off
+            _record(due() or "asked", False, "skipped")
         return {"skipped": "another cycle is running"}
     run_id = uuid.uuid4().hex[:12]
     out: dict = {"run_id": run_id}

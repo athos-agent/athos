@@ -380,3 +380,115 @@ class BoundaryLastTest(MemoryCase):
         self.assertEqual(whole, "ship")
         self.assertEqual(v.bars("delta")["piece"], whole)
         self.assertEqual(v.last_task("delta")["task_id"], "d2")
+
+
+NOFLOCK_LOCKER = r"""
+import os, sys, time
+sys.path.insert(0, sys.argv[1])
+from athos.memory import cycle
+cycle._flock = lambda: None                              # a filesystem without flock
+if sys.argv[4] == "nolinks":
+    real = os.link
+    def no_link(*a, **k):
+        raise OSError(45, "Operation not supported")
+    os.link = no_link
+marker = sys.argv[2]
+bad = got = 0
+until = time.time() + float(sys.argv[3])
+while time.time() < until:
+    if cycle.take_lock():
+        got += 1
+        try:
+            fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            bad += 1
+        else:
+            time.sleep(0.002)
+            os.close(fd)
+            os.unlink(marker)
+        cycle.release_lock()
+    time.sleep(0.0005)
+print(bad, got)
+"""
+
+
+class LockFallbackTest(MemoryCase):
+    def race(self, mode):
+        import subprocess
+        import sys
+        from pathlib import Path
+        repo = str(Path(__file__).resolve().parents[1])
+        marker = str(Path(self.home) / "holder")
+        procs = [subprocess.Popen([sys.executable, "-c", NOFLOCK_LOCKER, repo, marker, "3", mode],
+                                  stdout=subprocess.PIPE, text=True, env={**os.environ, "ATHOS_HOME": self.home})
+                 for _ in range(4)]
+        outs = [p.communicate(timeout=120)[0].split() for p in procs]
+        return sum(int(o[0]) for o in outs), sum(int(o[1]) for o in outs)
+
+    def test_without_flock_two_holders_never_overlap(self):
+        bad, got = self.race("links")
+        self.assertGreater(got, 50)
+        self.assertEqual(bad, 0)
+
+    def test_without_flock_nor_hard_links_a_cycle_still_runs_alone(self):
+        bad, got = self.race("nolinks")
+        self.assertGreater(got, 50)
+        self.assertEqual(bad, 0)
+        with mock.patch.object(cycle, "_flock", return_value=None), \
+                mock.patch.object(cycle.os, "link", side_effect=OSError(45, "Operation not supported")):
+            out = cycle.run()
+        self.assertIn("replay", out)
+
+    def test_looking_never_turns_a_starting_cycle_away(self):
+        import fcntl
+        real = fcntl.flock
+        self.assertTrue(cycle.take_lock())
+        calls = []
+        with mock.patch.object(fcntl, "flock", side_effect=lambda *a: calls.append(a) or real(*a)):
+            self.assertTrue(cycle.running())                 # read from the holder's pid, the lock untouched
+        self.assertEqual(calls, [])
+        cycle.release_lock()
+        self.assertFalse(cycle.running())
+        tries = []
+
+        def busy_once(fd, op):
+            tries.append(op)
+            if len(tries) == 1:
+                raise BlockingIOError("someone only looked")
+            return real(fd, op)
+        with mock.patch.object(fcntl, "flock", side_effect=busy_once):
+            self.assertTrue(cycle.take_lock())
+        cycle.release_lock()
+
+    def test_a_lock_that_cannot_be_taken_by_nobody_backs_the_hooks_off(self):
+        with mock.patch.object(cycle, "take_lock", return_value=False), \
+                mock.patch.object(cycle, "running", return_value=False), later(45):
+            self.assertEqual(cycle.run(auto=True), {"skipped": "another cycle is running"})
+            why = cycle.due()
+            self.assertTrue(why)
+            self.assertTrue(cycle.backing_off(why))
+
+
+class ClockAndQuietTest(MemoryCase):
+    def test_a_back_off_recorded_while_the_clock_was_ahead_does_not_wedge(self):
+        import time
+        paths.write_atomic(cycle.state_file(), json.dumps({"at": time.time() + 400 * 86400, "reason": "age",
+                                                            "outcome": "stuck", "streak": 3}))
+        self.assertFalse(cycle.backing_off("age"))
+        paths.write_atomic(cycle.state_file(), json.dumps({"at": time.time() - 60, "reason": "age",
+                                                            "outcome": "stuck", "streak": 3}))
+        self.assertTrue(cycle.backing_off("age"))
+
+    def test_the_old_log_is_let_go_once_quiet_without_waiting_for_the_next_trim(self):
+        import time
+        cycle.run()
+        sides = cycle.sidecars()
+        self.assertTrue(sides)
+        self.assertNotEqual(cycle.due(), "sweep")
+        old = time.time() - cycle.SIDE_QUIET_S - 5
+        for f in sides:
+            os.utime(f, (old, old))
+        with mock.patch.object(cycle, "_quiet", side_effect=lambda f, now=None: True):
+            self.assertEqual(cycle.due(), "sweep")              # the next Stop asks for the cycle that lets it go
+            cycle.run(auto=True)
+        self.assertEqual(cycle.sidecars(), [])

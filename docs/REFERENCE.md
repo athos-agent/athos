@@ -445,7 +445,11 @@ does not list is listed again; one that cannot be read is moved to `damaged/`; a
 moved there too and rebuilt from the segments on disk; and a ledger or rollups that are lost or unreadable are made
 again by the next cycle, which the hooks start as soon as they notice. One cycle runs at a time: an exclusive `flock`
 on `memory/.cycle.lock` held for the whole run, so it is never taken from a live process and goes with a process that
-died. The
+died; whether one is running is read from the pid its holder writes into that file, never by touching the lock.
+Without `flock` the lock file is linked into place whole (created exclusively where hard links fail too) and taken
+over only when the process it names is gone; a lock that cannot be taken while nobody holds it makes the hooks back
+off as a stuck cycle does. A trimmed log's old file nobody wrote into for 30 seconds makes the next Stop ask for the
+cycle that lets it go. The
 Stop hook starts it detached and at low priority, the way it starts the verifier, when the live log passes
 `trigger_bytes` (6 MB) or its oldest event is older than `trigger_days` (37), or a segment was left half done, or a
 late line waits; `"memory": {"auto": false}` turns that off. `trigger_bytes` and `trigger_days` always act past
