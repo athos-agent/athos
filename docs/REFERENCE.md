@@ -87,9 +87,8 @@ back everything below: the status line, the trail pane, the band with [Save], [N
 [Change this step] and [Keep this rule], the verdict row, the bars, the "following" line and its steps, the toasts,
 and the lines the model was asked to tell you. `ATHOS_UI=minimal` (or `"ui": "minimal"`) is the default.
 
-What stays visible where, in the minimal interface: in Desktop's regular chat the trail panel no longer opens on its
-own (the model's `athos_find` and `athos_done` no longer carry it), and `athos_library` still opens the library when
-you ask; in OpenCode the sidebar stays where you put it, but its step toasts are off; `athos watch`, `athos watch
+What stays visible where, in the minimal interface: in Desktop's regular chat the panel opens in a minimal form that
+shows only the same square, in one short line (see "In Claude Desktop"), and `athos_library` still opens the library when you ask; in OpenCode the sidebar stays where you put it, but its step toasts are off; `athos watch`, `athos watch
 --web` and `athos library` show what they always showed, only when you run them. A command you type yourself
 (`athos list`, `athos mark`, …) prints as before.
 
@@ -1068,7 +1067,8 @@ towards promotion, even if the same text passes later (the `reuse` event keeps `
   permission is withdrawn). The `athos save` the model then runs in that task, from any folder of the project, is
   yours: it works on any model and stores a piece you own (no `status`), as before autonomous learning. It lasts until
   your next request (30 minutes at most). An `athos save` you run in your own terminal, where no agent runs it and no
-  session works in that folder or above it, is yours too.
+  session works in that folder or above it, is yours too. So is the model's `athos_save` in Claude Desktop's chat
+  while `autolearn.chat` is `own` (the default), because you chose it.
 - **the model's**: anything else. A command an agent runs (Claude Code's shell sets `CLAUDECODE` and the session's id,
   `CLAUDE_CODE_SESSION_ID`, which also tells which session it is when two work in one folder), a command in a folder
   where a session worked in the last 30 minutes (or in a folder above it: a subfolder belongs to the project's
@@ -1080,7 +1080,12 @@ gives a candidate, on strong evidence, after the private-data check, then the ve
 could not resolve, nothing is saved or changed at all, from any folder, through the CLI or MCP (`athos save`, `athos
 revert`, `athos merge --apply`, `athos curate apply|restore`, `athos_save` and `athos_merge` with `apply`), and the
 refusal says how you can save it yourself. No session found while an agent runs the command counts as a model Athos
-could not resolve. In Claude Desktop's chat the model is not known, so its `athos_save` saves nothing.
+could not resolve. In Claude Desktop's chat the model is not known; there the setting `autolearn.chat` decides: `own`
+(the default) keeps the model's `athos_save` as a piece of yours (no `status`), by your choice, after the private-data
+and near-duplicate checks; `off` saves nothing there. Either way `athos_merge` with `apply` is refused in the chat
+(see "In Claude Desktop"). Each chat save is a `learn` event marked `chat`, with `observed` false (the model was not
+seen); `athos audit` lists them as saves from the chat instead of flagging them under `save_in_apply_mode` while the
+setting is `own`.
 
 On an apply model nothing is ever offered or asked for. Another agent's models (Codex, Muse Code, OpenCode) are apply
 models until you name them frontier with `athos tiers add frontier <pattern>`. `"autolearn": {"on": false}` in
@@ -1389,14 +1394,51 @@ the trail pane beside the transcript. For the regular **chat**, which takes MCP 
 as a Desktop extension: `athos desktop` builds `dist/athos.mcpb`; double-click it (or drag it into Settings →
 Extensions). It runs `athos mcp` against your own `~/.athos`.
 
-In the chat, Athos finds the know-how for each request (`athos_find`) and, in the classic interface (`"ui": "classic"`
-in `~/.athos/config.json`), opens its **trail panel** in the conversation (MCP Apps); in the minimal one (the default)
-the panel does not open on its own. The panel: a greeting, the piece the task walks with each step ✓ done, ▶ now and ○ ahead as the model
-reports it (`athos_step`), the steps your know-how lacks, and two buttons: **Change this step** (you write how the step
-changes; the piece is improved) and **Save as a way of working**. **Keep beside** pins the panel where the host allows it. In a
-chat without MCP Apps, the same tools answer as text. The chat's model is not known to Athos and an MCP server cannot
-tell who wrote a request, so the model's `athos_save` (and `athos_merge` with `apply`) saves and changes nothing there
-(see "Who may save").
+In the chat, Athos finds the know-how for each request (`athos_find`), and in a chat that draws MCP Apps that call
+opens Athos's panel in the conversation. In the minimal interface (the default) the panel is the same square as in
+Claude Code, one short line, and nothing else:
+
+| state | what you see | when |
+|---|---|---|
+| collaborating | a green ■ and `Athos is collaborating` (`Athos está colaborando`) | `athos_find` handed over one of your pieces, or a step of one is being reported (`athos_step`); it wins, also while a save improves that piece |
+| learning | a red ■ and `Athos is learning` (`Athos está aprendiendo`) | the task follows no piece and the model reports steps your know-how lacks (`athos_step` with `new`), or a save from the chat is being written |
+| idle | nothing: the panel is empty and takes no room | nothing matched and nothing is drafted, the task is done (`athos_done`), or it has not moved in 6 minutes |
+
+No piece title, no steps, no buttons, no notices: the page gets only the state, its `why`, the language and the
+interface, never a piece id, a title, a step or your request. The model still reports each step with `athos_step`,
+since that drives the square, but nothing of it is shown. The state is computed by `indicator.py` (`chat`), and each
+change is one `ui` event in `athos audit`, as in Claude Code. MCP Apps declare a tool's page once, in the tool list,
+not per result, so a request that matches nothing still opens the panel; it stays empty.
+
+**The chat saves on its own.** With `autolearn.chat` set to `own` (the default), when a task of several steps
+followed no way of working and is done, the model saves what it taught once with `athos_save` (a title, a when, one
+statement per step with When, Do and Because), right before `athos_done`, without announcing it or asking you; when
+the task followed a piece and added steps, it improves that piece instead (its id and a note). The piece is yours (no
+`status`), since you chose to let the chat save. It still passes the checks an automatic save applies to its content:
+the private-data check (emails, phone and ID numbers, links, folders of this computer, other projects' names, your
+name) and the near-duplicate check against the pieces the chat may name (it is refused with the ask to improve that
+piece instead). A refusal tells the model why in one line and saves nothing. A piece the chat may not name is never
+changed from it. `athos_merge` with `apply` stays refused in the chat. See what was saved with `athos list`, or by
+asking the chat *"what ways of working do I have?"*; `athos revert <id> <version>` goes back. To turn it off:
+
+```json
+{ "autolearn": { "chat": "off" } }
+```
+
+in `~/.athos/config.json`: then the model's `athos_save` saves nothing in the chat, as before (see "Who may save").
+The panel names only pieces `athos_find` may hand over there (your selection, with no folder: `athos load`); a step
+reported on any other piece, or a piece opened with `athos_show`, does not light the square.
+
+Every Athos tool tells Claude Desktop what it does (MCP tool annotations and a title): `athos_show`, `athos_list`,
+`athos_trail` and `athos_library` only read; the others change something but never delete or overwrite (a save, a
+merge or going back adds a version and keeps the old ones); `athos_share`, `athos_add` and `athos_connect` reach
+beyond this computer. The first time each tool runs Claude Desktop asks; **Always allow** there, or the tool
+permissions under Settings → Extensions (or Connectors) → Athos, stops it asking (the names may differ slightly by
+version).
+
+`"ui": "classic"` in `~/.athos/config.json` brings back the old panel: the moment's card, stars on any step, the
+receipt at the end (`athos_done` opens it), and **Keep beside**. In a chat without MCP Apps, the same tools answer as
+text.
 
 Step by step, for people who don't program: [docs/guides/claude-desktop-en.md](guides/claude-desktop-en.md)
 (en español: [docs/guides/claude-desktop.md](guides/claude-desktop.md)).

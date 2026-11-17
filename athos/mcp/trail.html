@@ -112,9 +112,16 @@
   @keyframes pop { 50% { transform: scale(1.4); } }
   .rate .hint { color: var(--dim); font-size: 12px; }
   .stars b { font-weight: inherit; }
+
+  /* The minimal interface: the mark alone, one short line (a small square and a few words). */
+  #mini { padding: 2px 8px; }
+  #mini .mhead { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; line-height: 18px; }
+  #mini .sq { font-size: 12px; line-height: 1; }
+  #mini .sq.learning { color: #d23f31; } #mini .sq.collaborating { color: #2f9e55; }
 </style>
 </head>
 <body>
+<section id="mini" hidden><div class="mhead" id="mhead"></div></section>
 <main id="app" data-mode="idle">
   <div class="top">
     <div class="mark" id="mark"><div class="ring"></div><div class="orbit"></div><div class="core"></div></div>
@@ -147,6 +154,7 @@ const WORDS = {
     skippedList: 'skipped', learned: 'Learned in this task', undo: 'Undo', undone: 'undone', newPage: 'new',
     related: 'Other ways of working that fit', use: t => `Use my way of working «${t}» for this.`,
     rateTask: 'How did the task go?',
+    collaborating: 'Athos is collaborating', learning: 'Athos is learning',
   },
   es: {
     idle: 'Athos está con vos', idleSub: 'Calificá cualquier momento: aprende lo que te sirve.',
@@ -163,8 +171,12 @@ const WORDS = {
     skippedList: 'salteó', learned: 'Lo que aprendí en esta tarea', undo: 'Deshacer', undone: 'deshecho', newPage: 'nueva',
     related: 'Otras formas de trabajar que encajan', use: t => `Usá mi forma de trabajar «${t}» para esto.`,
     rateTask: '¿Cómo salió la tarea?',
+    collaborating: 'Athos está colaborando', learning: 'Athos está aprendiendo',
   },
 };
+// The server says which interface the person has when it serves this page (the minimal one: <html data-ui="minimal">);
+// every state it sends says it again.
+const MINI = () => (state ? state.ui === 'minimal' : document.documentElement.dataset.ui === 'minimal');
 let state = null, prev = null, host = {}, nextId = 1, polls = 0, learning = 0, flash = null, hover = 0, sel = null;
 const rated = {};                      // stars given in this panel, per step (piece#id), or 'task'
 const undone = new Set();
@@ -210,9 +222,9 @@ function take(result) {
   if (!next && result && result.content) {
     try { next = JSON.parse(result.content[0].text); } catch (e) { return; }
   }
-  if (!next || !next.trail) return;
+  if (!next || !(next.trail || next.ui === 'minimal')) return;
   prev = state; state = next;
-  triggers(prev, state);
+  if (state.trail) triggers(prev && prev.trail ? prev : null, state);     // the minimal state has no trail
   draw();
 }
 
@@ -246,7 +258,28 @@ function mode() {
   return 'active';
 }
 
+// One row per step, as the list draws them: done, now, ahead, skipped, the steps of a page a step hands over to
+// indented under it.
+function stepRows(steps, p, o) {
+  return steps.map(x => { const k = keyOf(x, p); return `<li class="${x.state}${o.isSel(k) ? ' sel' : ''}" data-k="${esc(k)}" style="${x.depth ? `padding-left:${4 + x.depth * 14}px` : ''}">` +
+    `<span class="m">${o.mk[x.state] || ''}</span><span class="t">${md(plain(x.label))}${o.after ? o.after(x, k) : ''}</span>` +
+    (o.rated[k] ? `<span class="r">${'★'.repeat(o.rated[k])}</span>` : '') + (o.tail ? o.tail(x, k) : '') + '</li>'; }).join('');
+}
+
+// The minimal panel: the mark alone, green while a piece of the person's know-how is in use, red while Athos learns
+// (a new way of working being drafted, or a save being written). Idle, it draws nothing and takes no height.
+function drawMini() {
+  const W = w(), ind = ((state && state.indicator) || {}).state || 'idle';
+  $('app').hidden = true;
+  $('mini').hidden = ind === 'idle';
+  $('mhead').innerHTML = ind === 'idle' ? '' :
+    `<span class="sq ${ind}">■</span><span>${esc(ind === 'collaborating' ? W.collaborating : W.learning)}</span>`;
+  size();
+}
+
 function draw() {
+  if (MINI()) return drawMini();
+  $('mini').hidden = true; $('app').hidden = false;
   const W = w(), t = state ? state.trail : null, m = (state && state.moment) || {};
   $('app').dataset.mode = mode();
   const p = t && t.pieces[0];
@@ -272,9 +305,7 @@ function draw() {
   const mk = { done: '✓', now: '▸', skipped: '–', ahead: '○' };
   $('list').hidden = !steps.length;
   $('listsum').textContent = W.steps(steps.filter(x => x.state === 'done').length, steps.length);
-  $('steps').innerHTML = steps.map(x => { const k = keyOf(x, p); return `<li class="${x.state}${isSel(k) ? ' sel' : ''}" data-k="${esc(k)}" style="${x.depth ? `padding-left:${4 + x.depth * 14}px` : ''}">` +
-    `<span class="m">${mk[x.state] || ''}</span><span class="t">${md(plain(x.label))}</span>` +
-    (rated[k] ? `<span class="r">${'★'.repeat(rated[k])}</span>` : '') + '</li>'; }).join('');
+  $('steps').innerHTML = stepRows(steps, p, { mk, isSel, rated });
   let card = '';
   if (cur) {
     const earlier = (m.earlier || [])[0];
@@ -356,6 +387,7 @@ async function rate(n) {
 }
 
 document.addEventListener('click', e => {
+  if (MINI()) return;
   const b = e.target.closest('.stars button');
   if (b) return rate(+b.dataset.n);
   const s = e.target.closest('[data-k]');
@@ -374,6 +406,7 @@ document.addEventListener('click', e => {
     .then(r => { host.mode = r.mode; draw(); }).catch(() => {});
 });
 document.addEventListener('mouseover', e => {
+  if (MINI()) return;
   const b = e.target.closest('.stars button');
   const n = b ? +b.dataset.n : 0;
   if (n !== hover) { hover = n; draw(); }

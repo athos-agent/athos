@@ -33,13 +33,14 @@ class McpTest(TempHome):
                      {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                       "params": {"name": "athos_save", "arguments": {"text": "no frontmatter"}}},
                      {"jsonrpc": "2.0", "id": 3, "method": "nope"})
-        # The MCP server cannot tell who wrote the request, so the save is the model's, and in Claude Desktop the
-        # model is not known: nothing is saved (tests/test_who_saves.py has the rest).
-        self.assertTrue(r[0]["result"]["isError"])
-        self.assertIn("not saved", r[0]["result"]["content"][0]["text"])
+        # The MCP server cannot tell who wrote the request, so the save is the model's; the person lets the chat save
+        # on its own (autolearn.chat `own`, the default), so it is their own piece (tests/test_mcp_minimal.py and
+        # tests/test_who_saves.py have the rest).
+        self.assertFalse(r[0]["result"]["isError"])
+        self.assertEqual(store.get("tag-a-release").status, "")
         self.assertTrue(r[1]["result"]["isError"])
+        self.assertIn("not saved", r[1]["result"]["content"][0]["text"])
         self.assertEqual(r[2]["error"]["code"], -32601)
-        self.assertIsNone(store.get("tag-a-release"))
 
 
 class McpAppTest(TempHome):
@@ -73,6 +74,7 @@ class McpAppTest(TempHome):
         self.assertIn("ui/initialize", c["text"])
 
     def test_a_task_walks_its_piece_and_the_panel_sees_each_step(self):
+        self.classic()      # the steps are the classic panel's; the minimal one shows only the mark
         store.create("Release the greet package", "releasing greet with a new option",
                      BODY + "\n## #push-tag\n**Do:** push.\n", piece_id="release")
         r = self.rpc(self.call(1, "athos_find", request="release greet 0.3.0"),
@@ -94,6 +96,7 @@ class McpAppTest(TempHome):
 
 
     def test_stars_keep_the_moment_and_reach_the_model_once_without_asking(self):
+        self.classic()      # the stars are the classic panel's; the minimal one draws none
         from athos import eval as ev
         store.create("Release the greet package", "releasing greet with a new option",
                      BODY + "\n## #push-tag\n**Do:** push.\n", piece_id="release")
@@ -122,6 +125,7 @@ class McpAppTest(TempHome):
         self.assertTrue(r[6]["result"]["isError"])                                   # 1 to 5 only
 
     def test_an_earlier_step_can_be_opened_and_rated_and_old_ratings_stay_in_their_task(self):
+        self.classic()      # the steps are the classic panel's; the minimal one shows only the mark
         import time
         from athos import rating, session
         store.create("Release the greet package", "releasing greet with a new option",
@@ -239,3 +243,25 @@ class DesktopTest(TempHome):
         start.config_file().write_text('{"lang_seen": "en"}')
         m.call("athos_find", {"request": "Revisá este contrato de locación antes de que mi cliente lo firme"})
         self.assertEqual(m.panel()["lang"], "es")
+
+
+class ToolAnnotationsTest(TempHome):
+    """Every tool says what it does to the person's computer, so Claude Desktop can group them and stop asking."""
+
+    def test_every_tool_has_truthful_annotations_and_a_title(self):
+        from athos.mcp import TOOLS
+        reads = {"athos_show", "athos_list", "athos_trail", "athos_library"}
+        world = {"athos_share", "athos_add", "athos_connect"}
+        for t in TOOLS:
+            a = t["annotations"]
+            self.assertTrue(t["title"] and a["title"] == t["title"], t["name"])
+            self.assertIs(a["readOnlyHint"], t["name"] in reads, t["name"])
+            self.assertIs(a["openWorldHint"], t["name"] in world, t["name"])
+            if t["name"] not in reads:
+                self.assertIs(a["destructiveHint"], False, t["name"])
+
+    def test_the_host_gets_them(self):
+        out = io.StringIO()
+        mcp.serve(io.StringIO(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n"), out)
+        tools = json.loads(out.getvalue())["result"]["tools"]
+        self.assertTrue(tools and all("annotations" in t for t in tools))

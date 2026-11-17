@@ -22,6 +22,10 @@ The settings live in `<home>/config.json` under `"autolearn"`; anything not save
     age_days            a verified piece with no use and no re-verification in this many days returns to candidate
     reverify_days       a piece older than this is checked against the environment before a frontier model is
                         offered it
+    chat                what the model's athos_save does in Claude Desktop's chat (`athos mcp`), where the model is
+                        not known: `own` (the default) saves it as the person's own piece (no status), after the
+                        private-data and near-duplicate checks, since the person chose to let the chat save on its
+                        own; `off` saves nothing there
 """
 
 from __future__ import annotations
@@ -41,6 +45,7 @@ DEFAULTS = {
     "apply_candidates": False,
     "age_days": 90,
     "reverify_days": 14,
+    "chat": "own",
 }
 
 LEARN, APPLY, UNKNOWN = "learn", "apply", "unknown"
@@ -419,6 +424,67 @@ def refuse_model_save(sid: str | None, what: str = "save") -> str | None:
     return (f"not saved: this session runs on {model}, {kind}. Apply models and models Athos could not resolve never "
             f"create or change a piece (`athos tiers` lists which models learn); the person can save it with "
             f"their [Save] button or an `Athos · save:` request.")
+
+
+CHAT_OWN, CHAT_OFF = "own", "off"
+
+
+def chat_mode() -> str:
+    """`own` (the default) or `off`: whether the model's athos_save in Claude Desktop's chat saves (autolearn.chat)."""
+    value = str(settings().get("chat") or CHAT_OWN).strip().lower()
+    return value if value in (CHAT_OWN, CHAT_OFF) else CHAT_OWN
+
+
+CHAT_DUPLICATE = ("this is the same way of working as `{id}` (\"{title}\"). Improve that piece instead of creating "
+                  "another: athos_save again with the whole piece rewritten (its steps and what this task added), "
+                  "with `id: {id}` and a `note:` saying what changed in its frontmatter.")
+
+
+def save_chat(text: str, sid: str, may_name, writing=None):
+    """The model's athos_save in Claude Desktop's chat under `chat: own`: the person chose to let the chat save on its
+    own, so the piece is theirs (no status), new or a new version of one the chat may name (`may_name`). The same
+    refusals an automatic save applies to its content come first: the private-data check, and the near-duplicate
+    check (improve the existing piece instead). `writing`: a context manager around the write itself (the chat's
+    state shows learning while it runs). (piece or None, the line for the model, refused). Every outcome is a `learn`
+    event marked `chat`, with whether the model was observed (in the chat it never is)."""
+    import contextlib
+    from athos import capture, store, wiki
+    state = session.load(sid)
+    marks = {"chat": True, "observed": bool(session.observed(state))}
+
+    def refuse(reason: str, message: str, **more):
+        note(sid, state, "skipped", reason, [], **marks, **more)
+        return None, f"not saved: {message}", True
+
+    _meta, title, when, piece_id, body = capture._fields(text)
+    existing = store.get(piece_id) if piece_id else None
+    if existing is not None and not may_name(existing.id):
+        # A piece the chat may not name is neither changed nor confirmed: the answer an unknown id would get.
+        return refuse("not_here", f"no way of working {piece_id!r} to improve here; leave out `id:` to save a new one")
+    if existing is None:
+        absent = [name for name, value in (("title", title), ("when", when), ("body", body)) if not value]
+        if absent:
+            return refuse("invalid", "missing " + ", ".join(absent) + " (a frontmatter with title and when, then "
+                                     "the statements)")
+        draft = store.Piece(id="draft", title=title, when=when, body=body)
+        opened = set(state.get("task_opened") or []) | set(state.get("task_loaded") or [])
+        twins = wiki.same_way(draft, [p for p in store.all_pieces() if may_name(p.id)], opened)
+        if twins:
+            score, twin = twins[0]
+            return refuse("duplicate", CHAT_DUPLICATE.format(id=twin.id, title=twin.title), overlaps=[twin.id],
+                          score=score)
+    found = private_findings(text, None)
+    if found:
+        return refuse("private_data", "it looks like it carries private data (" + ", ".join(found) + "). Rewrite it "
+                      "without them (no emails, links, numbers of real people, folders of this computer or project "
+                      "names) and save again, or stop.", private=found)
+    try:
+        with (writing() if writing else contextlib.nullcontext()):
+            piece, diff = capture.save_text(text, sid)
+    except ValueError as problem:
+        return refuse("invalid", str(problem))
+    note(sid, state, "saved", "chat_own", [], piece=piece.id, version=piece.version, improved=bool(diff), **marks)
+    return piece, (f"improved {piece.id} → v{piece.version}" if diff else f"saved {piece.id}"), False
 
 
 DUPLICATE = ("this is the same way of working as `{id}` (\"{title}\"), a piece Athos learned in this project. Improve "

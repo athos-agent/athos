@@ -179,6 +179,14 @@ class PersonsSaveTest(_Session):
 
 
 class McpSaveTest(_Session):
+    """With autolearn.chat `off`, the model's athos_save goes by the model, as before (tests/test_mcp_minimal.py has
+    `own`, the default)."""
+
+    def setUp(self):
+        super().setUp()
+        from athos import start
+        start.change_config(lambda c: c.update(autolearn={"chat": "off"}))
+
     def call(self, name, args):
         from athos import mcp
         return mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
