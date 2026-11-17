@@ -223,6 +223,7 @@ class DesktopTest(TempHome):
         self.assertIn("athos_find", text)
         many = [store.Piece(id=f"p{i}", title="x" * 60, when="w", body="b") for i in range(40)]
         self.assertLessEqual(len(desktop.skill_description(many)), 1024)
+        self.assertNotIn(": .", desktop.skill_description([]))      # a fresh install has no tasks to list
 
     def test_the_skill_carries_only_the_chosen_ways_of_working(self):
         import zipfile

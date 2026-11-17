@@ -80,6 +80,9 @@ def skill_description(pieces) -> str:
         if len(head) + len("; ".join(names + [t])) + len(tail) > DESCRIPTION_LIMIT:
             continue
         names.append(t)
+    if not names:      # no ways of working yet (a fresh install): no empty list in the description
+        return ("The person's own ways of working, kept by Athos. Use it first, before answering, for any task of "
+                "several steps they may have taught before.")
     return head + "; ".join(names) + tail
 
 
