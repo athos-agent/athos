@@ -1,9 +1,10 @@
 # Sumá tu forma de trabajar a la galería
 
+*English: [CONTRIBUTING.md](CONTRIBUTING.md)*
+
 La galería muestra formas de trabajar que cualquiera puede llevarse a su Athos con un clic
 ([mirala](https://athos-agent.github.io/athos/)). Cada una es una página con los pasos que sigue un profesional, y las
 ramas que toma solo cuando el caso lo pide. Si tenés un checklist del que estás orgulloso, compartilo acá.
-[In English](CONTRIBUTING.md).
 
 ## La forma fácil: pedíselo a tu agente
 

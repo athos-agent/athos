@@ -1,5 +1,7 @@
 # Athos
 
+*Español: [README.es.md](README.es.md)*
+
 ![A musketeer walks a sunlit road from an open tower gate, holding an open notebook whose glowing pages lift into a floating checklist: two steps checked, one in progress, two ahead. Along the road, other towers with open gates show the same checklist, ticking in the same order.](docs/athos-banner.jpg)
 
 Your AI know-how. Free to move, fast to run.
@@ -7,6 +9,9 @@ Your AI know-how. Free to move, fast to run.
 **Athos keeps how a person works (their steps, criteria and checklists) as markdown files on their own computer, so
 any AI agent works by their rules without being told twice.** A frontier model learns a way of working once; every
 other model, down to a small local one, reuses it.
+
+**To install it, step by step, with or without a terminal: [docs/INSTALL.md](docs/INSTALL.md)
+([en español](docs/INSTALACION.md)).**
 
 This page is written for an AI agent that has to use, install or change Athos. How it works inside:
 [docs/DESIGN.md](docs/DESIGN.md). Every command and file: [docs/REFERENCE.md](docs/REFERENCE.md). Why it exists:

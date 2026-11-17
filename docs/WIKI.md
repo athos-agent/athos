@@ -1,5 +1,7 @@
 # Your know-how as a wiki
 
+*Español: [WIKI.es.md](WIKI.es.md)*
+
 Athos keeps your know-how in `~/.athos/know-how/`: one markdown page per piece, plus an `Index.md` it rebuilds on
 every save. Open the folder in any editor; in [Obsidian](https://obsidian.md) it is a wiki with a graph and backlinks,
 because the links are plain `[[page]]` and `[[page#statement]]`.

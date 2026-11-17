@@ -1,5 +1,7 @@
 # Athos: technical design
 
+*Español: [DESIGN.es.md](DESIGN.es.md)*
+
 For an AI agent that has to reason about Athos or change it. Short on purpose: the exact formats, flags and limits are
 in [REFERENCE.md](REFERENCE.md); this page says how the parts fit and which rules must not break.
 

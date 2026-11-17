@@ -1,5 +1,7 @@
 # Bench results, November 1, 2026
 
+*Español: [README.es.md](README.es.md)*
+
 The raw runs behind the README's numbers, one JSON line per run:
 [results-2026-11-01.jsonl](results-2026-11-01.jsonl). Each line holds the case, the agent and model, whether the
 know-how was given, the verdict (`g` right, `f` failed) from the case's own check, the stages done, what was missed,

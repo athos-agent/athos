@@ -1,5 +1,7 @@
 # Why Athos exists
 
+*Español: [WHY.es.md](WHY.es.md)*
+
 ## The know-how you build with AI doesn't belong to you yet
 
 I use coding agents for almost everything now, and most of it isn't software. A task that starts as "release this

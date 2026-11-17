@@ -1,5 +1,7 @@
 # Athos para profesionales (abogacía, finanzas, periodismo y cualquier oficio)
 
+*English: [PROFESSIONALS.md](PROFESSIONALS.md)*
+
 No hace falta programar. Si sabés explicarle a un colega nuevo cómo hacés tu trabajo, ya sabés usar Athos.
 
 ## Qué hace, en una frase

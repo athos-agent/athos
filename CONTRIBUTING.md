@@ -1,5 +1,7 @@
 # Contributing
 
+*Español: [CONTRIBUTING.es.md](CONTRIBUTING.es.md)*
+
 Thanks for wanting to improve Athos. Everything you contribute is released under the Apache License 2.0, the same as
 the rest of the project. To share a way of working for the gallery instead of code, see
 [gallery/CONTRIBUTING.md](gallery/CONTRIBUTING.md).

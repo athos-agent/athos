@@ -1,5 +1,7 @@
 # Athos for professionals (law, finance, journalism and any other trade)
 
+*Español: [PROFESIONALES.md](PROFESIONALES.md)*
+
 No programming needed. If you can explain to a new colleague how you do your work, you can use Athos.
 
 ## What it does, in one sentence

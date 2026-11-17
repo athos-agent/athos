@@ -1,5 +1,7 @@
 # Athos reference: every command
 
+*Español: [REFERENCE.es.md](REFERENCE.es.md)*
+
 *The [README](../README.md) shows how to use Athos without commands. This page is for people who like the terminal:
 installing in each agent, handing tasks to cheaper models, the bench, and project folders.*
 
