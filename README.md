@@ -1,5 +1,7 @@
 # Athos
 
+*Español: [README.es.md](README.es.md)*
+
 ![A musketeer walks a sunlit road from an open tower gate, holding an open notebook whose glowing pages lift into a floating checklist: two steps checked, one in progress, two ahead. Along the road, other towers with open gates show the same checklist, ticking in the same order.](docs/athos-banner.jpg)
 
 Your AI know-how. Free to move, fast to run.
@@ -7,6 +9,9 @@ Your AI know-how. Free to move, fast to run.
 **Athos keeps how a person works (their steps, criteria and checklists) as markdown files on their own computer, so
 any AI agent works by their rules without being told twice.** A frontier model learns a way of working once; every
 other model, down to a small local one, reuses it.
+
+**To install it, step by step, with or without a terminal: [docs/INSTALL.md](docs/INSTALL.md)
+([en español](docs/INSTALACION.md)).**
 
 This page is written for an AI agent that has to use, install or change Athos. How it works inside:
 [docs/DESIGN.md](docs/DESIGN.md). Every command and file: [docs/REFERENCE.md](docs/REFERENCE.md). Why it exists:
@@ -55,7 +60,8 @@ curl -fsSL https://raw.githubusercontent.com/athos-agent/athos/main/install.sh |
 athos start          # language, profession, example ways of working
 ```
 
-**Codex, Muse Code, OpenCode, Claude Desktop's chat:** [REFERENCE, Install](docs/REFERENCE.md#install). Update the
+**Claude Desktop's chat:** [INSTALL](docs/INSTALL.md#1-claude-desktop-regular-chat-no-terminal). **Codex, Muse Code,
+OpenCode:** [REFERENCE, Install](docs/REFERENCE.md#install). Update the
 command and the plugin together: an older Athos reads only the recent part of a history a newer one has archived
 (`athos doctor` says which agent is behind).
 

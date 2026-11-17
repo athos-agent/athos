@@ -1,5 +1,7 @@
 # Your know-how as a wiki
 
+*Español: [WIKI.es.md](WIKI.es.md)*
+
 Athos keeps your know-how in `~/.athos/know-how/`: one markdown page per piece, plus an `Index.md` it rebuilds on
 every save. Open the folder in any editor; in [Obsidian](https://obsidian.md) it is a wiki with a graph and backlinks,
 because the links are plain `[[page]]` and `[[page#statement]]`.
@@ -95,6 +97,6 @@ from the new version (its header says which versions it came from); when a traje
 
 ```
 athos wiki agents                  list them
-athos wiki agents --install        put them in ~/.claude/agents for Claude Code, and keep them in step on every save
+athos wiki agents --install        put this project's in its .claude/agents for Claude Code, and keep them in step on every save
 athos wiki agents --uninstall      remove them from there
 ```

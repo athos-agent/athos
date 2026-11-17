@@ -1,9 +1,10 @@
 # Add your way of working to the gallery
 
+*Español: [CONTRIBUIR.md](CONTRIBUIR.md)*
+
 The gallery shows ways of working that anyone can take into their own Athos with one click
 ([see it](https://athos-agent.github.io/athos/)). Each one is a page of steps a professional follows, with the
 branches it takes only when the case needs them. If you have a checklist you are proud of, share it here.
-[En español](CONTRIBUIR.md).
 
 ## The easy way: ask your agent
 
