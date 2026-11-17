@@ -46,8 +46,9 @@ the [README](../README.md#install)). Then open the tool in your documents' folde
   a checklist is valuable know-how.
 - **You know which method is applied.** When one of your ways of working matches the request, the AI opens by saying
   which one it follows and how it applies to this case.
-- **Mark how it went.** After each task three buttons appear: **Good**, **Corrected**, **Failed**. With those marks
-  Athos knows which ways of working help you, and on which model.
+- **Mark how it went.** With `"ui": "classic"` in `~/.athos/config.json`, three buttons appear after each task:
+  **Good**, **Corrected**, **Failed** (or type `/athos:mark g`, `c` or `f`). With those marks Athos knows which ways of
+  working help you, and on which model.
 - **Change them any time.** They are text files in `~/.athos/know-how`. Open them in any editor (or in
   [Obsidian](https://obsidian.md), where they read as a wiki) and write how you do things. Every change keeps the
   previous version.

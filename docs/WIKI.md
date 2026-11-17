@@ -95,6 +95,6 @@ from the new version (its header says which versions it came from); when a traje
 
 ```
 athos wiki agents                  list them
-athos wiki agents --install        put them in ~/.claude/agents for Claude Code, and keep them in step on every save
+athos wiki agents --install        put this project's in its .claude/agents for Claude Code, and keep them in step on every save
 athos wiki agents --uninstall      remove them from there
 ```

@@ -55,7 +55,8 @@ curl -fsSL https://raw.githubusercontent.com/athos-agent/athos/main/install.sh |
 athos start          # language, profession, example ways of working
 ```
 
-**Codex, Muse Code, OpenCode, Claude Desktop's chat:** [REFERENCE, Install](docs/REFERENCE.md#install). Update the
+**Claude Desktop's chat:** [INSTALL](docs/INSTALL.md#1-claude-desktop-regular-chat-no-terminal). **Codex, Muse Code,
+OpenCode:** [REFERENCE, Install](docs/REFERENCE.md#install). Update the
 command and the plugin together: an older Athos reads only the recent part of a history a newer one has archived
 (`athos doctor` says which agent is behind).
 

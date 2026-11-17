@@ -66,6 +66,9 @@ each task are still there if you want them: add `"ui": "classic"` to `~/.athos/c
 
 ## 4. The same, in your other tools
 
+Your checklist is no longer tied to Claude. If you use or try other tools, install Athos once in each (whoever helps
+you with your computer can do it, or you from a terminal):
+
 | Tool | How to install |
 |---|---|
 | The `athos` command (needed by the ones below) | `curl -fsSL https://raw.githubusercontent.com/athos-agent/athos/main/install.sh \| sh` |
@@ -73,7 +76,7 @@ each task are still there if you want them: add `"ui": "classic"` to `~/.athos/c
 | **OpenCode** (any model) | `athos opencode install`, then restart OpenCode |
 | **Codex** | `codex plugin marketplace add athos-agent/athos` and `codex plugin add athos@athos` |
 
-In each one you ask the same thing, the AI follows your way of working and Athos records the task. We tried the same
+In each one you ask the same thing (*"review this contract against my checklist"*), the AI follows your way of working and Athos records the task. We tried the same
 fictitious contract in Muse Code and in OpenCode with Meta's Muse Spark: both followed the checklist (five-line
 summary, clause table, the decision left to the lawyer).
 
@@ -90,7 +93,7 @@ summary, clause table, the decision left to the lawyer).
 
 Your ways of working live in `~/.athos/know-how`, one per file. Open them in any editor (or
 [Obsidian](https://obsidian.md)) and write your way: the order you read clauses in, the risks you always look for,
-your table format. Every change keeps the previous version.
+your table format. Every change keeps the previous version. If something doesn't help you, delete it.
 
 Questions, ideas or a case you'd like to see? Open an issue at
 [github.com/athos-agent/athos](https://github.com/athos-agent/athos/issues).

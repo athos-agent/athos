@@ -49,8 +49,9 @@ funciona igual en las cuatro.
   checklist, pregunta siempre: un checklist es know-how valioso.
 - **Sabés qué método se aplica.** Cuando una forma de trabajar tuya coincide con el pedido, la IA arranca diciendo
   cuál sigue y cómo la aplica a este caso.
-- **Marcá cómo salió.** Después de cada tarea aparecen tres botones: **Salió bien**, **Lo corregí**, **Falló**. Con
-  esas marcas Athos sabe qué formas de trabajar te sirven y en qué modelo.
+- **Marcá cómo salió.** Con `"ui": "classic"` en `~/.athos/config.json`, después de cada tarea aparecen tres
+  botones: **Salió bien**, **Lo corregí**, **Falló** (o escribí `/athos:mark g`, `c` o `f`). Con esas marcas Athos sabe
+  qué formas de trabajar te sirven y en qué modelo.
 - **Cambialas cuando quieras.** Son archivos de texto en `~/.athos/know-how`. Abrilos con cualquier editor (o con
   [Obsidian](https://obsidian.md), donde se ven como una wiki) y escribí tu manera de hacer las cosas. Cada cambio
   guarda la versión anterior.
